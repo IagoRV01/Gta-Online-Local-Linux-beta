@@ -1,4 +1,4 @@
-# GTA Local Online
+# GTA Local Online (Beta)
 
 **Un "GTA Online" privado para tu red local**, construido sobre el modo historia de GTA V Legacy:
 un servidor propio en Windows, un cliente `.asi` en cada PC que juega y el mod **Gori Online** con el
