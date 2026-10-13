@@ -1,0 +1,115 @@
+# Generates foreclosures.h: the Maze Bank Foreclosures website's property rows exactly as GTA Online
+# sends them (appinternet func_8880 and the per-type slot writers), by running the decompiled feed
+# functions in tools/ysc_eval.py with "nothing owned" and the tunables' default prices.
+#
+# A row is the list of scaleform calls for one property: SET_DATA_SLOT(slot, ...) then
+# APPEND_OFFICE_DATA_SLOT(slot, ...)*; the website's ActionScript (foreclosures.*) reads the
+# concatenated values (Clubhouse.as, Bunker.as, Hangar.as, Base.as, Nightclub.as, Arcade.as, AutoShop.as).
+#
+#   python tools/gen_foreclosures.py <appinternet.c> [foreclosures.h]    (tuneables_processing.c next to it)
+import re, sys, os
+here = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, here)
+from ysc_eval import Ysc, Recorder
+
+src_path = sys.argv[1]
+out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, '..', 'foreclosures.h')
+folder = os.path.dirname(os.path.abspath(src_path))
+tp = open(os.path.join(folder, 'tuneables_processing.c'), encoding='utf-8', errors='replace').read()
+R = r'Global_262145\.(f_\d+(?:\[\d+\])?) = NETWORK::_NETWORK_GET_TUNABLES_REGISTRATION_%s\((?:joaat\("[^"]+"\)[^,]*|-?\d+), (%s)\);'
+tun = {k: int(v) for k, v in re.findall(R % ('INT', r'-?\d+'), tp)}
+tun.update({k: (1 if v == 'true' else 0) for k, v in re.findall(R % ('BOOL', 'true|false'), tp)})
+tun.update({k: float(v.rstrip('f')) for k, v in re.findall(R % ('FLOAT', r'-?[\d.]+f?'), tp)})
+ev = Ysc(open(src_path, encoding='utf-8', errors='replace').read(), tun,
+         overrides={'func_308': lambda *a: -1})   # "the property of this kind you own": none
+
+# clubhouses: labels, map position and price from online_props.h (property ids 91-102)
+CLUB = {}
+oph = open(os.path.join(here, '..', 'online_props.h'), encoding='utf-8').read()
+props = re.findall(r'\{"[^"]*", T_\w+, (\d+), (-?[\d.]+)f, (-?[\d.]+)f, [^}]*\},   // property (\d+)', oph)
+dyn = re.findall(r'\{(\d+), "([^"]*)", "([^"]*)", \d+, \d+, (?:true|false)\},', oph)
+dl = {int(p): (l, d) for p, l, d in dyn}
+for price, x, y, pid in props:
+    pid = int(pid)
+    if 91 <= pid <= 102 and pid in dl: CLUB[pid] = (dl[pid][0], dl[pid][1], float(x), float(y), int(price))
+
+# type code (data field 2), feed function, ids, first slot (FORECLOSURES_MAZE_D_BANK_COM_WRAPPER)
+TYPES = [
+    (0, 'clubhouse', 'func_8960', range(91, 103), 3),
+    (2, 'bunker', 'func_8954', range(21, 32), 16),
+    (3, 'hangar', 'func_8948', range(1, 6), 48),
+    (4, 'facility', 'func_8942', range(1, 10), 61),
+    (5, 'nightclub', 'func_8934', range(1, 11), 71),
+    (6, 'arcade', 'func_8926', range(1, 7), 91),
+    (7, 'autoshop', 'func_8917', range(1, 6), 101),
+]
+KIND = {'INT': 2, 'FLOAT': 3, 'BOOL': 4, 'LABEL': 5, 'PLAYER_NAME_STRING': 6, 'LITERAL_STRING': 7}
+ops, rows = [], []
+for code, tname, fn, ids, first in TYPES:
+    slot = first
+    for i in ids:
+        rec = Recorder(); ev.rec = rec
+        ev.call(fn, [0, i, 0])
+        calls = [c for c in rec.calls if c[0] in ('SET_DATA_SLOT', 'APPEND_OFFICE_DATA_SLOT')]
+        if not calls: continue
+        vals = []
+        zs = []
+        start = len(ops)
+        for m, ps in calls:
+            ops.append((0 if m == 'SET_DATA_SLOT' else 1, 0, 0.0, ''))
+            for k, (kind, v) in enumerate(ps):
+                if k == 0: continue   # the slot index: set at run time
+                if kind in ('LABEL', 'PLAYER_NAME_STRING', 'LITERAL_STRING'):
+                    ops.append((KIND[kind], 0, 0.0, str(v))); vals.append(0)
+                elif kind == 'FLOAT':
+                    if isinstance(v, tuple):
+                        zs.append(float(v[2]) if len(v) > 2 else 0.0); v = v[0]
+                    ops.append((3, 0, float(v), '')); vals.append(float(v))
+                else:
+                    iv = int(v) if not isinstance(v, (tuple, str)) else 0
+                    ops.append((KIND[kind], iv, 0.0, '')); vals.append(iv)
+            ops.append((9, 0, 0.0, ''))
+        if tname == 'clubhouse' and i in CLUB:   # the property table (Global_1312440) is not in this script
+            lab, desc, x, y, price = CLUB[i]
+            fix = {1: (5, 0, 0.0, lab), 3: (3, 0, x, ''), 4: (3, 0, y, ''), 6: (5, 0, 0.0, desc), 8: (2, price, 0.0, '')}
+            k = -1
+            for o in range(start, len(ops)):
+                if ops[o][0] in (0, 1, 9): continue
+                k += 1
+                if k in fix: ops[o] = fix[k]
+                if k > 8: break
+            vals[1], vals[3], vals[4], vals[8] = 0, x, y, price
+            calls[0][1][2] = ('LABEL', lab)
+        name = next((v for k, v in calls[0][1] if k == 'LABEL'), '')
+        rows.append((code, tname, i, slot, vals[0], float(vals[3]) if len(vals) > 4 else 0.0, float(vals[4]) if len(vals) > 4 else 0.0, start, len(ops) - start, name, vals, zs[0] if zs else 0.0))
+        slot += 1
+
+def cstr(s): s = str(s); return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+L = ['// Generated by tools/gen_foreclosures.py from GTA Online\'s appinternet.ysc (decompiled). Do not edit.',
+     '// Maze Bank Foreclosures rows exactly as GTA Online sends them (nothing owned, default tunable prices).',
+     '// FcOp kind: 0 SET_DATA_SLOT, 1 APPEND_OFFICE_DATA_SLOT (slot index added at run time), 2 int, 3 float,',
+     '// 4 bool, 5 text label, 6 player-name string (TXD), 7 literal string, 9 end of the call.',
+     '#pragma once', 'struct FcOp { uint8_t kind; int i; float f; const char *s; };',
+     'struct FcRow { uint8_t type; const char *kind; int sid, slot, id; float x, y, z; int op0, nops; const char *label; int nvals; int vals0; };',
+     'static const FcOp FC_OPS[] = {']
+for k, i, f, s in ops: L.append('    {%d, %d, %.4ff, %s},' % (k, i, f, cstr(s)))
+L.append('};')
+allvals = []
+L.append('static const int FC_VALS[] = {')
+rowdefs = []
+for (code, tname, sid, slot, rid, x, y, o0, n, name, vals, z) in rows:
+    v0 = len(allvals)
+    allvals += [int(v) if not isinstance(v, float) else int(round(v)) for v in vals]
+    rowdefs.append('    {%d, "%s", %d, %d, %d, %.4ff, %.4ff, %.4ff, %d, %d, %s, %d, %d},' % (code, tname, sid, slot, rid, x, y, z, o0, n, cstr(name), len(vals), v0))
+for k in range(0, len(allvals), 16): L.append('    ' + ', '.join(str(v) for v in allvals[k:k + 16]) + ',')
+L.append('};')
+L.append('static const FcRow FC_ROWS[] = {')
+L += rowdefs
+L += ['};', 'static const int NFC_ROWS = (int)(sizeof FC_ROWS / sizeof *FC_ROWS);', '']
+open(out, 'w', encoding='utf-8', newline='\n').write('\n'.join(L))
+from collections import Counter
+print('%d rows (%s), %d ops -> %s' % (len(rows), dict(Counter(r[1] for r in rows)), len(ops), out))
+for r in rows[:1] + [r for r in rows if r[1] != 'clubhouse'][:0]: pass
+for t in ('clubhouse', 'bunker', 'hangar', 'facility', 'nightclub', 'arcade', 'autoshop'):
+    r = next((r for r in rows if r[1] == t), None)
+    if r: print('  %-9s id %d %s at %.0f,%.0f base %s vals %d: %s' % (t, r[4], r[9], r[5], r[6], r[10][7] if len(r[10]) > 7 else '?', len(r[10]), r[10][:30]))

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gta-local-online/character.schema.json",
+  "title": "GTA Local Online character profile (schema 1)",
+  "description": "Mirror of shared/common/character.cpp ToJson/FromJson. The C++ Validate() is authoritative; this file is for GodEye/tools.",
+  "type": "object",
+  "required": ["schema", "uuid", "name", "model", "headBlend", "faceFeatures", "components", "position", "revision"],
+  "properties": {
+    "schema": { "const": 1 },
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-][A-Za-z0-9 _.-]{0,22}[A-Za-z0-9_.-]$" },
+    "model": { "enum": ["mp_m_freemode_01", "mp_f_freemode_01"] },
+    "headBlend": {
+      "type": "object",
+      "properties": {
+        "shapeMother": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "shapeFather": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "shapeExtra": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "skinMother": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "skinFather": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "skinExtra": { "type": "integer", "minimum": 0, "maximum": 45 },
+        "shapeMix": { "type": "number", "minimum": 0, "maximum": 1 },
+        "skinMix": { "type": "number", "minimum": 0, "maximum": 1 },
+        "extraMix": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "faceFeatures": { "type": "array", "maxItems": 20, "items": { "type": "number", "minimum": -1, "maximum": 1 } },
+    "eyeColor": { "type": "integer", "minimum": 0, "maximum": 31 },
+    "hair": { "type": "object", "properties": { "color": { "type": "integer", "minimum": 0, "maximum": 63 }, "highlight": { "type": "integer", "minimum": 0, "maximum": 63 } } },
+    "overlays": {
+      "type": "array", "maxItems": 13,
+      "items": { "type": "object", "properties": {
+        "index": { "type": "integer", "minimum": 0, "maximum": 255, "description": "255 = none" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "color": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "color2": { "type": "integer", "minimum": 0, "maximum": 63 } } }
+    },
+    "components": { "type": "array", "maxItems": 12, "items": { "type": "array", "description": "[drawable, texture, palette]", "items": { "type": "integer" } } },
+    "props": { "type": "array", "maxItems": 8, "items": { "type": "array", "description": "[drawable (-1 = none), texture]", "items": { "type": "integer" } } },
+    "tattoos": { "type": "array", "maxItems": 128, "items": { "type": "array", "description": "[collection hash, overlay hash]", "items": { "type": "integer" } } },
+    "state": { "type": "object", "properties": {
+      "health": { "type": "integer" }, "armour": { "type": "integer", "minimum": 0, "maximum": 100 },
+      "money": { "type": "integer", "minimum": 0 }, "playSeconds": { "type": "integer" }, "deaths": { "type": "integer" } } },
+    "weapons": { "type": "array", "maxItems": 64, "items": { "type": "array", "description": "[weapon hash, ammo]", "items": { "type": "integer" } } },
+    "position": { "type": "object", "properties": {
+      "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" }, "heading": { "type": "number", "minimum": 0, "maximum": 360 } } },
+    "inventory": { "type": "array", "items": { "type": "string" } },
+    "revision": { "type": "integer", "minimum": 0 },
+    "updatedAt": { "type": "string" }
+  }
+}

@@ -1,0 +1,51 @@
+# GTA Local Online — Windows server configuration.
+# Copy to server.toml next to LocalOnlineServer.exe.
+
+[server]
+name = "GTA Local Online"
+
+[network]
+bind = "0.0.0.0"          # all interfaces; the firewall rule restricts it to the local subnet
+game_port = 4499          # UDP. Clients use this PC's LAN IP (ipconfig), ideally a wired one
+max_players = 8
+tick_rate = 20            # Hz: server tick + snapshot rate
+timeout_ms = 30000
+max_packets_per_second = 120
+
+[accounts]
+# LAN mode: a new name gets an account and a random token on its first login; the client keeps the
+# token in LocalOnline\cache\token. Set false once everyone is registered.
+allow_registration = true
+
+[combat]
+pvp = true                 # players can damage each other (hits are validated by the server)
+max_hit_distance = 400     # metres; farther hit reports are refused
+
+[world]
+weather_automatic = true   # the server cycles the weather (admin "weather X" pins it, "weather auto" resumes)
+
+[economy]
+# The server owns every balance; clients only request changes (ledger: economy_ledger table).
+max_transaction = 10000000
+max_income_per_minute = 5000000
+starting_money_cap = 1000000
+insurance_cost = 1000      # claim a destroyed personal vehicle
+impound_cost = 2500        # release an impounded one
+
+[admin]
+# One command per line, picked up within a second and then cleared:
+#   time 22 30 | freeze on|off | weather RAIN|auto | blackout on|off
+command_file = "server.cmd"
+
+[database]
+# Phase 2. SQLite now, PostgreSQL later behind the same storage interface.
+driver = "sqlite"
+path = "data/localonline.db"
+
+[godeye]
+# Phase 9+. Not started yet.
+http_port = 8080
+
+[logging]
+dir = "logs"
+debug = false             # DEBUG=true equivalent
