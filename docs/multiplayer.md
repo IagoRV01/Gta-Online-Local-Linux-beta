@@ -472,6 +472,28 @@ GTA Online-style races, solo or online, with GTA Online's look: countdown, check
   - First try: the Buzzard spawned on the water, sank and threw the player out, and the "MinigameTransitionIn" effect kept the screen blurred.
   - Fixed with the spawn height and the short "RaceTurbo" flash.
 
+## The newer businesses (Gori `Ventures.inc`, 2026-10-14)
+
+GTA Online's 2023-2025 businesses, bought on Real Estate (Maze Bank Foreclosures) like the others.
+
+| Business | Locations | Inside | Jobs and income |
+|---|---|---|---|
+| **Salvage Yards** (The Chop Shop) | Paleto Bay, Sandy Shores, La Puerta, Strawberry, Murrieta Heights | `m23_2_dlc_int_salvage` (Red's Pickup and Auto Salvage Yard) | *Salvage Yard Robbery*: steal a high-end car from a gang garage, bring it in and salvage it ($120k-$220k). Safe: the tow truck, $18k a day. |
+| **Bail Offices** (Bottom Dollar Bounties) | Mission Row, West Vinewood, Del Perro, Davis, Paleto Bay | `m24_1_dlc_int_bounty`, office floor (a storeroom below) | *Bounty Target*: bring a bail jumper in alive to Mission Row police station ($30k-$60k). Safe: the staff, $15k a day. |
+| **Garment Factory** (Agents of Sabotage) | La Mesa (Lester's old factory) | `m24_2_int_hacker_basement`, the Hacker Den | *Sabotage Job*: blow up a contractor's servers ($45k-$80k). Safe $12k a day. |
+| **Hands On Car Wash**, **Smoke on the Water**, **Higgins Helitours** (Money Fronts) | Strawberry, Vespucci, Vespucci Heliport | none yet: their MLOs load without walls (the entity sets that build them are unknown) | Safes of $9k / $11k / $14k a day, collected at the front door. |
+
+- **Entrances:** freemode.ysc's simple interior locates (ids 162-176; the angled area's two corners).
+  - The first visit checks for real ground at the door. If there is none (awnings, shop fronts without collision in story mode), it moves the entrance to the nearest ground within 7 m and keeps it there.
+  - Leaving walks you to the nearest pavement (navmesh) instead of straight ahead.
+- **Exterior IPLs:** the salvage yard signs (`m23_2_*_reds`), the bail office fronts (`m24_1_bailoffice_*`), `m24_2_garment_factory_door`, `m25_1_carwash`, `m25_1_helitours` and `m25_1_smokeonthewater` are loaded with the online map.
+- **Prices** are close to Online's, not exact (their tunables are hashed).
+- **Verified in game 2026-10-14:**
+  - The interiors (salvage, bail office, Hacker Den) and the three job starts (`venture salvage|bounty|sabotage`).
+  - Buying, travelling, entering and leaving with E at Bail Office: Davis and Salvage Yard: Strawberry.
+  - Fixed on the way: a roof landing, then a fall through a shop front and a fall through the salvage door.
+  - The test purchases were undone with `delprop`.
+
 ## Roadmap: GTA Online content (user request 2026-10-12)
 
 GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real network session, so they cannot run in story mode. They are recreated in Gori, multiplayer through the co-op jobs and races above.
@@ -482,11 +504,11 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
   - Drug Wars: The First Dose and the Acid Lab.
 - **Done in the evening.** The Last Dose, deathmatches, 32 contact missions.
 - **Done 2026-10-13.** Survival (solo and co-op).
-- **Done 2026-10-14.** Transform races, special-vehicle and Hotring classes, Race Creator anywhere on the map.
+- **Done 2026-10-14.** Transform races, special-vehicle and Hotring classes, Race Creator anywhere on the map; Salvage Yards, Bail Offices, Garment Factory and the Money Fronts businesses.
 - **Next.**
   - Stunt race checkpoints for the 129 stunt tracks (the Race Creator does it by hand today).
   - More contact missions (Lester, Martin's later ones, Agent 14...).
-  - The remaining businesses (salvage yard, bail office, garment factory...).
+  - The Money Fronts interiors (their entity set names), and the businesses' own heists (Salvage Yard robbery finales, bail office staff missions).
 
 ## Co-op jobs (protocol v9, 2026-10-12)
 

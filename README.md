@@ -2,8 +2,9 @@
 
 **Un "GTA Online" privado para tu red local**, construido sobre el modo historia de GTA V Legacy:
 un servidor propio en Windows, un cliente `.asi` en cada PC que juega y el mod **Gori Online** con el
-contenido (personaje freemode, dinero, propiedades, negocios, golpes, carreras, deathmatch, Survival,
-misiones de contacto, Drug Wars, LS Customs, Ammu-Nation, teléfono de Online...).
+contenido (personaje freemode, dinero, propiedades, negocios —también desguaces, oficinas de fianzas, la
+fábrica textil y los Money Fronts—, golpes, carreras Transform, deathmatch, Survival, misiones de contacto,
+Drug Wars, LS Customs, Ammu-Nation, teléfono de Online...).
 
 Sin servidores de Rockstar, sin Internet y sin cuentas de terceros: todo vive en tu LAN.
 

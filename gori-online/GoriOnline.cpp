@@ -308,6 +308,12 @@ static const InteriorDef INTERIORS[] = {
     {"acidlab", 485.0f, -2625.0f, -49.0f, 270.f, "", ""},
     {"xm3_lab", 528.25f, -2637.73f, -49.0f, 270.f, "", ""},    // xm3_dlc_int_02_xm3 (origin 520,-2625,-50): the dark lab (The Last Dose finale); the floor point from the fm_content scripts
     {"xm3_clinic", 495.0f, -2566.0f, -49.0f, 270.f, "", ""},   // xm3_dlc_int_04_xm3: the white clinic (The Last Dose); floor -50.04 found with intscan (the MLO origin 495,-2560 has none)
+    // Ventures.inc: the newer businesses (floors found with intscan / Online's own interior positions)
+    {"salvage", 1088.0f, -2275.0f, -49.0f, 0.f, "", ""},          // m23_2_dlc_int_salvage
+    {"bailoffice", 563.6f, -2690.1f, -49.2f, 0.f, "", ""},         // m24_1_dlc_int_bounty: the office floor (a storeroom below at -53.8)
+    {"garment", 746.0f, -993.0f, -46.0f, 0.f, "", ""},             // m24_2_int_hacker_basement (the Hacker Den)
+    // Money Fronts' m25_1_int_tycoon_car_wash / _smoke_heli load without walls here (their entity sets are unknown):
+    // those businesses are run from their front door for now
     {"kortz", 2603.17f, 5903.76f, -50.0f, 0.f, "",
      "set_background_art;set_exhibit_walls;set_exhibit_robbable;set_exhibit_dressing;set_alarm_panel;set_cameras_02;set_keypads_exhibit;set_glass_pane;set_tvs"},
     {"psbank", 247.0f, 222.0f, 106.3f, 160.f, "", ""},
@@ -335,11 +341,16 @@ static const char *WORLD_IPLS =
     "hei_ch1_06e_mansion_railings_p;m25_2_mansion_gym;m25_2_dog_house;hei_ch1_06e_mansion_shared_distantlights;hei_ch1_06e_mansion_shared_lodlights;"
     "hei_ch1_09_mansion_shared;hei_ch1_09_mansion_private;hei_ch1_09_mansion_furniture;hei_ch1_09_mansion_firepit;hei_ch1_09_mansion_railings_p;"
     "m25_2_tongva_mansion_gym;m25_2_tongva_dog_house;hei_ch1_09_mansion_shared_distantlights;hei_ch1_09_mansion_shared_lodlights;"
-    "m26_1_mp2026_01_additions_exterior;m26_1_mp2026_01_additions_exterior_cctv;m26_1_mp2026_01_additions_kortz_lowerbarriers";
+    "m26_1_mp2026_01_additions_exterior;m26_1_mp2026_01_additions_exterior_cctv;m26_1_mp2026_01_additions_kortz_lowerbarriers;"
+    // the newer businesses' exteriors (Ventures.inc): salvage yard signs, bail office fronts, the garment factory door, money fronts
+    "m23_2_cs1_05_reds;m23_2_cs4_11_reds;m23_2_id2_04_reds;m23_2_sc1_03_reds;m23_2_sp1_03_reds;"
+    "m24_1_bailoffice_davis;m24_1_bailoffice_delperro;m24_1_bailoffice_missionrow;m24_1_bailoffice_paletobay;m24_1_bailoffice_vinewood;"
+    "m24_2_garment_factory_door;m25_1_carwash;m25_1_helitours;m25_1_smokeonthewater";
 
 // ---------------------------------------------------------------- Properties
 enum PType { T_APT, T_HOUSE, T_MANSION, T_PENTHOUSE, T_OFFICE, T_CLUB, T_METH, T_WEED, T_COKE, T_CASH, T_DOCS, T_BUNKER, T_HANGAR,
-             T_FACILITY, T_NIGHTCLUB, T_ARCADE, T_AUTOSHOP, T_AGENCY, T_VEHWARE, T_KOSATKA, T_VILLA, T_GARAGE, T_DATACENTER, T_COUNT };
+             T_FACILITY, T_NIGHTCLUB, T_ARCADE, T_AUTOSHOP, T_AGENCY, T_VEHWARE, T_KOSATKA, T_VILLA, T_GARAGE, T_DATACENTER,
+             T_SALVAGE, T_BAIL, T_GARMENT, T_CARWASH, T_WEEDSHOP, T_HELITOURS, T_COUNT };
 struct TypeInfo { const char *label; int blip, colour, garage; bool residence, business; };
 static const TypeInfo TYPES[T_COUNT] = {
     {"Apartments", 40, 0, 10, true, false}, {"Houses", 40, 0, 10, true, false}, {"Mansions", 40, 46, 20, true, false},
@@ -351,6 +362,8 @@ static const TypeInfo TYPES[T_COUNT] = {
     {"Agency", 826, 0, 20, false, true}, {"Vehicle Warehouses", 524, 0, 0, false, true}, {"Kosatka", 760, 0, 0, false, false},
     {"Isla Neon Villa", 40, 27, 8, true, false}, {"Garages", 357, 0, 10, false, false},
     {"Data Centers", 521, 3, 15, false, true},
+    {"Salvage Yards", 68, 0, 10, false, true}, {"Bail Offices", 303, 0, 0, false, true}, {"Garment Factory", 521, 0, 0, false, true},
+    {"Hands On Car Wash", 100, 0, 0, false, true}, {"Smoke on the Water", 140, 2, 0, false, true}, {"Higgins Helitours", 43, 0, 0, false, true},
 };
 // ob: index in O_BUILDINGS (GTA Online building: exact entrances/exits), -1 = Gori Online's own placement.
 // cars: garage size (0 = the type's default).
@@ -407,6 +420,21 @@ static const PropDef PROPS_GORI[] = {
     {"Auto Shop: La Mesa", T_AUTOSHOP, 1830000, 888.0f, -890.0f, 26.0f, 90.f, "autoshop"},
     {"Auto Shop: Strawberry", T_AUTOSHOP, 1670000, -66.0f, -1307.0f, 29.2f, 180.f, "autoshop"},
     {"Agency: Rockford Hills", T_AGENCY, 2830000, -1012.0f, -414.0f, 39.6f, 210.f, "agency"},
+    // The Chop Shop / Bottom Dollar Bounties / Agents of Sabotage / Money Fronts (Ventures.inc): freemode.ysc's entrance locates
+    {"Salvage Yard: Paleto Bay", T_SALVAGE, 1640000, -190.38f, 6268.67f, 31.49f, 131.3f, "salvage"},
+    {"Salvage Yard: Sandy Shores", T_SALVAGE, 1750000, 2514.51f, 4110.80f, 38.61f, 154.3f, "salvage"},
+    {"Salvage Yard: La Puerta", T_SALVAGE, 2375000, -510.21f, -1741.12f, 19.35f, 55.0f, "salvage"},
+    {"Salvage Yard: Strawberry", T_SALVAGE, 2000000, -11.71f, -1311.69f, 29.30f, 90.0f, "salvage"},
+    {"Salvage Yard: Murrieta Heights", T_SALVAGE, 2140000, 1191.19f, -1264.92f, 35.33f, 355.1f, "salvage"},
+    {"Bail Office: Mission Row", T_BAIL, 1700000, 489.3f, -932.6f, 26.8f, 90.f, "bailoffice"},
+    {"Bail Office: West Vinewood", T_BAIL, 1700000, 81.4f, 20.8f, 69.1f, 160.f, "bailoffice"},
+    {"Bail Office: Del Perro", T_BAIL, 1750000, -1417.1f, -658.4f, 28.7f, 30.f, "bailoffice"},
+    {"Bail Office: Davis", T_BAIL, 1600000, 137.3f, -1696.0f, 29.3f, 140.f, "bailoffice"},
+    {"Bail Office: Paleto Bay", T_BAIL, 1550000, -58.6f, 6502.3f, 31.6f, 225.f, "bailoffice"},
+    {"Garment Factory: La Mesa", T_GARMENT, 1950000, 716.8f, -962.0f, 30.4f, 180.f, "garment"},
+    {"Hands On Car Wash: Strawberry", T_CARWASH, 1400000, 25.6f, -1409.1f, 29.8f, 270.f, ""},
+    {"Smoke on the Water: Vespucci", T_WEEDSHOP, 715000, -1163.7f, -1566.5f, 4.95f, 35.f, ""},
+    {"Higgins Helitours: Vespucci Heliport", T_HELITOURS, 2050000, -758.7f, -1515.3f, 5.36f, 110.f, ""},
     {"Vehicle Warehouse: La Mesa", T_VEHWARE, 1500000, 812.5f, -2380.0f, 29.6f, 270.f, "vehware"},
     {"Kosatka", T_KOSATKA, 2200000, 0.f, 0.f, 0.f, 0.f, "kosatka"},
     {"Isla Neon Villa", T_VILLA, 0, ISLAND_VILLADOOR[0], ISLAND_VILLADOOR[1], ISLAND_VILLADOOR[2], ISLAND_VILLADOOR[3], "islavilla"},
@@ -1273,6 +1301,18 @@ static void CutsceneWalkOut(int i) {
     GoToProperty(i);                                                      // Gori Online's own properties
     Vec3 p = Pos(me);
     float h = N<float>(N_GET_ENTITY_HEADING, me);
+    if (PROPS[i].type >= T_SALVAGE) {   // Online's door points: step out towards the nearest pavement (the navmesh), not through the shop front
+        Vec3 st{};
+        if (!NB(N<int>(N_GET_SAFE_COORD_FOR_PED, p.x, p.y, p.z, 1, &st, 16)) || Dist(st, p) < 1.5f || Dist(st, p) > 12.f) { SceneEnd(true); return; }
+        h = std::atan2(-(st.x - p.x), st.y - p.y) * 180.f / 3.14159265f;
+        N(N_SET_ENTITY_HEADING, me, h);
+        SceneLookAt(CamBehind(p, h, -6.f, 1.5f, 2.6f), V3(p.x, p.y, p.z + 0.3f), 45.f);
+        WalkTo(st, h);
+        SceneRun(2400, nullptr);
+        N(N_SET_GAMEPLAY_CAM_RELATIVE_HEADING, 0.f);
+        SceneEnd(true);
+        return;
+    }
     SceneLookAt(CamBehind(p, h, -6.f, 1.5f, 2.6f), V3(p.x, p.y, p.z + 0.3f), 45.f);
     WalkTo(Ahead(p, h, 3.f), h);
     SceneRun(2400, nullptr);
@@ -1450,11 +1490,49 @@ static void EnterProperty(int i) {
     if (PROPS[i].type == T_HANGAR) SpawnGarage(i, 0, false);      // your aircraft are parked inside, like Online
     if (TYPES[PROPS[i].type].business) Notify("Open the interaction menu (~b~M~s~) to manage this business.");
 }
+// Ventures.inc's businesses use Online's door locates, which can sit under an awning or just inside the shop front
+// (no collision there in story mode): the first visit looks for real ground around the point and keeps that spot
+// as the entrance (g_extSnap, like SnapEntrance does for Gori's own properties).
+static Vec3 VentureDoor(int i) {
+    auto it = g_extSnap.find(i);
+    if (it != g_extSnap.end()) return it->second;
+    Vec3 p = V3(PROPS[i].x, PROPS[i].y, PROPS[i].z);
+    auto groundNear = [&](float x, float y, float &gz) {
+        return NB(N<int>(N_GET_GROUND_Z_FOR_3D_COORD, x, y, p.z + 1.0f, &gz, 0, 0)) && std::fabs(gz - (p.z - 1.0f)) < 1.6f;
+    };
+    float gz = 0.f;
+    if (groundNear(p.x, p.y, gz)) { g_extSnap[i] = V3(p.x, p.y, gz + 1.0f); return g_extSnap[i]; }
+    for (float r = 1.5f; r <= 7.f; r += 1.f)
+        for (int k = 0; k < 16; ++k) {
+            float a = k * 3.14159265f / 8.f, x = p.x + std::cos(a) * r, y = p.y + std::sin(a) * r;
+            if (groundNear(x, y, gz)) { g_extSnap[i] = V3(x, y, gz + 1.0f); Log("venture door %s: moved %.1f m to %.2f %.2f %.2f", PROPS[i].name, r, x, y, gz); return g_extSnap[i]; }
+        }
+    Log("venture door %s: no ground found near the door", PROPS[i].name);
+    return p;
+}
+static void VentureGoTo(int i) {
+    int me = Me(), mover = InAnyVehicle() ? MyVehicle() : me;
+    Vec3 p = V3(PROPS[i].x, PROPS[i].y, PROPS[i].z);
+    N(N_DO_SCREEN_FADE_OUT, 500); Wait(600);
+    N(N_SET_ENTITY_COORDS, mover, p.x, p.y, p.z + 1.0f, 0, 0, 0, 0);
+    N(N_FREEZE_ENTITY_POSITION, mover, 1);
+    N(N_REQUEST_COLLISION_AT_COORD, p.x, p.y, p.z);
+    for (int k = 0; k < 60 && !NB(N<int>(N_HAS_COLLISION_LOADED_AROUND_ENTITY, mover)); ++k) Wait(50);
+    Wait(300);
+    Vec3 d = VentureDoor(i);
+    float h = Dist(d, p) > 0.5f ? std::atan2(-(p.x - d.x), p.y - d.y) * 180.f / 3.14159265f : PROPS[i].h;   // facing the door
+    N(N_SET_ENTITY_COORDS, mover, d.x, d.y, d.z - 0.5f, 0, 0, 0, 0);
+    N(N_SET_ENTITY_HEADING, mover, h);
+    N(N_FREEZE_ENTITY_POSITION, mover, 0);
+    Wait(300);
+    N(N_DO_SCREEN_FADE_IN, 500);
+}
 static void GoToProperty(int i) {
     if (const OBuilding *b = BuildingOf(i)) { TeleportExact(b->fx, b->fy, b->fz, b->fh); return; }   // where GTA Online puts you outside
     Vec3 e = PropExt(i);
     if (PROPS[i].type == T_VILLA) IslandArrive(e.x, e.y, e.z, PROPS[i].h);
     else if (PROPS[i].type == T_KOSATKA) EnterProperty(i);
+    else if (PROPS[i].type >= T_SALVAGE) VentureGoTo(i);   // Online's own door points (Ventures.inc)
     else Teleport(e.x, e.y, e.z, PROPS[i].h);
 }
 static void ExitProperty() {
@@ -1467,7 +1545,7 @@ static void ExitProperty() {
 }
 static void SnapEntrance(int i) {
     if (BuildingOf(i)) return;   // GTA Online's points are exact
-    if (g_extSnap.count(i) || PROPS[i].type == T_VILLA || PROPS[i].type == T_KOSATKA) return;
+    if (g_extSnap.count(i) || PROPS[i].type == T_VILLA || PROPS[i].type == T_KOSATKA || PROPS[i].type >= T_SALVAGE) return;
     Vec3 seed = PropSeed(i), out{};
     if (!std::strcmp(PROPS[i].interior, "office_mhc") || PROPS[i].type == T_DATACENTER) {   // our own doors on the new plaza: the navmesh there is still the old site's
         g_extSnap[i] = V3(seed.x, seed.y, GroundAt(seed.x, seed.y, seed.z + 3.f, seed.z - 1.f) + 1.0f);
@@ -1884,8 +1962,10 @@ static int CargoMax(int type) { return type == T_VEHWARE ? 10 : 50; }
 static int CargoValue(int type) { return type == T_OFFICE ? 22000 : type == T_HANGAR ? 10000 : 90000; }
 static bool IsCargo(int type) { return type == T_OFFICE || type == T_HANGAR || type == T_VEHWARE; }
 static void SafeIncome(int type, int &perDay, int &cap) {
-    perDay = type == T_NIGHTCLUB ? 30000 : type == T_ARCADE ? 5000 : type == T_AGENCY ? 20000 : type == T_AUTOSHOP ? 8000 : type == T_DATACENTER ? 12000 : 0;
-    cap = type == T_NIGHTCLUB ? 300000 : type == T_ARCADE ? 100000 : type == T_AGENCY ? 250000 : type == T_DATACENTER ? 120000 : 80000;   // the data center's crypto wallet
+    perDay = type == T_NIGHTCLUB ? 30000 : type == T_ARCADE ? 5000 : type == T_AGENCY ? 20000 : type == T_AUTOSHOP ? 8000 : type == T_DATACENTER ? 12000 :
+             type == T_SALVAGE ? 18000 : type == T_BAIL ? 15000 : type == T_GARMENT ? 12000 : type == T_CARWASH ? 9000 : type == T_WEEDSHOP ? 11000 :
+             type == T_HELITOURS ? 14000 : 0;   // the salvage yard's tow truck, the bail office's staff, the money fronts' takings
+    cap = type == T_NIGHTCLUB ? 300000 : type == T_ARCADE ? 100000 : type == T_AGENCY ? 250000 : type == T_DATACENTER ? 120000 : perDay > 0 && type >= T_SALVAGE ? perDay * 10 : 80000;   // the data center's crypto wallet
 }
 static int g_lastMinute = 0;
 static float DcSpeed(int pi);   // the data center's upgrades (Internet.inc's CUSTOM)
@@ -2444,6 +2524,8 @@ static void ClientJob(int pi) {      // auto shop / agency contracts
     m.timeLimitMs = 25 * 60000;
     StartMission(m);
 }
+
+#include "Ventures.inc"
 
 // ---------------------------------------------------------------- Cayo Perico
 static bool g_cayo = false, g_cayoMap = false;
@@ -3170,7 +3252,8 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
     case M_REALESTATE: {
         title = "Real Estate"; sub = "DYNASTY 8 / MAZE BANK FORECLOSURES";
         static const int order[] = {T_APT, T_HOUSE, T_MANSION, T_PENTHOUSE, T_OFFICE, T_CLUB, T_METH, T_WEED, T_COKE, T_CASH, T_DOCS, T_BUNKER, T_HANGAR,
-                                    T_FACILITY, T_NIGHTCLUB, T_ARCADE, T_AUTOSHOP, T_AGENCY, T_VEHWARE, T_KOSATKA};
+                                    T_FACILITY, T_NIGHTCLUB, T_ARCADE, T_AUTOSHOP, T_AGENCY, T_VEHWARE, T_KOSATKA,
+                                    T_SALVAGE, T_BAIL, T_GARMENT, T_CARWASH, T_WEEDSHOP, T_HELITOURS};
         for (int t : order) {
             int n = 0, owned = 0;
             for (int i = 0; i < NPROPS; ++i) if (PROPS[i].type == t) { n++; if (Owns(PROPS[i].name)) owned++; }
@@ -3260,9 +3343,10 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
         int perDay, cap; SafeIncome(type, perDay, cap);
         if (perDay) {
             items.push_back({"Safe", Money(b->safe), "Earns " + Money(perDay) + " every in-game day (48 min). Max " + Money(cap) + ".", [] {}});
-            items.push_back({"Collect Safe", "", here ? "Take the money." : "You must be inside the property.", [pi, here] {
+            if (!PropInterior(pi)) here = Dist(Pos(Me()), PropExt(pi)) < 15.f;   // run from the front door (no interior)
+            items.push_back({"Collect Safe", "", here ? "Take the money." : PropInterior(pi) ? "You must be inside the property." : "Go to its front door.", [pi, here] {
                 BizState *s = BizOf(PROPS[pi].name);
-                if (!here) { Notify("~r~Go inside the property to open the safe."); return; }
+                if (!here) { Notify(PropInterior(pi) ? "~r~Go inside the property to open the safe." : "~r~Go to the business's front door to collect."); return; }
                 if (!s || s->safe <= 0) { Notify("The safe is empty."); return; }
                 AddCash(s->safe); Notify("Collected ~g~" + Money(s->safe)); s->safe = 0; Save();
             }});
@@ -3270,6 +3354,9 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
         if (type == T_AUTOSHOP) items.push_back({"Client Job", "", "Deliver a customer's car.", [pi] { CloseMenu(); ClientJob(pi); }});
         if (type == T_AGENCY) items.push_back({"Security Contract", "", "Rescue a VIP client.", [pi] { CloseMenu(); ClientJob(pi); }});
         if (type == T_DATACENTER) items.push_back({"Hacking Contract", "", "Break into a corporate server for a client.", [pi] { CloseMenu(); HackContract(pi); }});
+        if (type == T_SALVAGE) items.push_back({"Salvage Yard Robbery", "", "Steal a high-end car from a gang garage and salvage it.", [pi] { CloseMenu(); SalvageRobbery(pi); }});
+        if (type == T_BAIL) items.push_back({"Bounty Target", "", "Bring a bail jumper in alive.", [pi] { CloseMenu(); BountyTarget(pi); }});
+        if (type == T_GARMENT) items.push_back({"Sabotage Job", "", "The hacker's job: destroy a contractor's servers.", [pi] { CloseMenu(); SabotageJob(pi); }});
         break;
     }
     case M_HEISTS:
@@ -3923,6 +4010,11 @@ static void CommandTick() {
         else if (a[0] == "baloff") BallisticOff(false);
         else if (a[0] == "spvcfg" && a.size() > 2) { for (int k = 0; k < SPV_COUNT; ++k) if (a[1] == SPV[k].key) g_cust[SpvKey(k)] = (int)F(2); Log("spvcfg %s %d", a[1].c_str(), (int)F(2)); }   // test layouts (undo with delspv)
         else if (a[0] == "spvin") { for (int k = 0; k < SPV_COUNT; ++k) if (rest == SPV[k].key) SpvEnter(k); }   // spvin <key>: walk into it as configured
+        else if (a[0] == "venture" && a.size() > 1) {   // venture salvage|bounty|sabotage: that business job from the first such property (test)
+            int t = a[1] == "salvage" ? T_SALVAGE : a[1] == "bounty" ? T_BAIL : T_GARMENT, pi = -1;
+            for (int i = 0; i < NPROPS && pi < 0; ++i) if (PROPS[i].type == t) pi = i;
+            if (pi >= 0) { if (t == T_SALVAGE) SalvageRobbery(pi); else if (t == T_BAIL) BountyTarget(pi); else SabotageJob(pi); }
+        }
         else if (a[0] == "buyprop") { int i = FindProp(rest); if (i >= 0 && !Owns(PROPS[i].name)) { g_props.push_back(PROPS[i].name); Save(); RefreshPropertyBlips(); } Log("buyprop %s -> %d", rest.c_str(), i); }
         else if (a[0] == "props") { for (int i = 0; i < NPROPS; ++i) if (PROPS[i].ob >= 0) { const OBuilding &b = O_BUILDINGS[PROPS[i].ob]; Log("prop %d %s type %d ob %d (id %d) walk %.2f %.2f %.2f cars %d int %s", i, PROPS[i].name, PROPS[i].type, PROPS[i].ob, b.id, b.e[0].mx, b.e[0].my, b.e[0].mz, GarageSlots(i), PROPS[i].interior); } }
         else if (a[0] == "door") {   // stand in the exit area at the front door of the current GTA Online interior
