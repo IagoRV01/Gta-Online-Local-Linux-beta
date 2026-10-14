@@ -454,6 +454,24 @@ GTA Online-style races, solo or online, with GTA Online's look: countdown, check
 - Verified with netprobe `svhost`/`svjoin` on an isolated server: 7 waves paid $28,000 and 4 waves paid $16,000 (payout $40,000).
 - In game 2026-10-13 (host alone, nobody playing): lobby, start, countdown, wave 1 at Stab City with the HUD (wave, players, kills, enemies), death → down → everyone down → job passed, results board, back to the start point. Test commands: `sv <place> [solo]`, `svstart`, `svquit`, `svstat`. Later waves (cars, Buzzard) still need someone playing.
 
+## Transform, special-vehicle and Hotring races (Gori `Races.inc`, 2026-10-14)
+
+- **Transform races.** A race XML can carry `<Transforms><Transform><Checkpoint>i</Checkpoint><VehicleHash>m</VehicleHash></Transform></Transforms>`.
+  - Passing checkpoint *i* (0-based) swaps you into vehicle *m* at the same place, heading and speed.
+  - Helicopters appear 8 m up and planes 30 m up with the gear raised; on water they would sink and throw you out.
+  - Transform checkpoints are purple, with a purple "Transform" blip. The respawn (hold F) uses the vehicle you have at that point.
+  - Each client runs its own transforms from the race file, so online races need the same file on every player's game, like any race.
+- **Vehicle classes.** In a race's menu, *Vehicle Class* switches between the race's own vehicles, **Special Vehicles** (Rocket Voltic, Ruiner 2000, Blazer Aqua, Scramjet, Vigilante, Oppressor, Deluxo, Stromberg, Toreador) and **Hotring** (Hotring Sabre). Transform races keep their own start vehicle.
+- **Race Creator.**
+  - *New Race Here (no track)* makes a race anywhere on the map, without stunt props.
+  - *Transform At Next Checkpoint* cycles through elegy, bati, blazer, trophytruck, bmx, seashark, dinghy, buzzard2, duster and besra. The next checkpoint you drop gets that vehicle, and is purple with "N > model" over it.
+  - Saving writes the `<Transforms>` list.
+- **Race payouts like GTA Online.** Online races are paid by the server by position: 100/75/60/50/40/35/30/25 % of 1500 + $100 a checkpoint (max $30,000), and 10 % for not finishing. Solo races now pay too, half of first place (at least $1,000), when you finish. Verified: Vespucci Transform solo paid $1,150 (+380 RP); the test money and RP were reverted.
+- **Included race:** `gori-online/races/Gori_Transform_Vespucci.xml`, "Vespucci Transform". ATV on Vespucci Beach, Seashark at the shoreline, along the coast south of Del Perro Pier, then a Buzzard over Del Perro to the finish ring. The route was laid out with the new `probez x y` command (ground and water height).
+- Verified in game 2026-10-14 with `racesolo Gori_Transform_Vespucci.xml` and `racecp`: ATV → Seashark in the water → Buzzard flying next to the pier.
+  - First try: the Buzzard spawned on the water, sank and threw the player out, and the "MinigameTransitionIn" effect kept the screen blurred.
+  - Fixed with the spawn height and the short "RaceTurbo" flash.
+
 ## Roadmap: GTA Online content (user request 2026-10-12)
 
 GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real network session, so they cannot run in story mode. They are recreated in Gori, multiplayer through the co-op jobs and races above.
@@ -464,8 +482,9 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
   - Drug Wars: The First Dose and the Acid Lab.
 - **Done in the evening.** The Last Dose, deathmatches, 32 contact missions.
 - **Done 2026-10-13.** Survival (solo and co-op).
+- **Done 2026-10-14.** Transform races, special-vehicle and Hotring classes, Race Creator anywhere on the map.
 - **Next.**
-  - Transform, special-vehicle and Hotring races (the stunt tracks with checkpoints), and stunt race checkpoints from community sources.
+  - Stunt race checkpoints for the 129 stunt tracks (the Race Creator does it by hand today).
   - More contact missions (Lester, Martin's later ones, Agent 14...).
   - The remaining businesses (salvage yard, bail office, garment factory...).
 

@@ -3833,6 +3833,13 @@ static void CommandTick() {
                 Teleport(back.x, back.y, back.z, bh);
             }
         }
+        else if (a[0] == "probez" && a.size() > 2) {   // probez x y: ground and water height there (designing races)
+            float x = F(1), y = F(2), wz = 0.f;
+            N(N_REQUEST_COLLISION_AT_COORD, x, y, 0.f);
+            float gz = GroundAt(x, y, 1000.f, -1000.f);
+            bool water = NB(N<int>(N_GET_WATER_HEIGHT, x, y, 100.f, &wz));
+            Log("probez %.1f %.1f: ground %.2f water %s %.2f", x, y, gz, water ? "yes" : "no", wz);
+        }
         else if (a[0] == "intinfo") {   // intinfo [x y z]: the interior there (default: the player), and the player's room
             Vec3 p = a.size() > 3 ? V3(F(1), F(2), F(3)) : Pos(Me());
             int id = N<int>(N_GET_INTERIOR_AT_COORDS, p.x, p.y, p.z), mine = N<int>(N_GET_INTERIOR_FROM_ENTITY, Me());

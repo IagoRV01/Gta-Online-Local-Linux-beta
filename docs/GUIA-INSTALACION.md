@@ -154,7 +154,8 @@ Para copiar los archivos desde un PC Windows por SSH tienes `client/linux/deploy
 4. **Jugar juntos:** cuando alguien abre un trabajo, una carrera, un deathmatch o un Survival, al resto le
    llega un aviso. Para unirse: Menú de interacción (**M**) → **Jobs**. El anfitrión lo inicia desde su
    menú cuando estáis todos; las carreras, deathmatch y Survival empiezan con cuenta atrás a la vez.
-5. Los pagos de los trabajos los hace el servidor, directamente al banco de cada jugador.
+5. Los pagos de los trabajos los hace el servidor, directamente al banco de cada jugador. Las carreras pagan como
+   en Online: online, según tu posición; en solitario, la mitad de lo que gana el primero (mínimo 1.000 $).
 
 > Consejo: no te quedes dentro de un interior o bajo el agua al cerrar el juego; apareces donde se guardó
 > tu posición.
@@ -171,8 +172,17 @@ Gori Online lee carreras en formato XML de **Community Races** (el mod de carrer
   `GoriOnline\Tracks\` y usa **Races → Race Creator**: recorres la pista, marcas los checkpoints con **E**,
   colocas la parrilla y la guardas como carrera.
 
-Las carreras no se incluyen en este repositorio: descárgalas de sus autores (por ejemplo, packs de carreras
-y circuitos de GTA5-Mods) respetando sus licencias.
+- **Carreras Transform:** algunos checkpoints (morados) te cambian de vehículo a la misma velocidad: de quad a
+  moto de agua, de moto de agua a helicóptero... El repositorio trae una de ejemplo hecha para este proyecto:
+  copia `gori-online/races/Gori_Transform_Vespucci.xml` a `GoriOnline\Races\`.
+- **Vehículos especiales y Hotring:** en el menú de cualquier carrera, *Vehicle Class* cambia los coches de la
+  carrera por los vehículos especiales de Online (Rocket Voltic, Ruiner 2000, Blazer Aqua, Scramjet...) o por
+  los Hotring.
+- **Crear tus carreras en cualquier sitio:** Races → Race Creator → *New Race Here (no track)*. Marca checkpoints
+  con **E**; *Transform At Next Checkpoint* elige en qué vehículo te transforma el siguiente checkpoint.
+
+Las demás carreras no se incluyen en este repositorio: descárgalas de sus autores (por ejemplo, packs de
+carreras y circuitos de GTA5-Mods) respetando sus licencias.
 
 ---
 
