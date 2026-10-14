@@ -309,11 +309,13 @@ static const InteriorDef INTERIORS[] = {
     {"xm3_lab", 528.25f, -2637.73f, -49.0f, 270.f, "", ""},    // xm3_dlc_int_02_xm3 (origin 520,-2625,-50): the dark lab (The Last Dose finale); the floor point from the fm_content scripts
     {"xm3_clinic", 495.0f, -2566.0f, -49.0f, 270.f, "", ""},   // xm3_dlc_int_04_xm3: the white clinic (The Last Dose); floor -50.04 found with intscan (the MLO origin 495,-2560 has none)
     // Ventures.inc: the newer businesses (floors found with intscan / Online's own interior positions)
-    {"salvage", 1088.0f, -2275.0f, -49.0f, 0.f, "", ""},          // m23_2_dlc_int_salvage
-    {"bailoffice", 563.6f, -2690.1f, -49.2f, 0.f, "", ""},         // m24_1_dlc_int_bounty: the office floor (a storeroom below at -53.8)
+    // entity sets from am_mp_salvage_yard / am_mp_bail_office / am_mp_sb_* (the upgraded versions)
+    {"salvage", 1088.0f, -2275.0f, -49.0f, 0.f, "", "set_car_lift_01_down;set_car_lift_02_down;set_mechanic_upgrade;set_safe_upgrade;set_tint_b"},   // m23_2_dlc_int_salvage
+    {"bailoffice", 563.6f, -2690.1f, -49.2f, 0.f, "", "set_staff_upgrade"},   // m24_1_dlc_int_bounty: the office floor (a storeroom below at -53.8)
     {"garment", 746.0f, -993.0f, -46.0f, 0.f, "", ""},             // m24_2_int_hacker_basement (the Hacker Den)
-    // Money Fronts' m25_1_int_tycoon_car_wash / _smoke_heli load without walls here (their entity sets are unknown):
-    // those businesses are run from their front door for now
+    {"carwash", 13.5f, -1397.1f, -74.0f, 0.f, "", "set_carwash_tints"},              // m25_1_int_tycoon_car_wash
+    {"weedshop", -1161.9f, -1538.6f, -49.0f, 0.f, "", "!set_heli;!set_heli_tint;set_smoke;set_smoke_tint"},   // m25_1_int_tycoon_smoke_heli: Smoke on the Water's half
+    {"helitours", -1161.9f, -1538.6f, -49.0f, 0.f, "", "!set_smoke;!set_smoke_tint;set_heli;set_heli_tint"},    // the same MLO dressed as Higgins Helitours
     {"kortz", 2603.17f, 5903.76f, -50.0f, 0.f, "",
      "set_background_art;set_exhibit_walls;set_exhibit_robbable;set_exhibit_dressing;set_alarm_panel;set_cameras_02;set_keypads_exhibit;set_glass_pane;set_tvs"},
     {"psbank", 247.0f, 222.0f, 106.3f, 160.f, "", ""},
@@ -432,9 +434,9 @@ static const PropDef PROPS_GORI[] = {
     {"Bail Office: Davis", T_BAIL, 1600000, 137.3f, -1696.0f, 29.3f, 140.f, "bailoffice"},
     {"Bail Office: Paleto Bay", T_BAIL, 1550000, -58.6f, 6502.3f, 31.6f, 225.f, "bailoffice"},
     {"Garment Factory: La Mesa", T_GARMENT, 1950000, 716.8f, -962.0f, 30.4f, 180.f, "garment"},
-    {"Hands On Car Wash: Strawberry", T_CARWASH, 1400000, 25.6f, -1409.1f, 29.8f, 270.f, ""},
-    {"Smoke on the Water: Vespucci", T_WEEDSHOP, 715000, -1163.7f, -1566.5f, 4.95f, 35.f, ""},
-    {"Higgins Helitours: Vespucci Heliport", T_HELITOURS, 2050000, -758.7f, -1515.3f, 5.36f, 110.f, ""},
+    {"Hands On Car Wash: Strawberry", T_CARWASH, 1400000, 25.6f, -1409.1f, 29.8f, 270.f, "carwash"},
+    {"Smoke on the Water: Vespucci", T_WEEDSHOP, 715000, -1163.7f, -1566.5f, 4.95f, 35.f, "weedshop"},
+    {"Higgins Helitours: Vespucci Heliport", T_HELITOURS, 2050000, -758.7f, -1515.3f, 5.36f, 110.f, "helitours"},
     {"Vehicle Warehouse: La Mesa", T_VEHWARE, 1500000, 812.5f, -2380.0f, 29.6f, 270.f, "vehware"},
     {"Kosatka", T_KOSATKA, 2200000, 0.f, 0.f, 0.f, 0.f, "kosatka"},
     {"Isla Neon Villa", T_VILLA, 0, ISLAND_VILLADOOR[0], ISLAND_VILLADOOR[1], ISLAND_VILLADOOR[2], ISLAND_VILLADOOR[3], "islavilla"},
@@ -833,6 +835,10 @@ static int LoadInterior(const InteriorDef &d) {
     g_unsets.clear();
     for (auto &s : Split(d.sets, ';')) {
         if (s.empty()) continue;
+        if (s[0] == '!') {   // "!name": off here (MLOs dressed as two businesses)
+            if (NB(N<int>(N_IS_INTERIOR_ENTITY_SET_ACTIVE, id, s.c_str() + 1))) N(N_DEACTIVATE_INTERIOR_ENTITY_SET, id, s.c_str() + 1);
+            continue;
+        }
         auto p = Split(s, ':');
         if (!NB(N<int>(N_IS_INTERIOR_ENTITY_SET_ACTIVE, id, p[0].c_str()))) N(N_ACTIVATE_INTERIOR_ENTITY_SET, id, p[0].c_str());
         if (p.size() > 1) N(N_SET_INTERIOR_ENTITY_SET_TINT_INDEX, id, p[0].c_str(), std::atoi(p[1].c_str()));

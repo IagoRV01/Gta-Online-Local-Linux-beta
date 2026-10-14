@@ -481,11 +481,12 @@ GTA Online's 2023-2025 businesses, bought on Real Estate (Maze Bank Foreclosures
 | **Salvage Yards** (The Chop Shop) | Paleto Bay, Sandy Shores, La Puerta, Strawberry, Murrieta Heights | `m23_2_dlc_int_salvage` (Red's Pickup and Auto Salvage Yard) | *Salvage Yard Robbery*: steal a high-end car from a gang garage, bring it in and salvage it ($120k-$220k). Safe: the tow truck, $18k a day. |
 | **Bail Offices** (Bottom Dollar Bounties) | Mission Row, West Vinewood, Del Perro, Davis, Paleto Bay | `m24_1_dlc_int_bounty`, office floor (a storeroom below) | *Bounty Target*: bring a bail jumper in alive to Mission Row police station ($30k-$60k). Safe: the staff, $15k a day. |
 | **Garment Factory** (Agents of Sabotage) | La Mesa (Lester's old factory) | `m24_2_int_hacker_basement`, the Hacker Den | *Sabotage Job*: blow up a contractor's servers ($45k-$80k). Safe $12k a day. |
-| **Hands On Car Wash**, **Smoke on the Water**, **Higgins Helitours** (Money Fronts) | Strawberry, Vespucci, Vespucci Heliport | none yet: their MLOs load without walls (the entity sets that build them are unknown) | Safes of $9k / $11k / $14k a day, collected at the front door. |
+| **Hands On Car Wash**, **Smoke on the Water**, **Higgins Helitours** (Money Fronts) | Strawberry, Vespucci, Vespucci Heliport | `m25_1_int_tycoon_car_wash` (`set_carwash_tints`); `m25_1_int_tycoon_smoke_heli` dressed as the dispensary (`set_smoke`) or the tour office (`set_heli`) | Safes of $9k / $11k / $14k a day. |
 
 - **Entrances:** freemode.ysc's simple interior locates (ids 162-176; the angled area's two corners).
   - The first visit checks for real ground at the door. If there is none (awnings, shop fronts without collision in story mode), it moves the entrance to the nearest ground within 7 m and keeps it there.
   - Leaving walks you to the nearest pavement (navmesh) instead of straight ahead.
+- **Interiors:** the entity sets come from Online's own scripts (am_mp_salvage_yard, am_mp_bail_office, am_mp_sb_car_wash / _weed_shop / _heli_tours): salvage yard lifts, mechanic, safe and tint upgrades; the bail office staff; the Money Fronts sets. Without the exterior IPLs loaded, the Money Fronts MLOs had no walls. Interior sets can now be switched off with `!name`, because the dispensary and the tour office share one MLO.
 - **Exterior IPLs:** the salvage yard signs (`m23_2_*_reds`), the bail office fronts (`m24_1_bailoffice_*`), `m24_2_garment_factory_door`, `m25_1_carwash`, `m25_1_helitours` and `m25_1_smokeonthewater` are loaded with the online map.
 - **Prices** are close to Online's, not exact (their tunables are hashed).
 - **Verified in game 2026-10-14:**
@@ -508,7 +509,7 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
 - **Next.**
   - Stunt race checkpoints for the 129 stunt tracks (the Race Creator does it by hand today).
   - More contact missions (Lester, Martin's later ones, Agent 14...).
-  - The Money Fronts interiors (their entity set names), and the businesses' own heists (Salvage Yard robbery finales, bail office staff missions).
+  - The businesses' own heists (Salvage Yard robbery finales, bail office staff missions).
 
 ## Co-op jobs (protocol v9, 2026-10-12)
 
