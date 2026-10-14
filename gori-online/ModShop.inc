@@ -27,11 +27,14 @@ static const MsShop MS_SHOPS[] = {
      1178.5f, 2640.2f, 37.6f, 0.f, 1178.6f, 2655.0f, 37.8f},
     {"Benny's Original Motor Works", 1, -202.16f, -1307.19f, 35.57f, -208.44f, -1307.25f, 29.58f, 8.f, -288764223, 0,
      -205.99f, -1316.04f, 29.89f, 358.76f, -197.24f, -1301.50f, 30.30f},
+    // the Arena Workshop: am_mp_arena_garage's first vehicle door at the Maze Bank Arena; the bay is on the workshop floor
+    {"Arena Workshop", 2, -360.08f, -1874.24f, 19.59f, -368.45f, -1876.19f, 23.26f, 7.f, 0, 0,
+     200.0f, 5180.0f, -89.6f, 90.f, -364.3f, -1868.0f, 19.6f},
 };
 static const int NMS_SHOPS = (int)(sizeof MS_SHOPS / sizeof *MS_SHOPS);
 
 struct MsState {
-    int shop = -1, veh = 0, idx = -1, value = 100000, focus = 0, leftAt = 0, cam = 0, lastShop = -1;   // lastShop: wait until the car is out of its area
+    int shop = -1, veh = 0, idx = -1, value = 100000, focus = 0, leftAt = 0, cam = 0, lastShop = -1, interior = 0;   // lastShop: wait until the car is out of its area
     std::string owned;                  // CaptureVehicle of what is bought: previews go back to it
     float camAngle = 0.f; Vec3 camPos{}, camAt{};
     bool camInit = false, hoodOpen = false;
@@ -159,7 +162,13 @@ static void MsEnter(int shop) {
     if (it != g_catByHash.end() && g_cat[it->second].price > 0) g_ms.value = g_cat[it->second].price;
     N(N_DO_SCREEN_FADE_OUT, 500); Wait(550);
     MsDoors(s, true);
+    if (s.kind == 2) if (const InteriorDef *d = FindInterior("arenaws")) {   // the workshop is an interior far from its door
+        g_ms.interior = LoadInterior(*d);
+        N(N_REQUEST_COLLISION_AT_COORD, s.px, s.py, s.pz);
+        for (int i = 0; i < 40 && g_ms.interior && !NB(N<int>(N_IS_INTERIOR_READY, g_ms.interior)); ++i) Wait(50);
+    }
     N(N_SET_ENTITY_COORDS, v, s.px, s.py, s.pz + 0.5f, 0, 0, 0, 0);
+    if (s.kind == 2) for (int i = 0; i < 30 && !NB(N<int>(N_HAS_COLLISION_LOADED_AROUND_ENTITY, v)); ++i) Wait(50);
     N(N_SET_ENTITY_HEADING, v, s.ph);
     N<int>(N_SET_VEHICLE_ON_GROUND_PROPERLY, v, 5.0f);
     N(N_SET_VEHICLE_FORWARD_SPEED, v, 0.f);
@@ -172,7 +181,7 @@ static void MsEnter(int shop) {
     N(N_RENDER_SCRIPT_CAMS, 1, 0, 0, 1, 0, 0);
     MsFocus(MF_OVERVIEW); MsCameraTick();
     g_menuBackHook = MsBack;
-    g_menuBanner = s.kind == 1 ? "ShopUI_Title_Supermod" : "ShopUI_Title_Carmod";
+    g_menuBanner = s.kind == 2 ? "ShopUI_Title_ArenaWar" : s.kind == 1 ? "ShopUI_Title_Supermod" : "ShopUI_Title_Carmod";
     N(N_REQUEST_STREAMED_TEXTURE_DICT, g_menuBanner, 0);
     g_menuOpen = true; g_stack.clear(); Open((MenuId)MS_ROOT);
     N(N_DO_SCREEN_FADE_IN, 500);
@@ -187,9 +196,11 @@ static void MsExit() {
     if (Exists(v)) {
         MsRevert();
         if (g_ms.hoodOpen) N(N_SET_VEHICLE_DOOR_SHUT, v, 4, 1);
-        float h = std::atan2(-(s.ex - s.px), s.ey - s.py) * 180.f / 3.14159265f;   // facing out of the garage
-        float dx = s.ex - s.px, dy = s.ey - s.py, len = std::max(0.1f, std::sqrt(dx * dx + dy * dy));
-        float ox = s.ex + dx / len * 4.f, oy = s.ey + dy / len * 4.f;               // a little further out than Online's cutscene end
+        // facing away from the entry area, and a little further out than Online's cutscene end (clear of the area)
+        float cx = (s.ax + s.bx) * 0.5f, cy = (s.ay + s.by) * 0.5f;
+        float dx = s.ex - cx, dy = s.ey - cy, len = std::max(0.1f, std::sqrt(dx * dx + dy * dy));
+        float h = std::atan2(-dx, dy) * 180.f / 3.14159265f;
+        float ox = s.ex + dx / len * 4.f, oy = s.ey + dy / len * 4.f;
         N(N_FREEZE_ENTITY_POSITION, v, 0);
         N(N_SET_ENTITY_COORDS, v, ox, oy, s.ez + 0.5f, 0, 0, 0, 0);
         N(N_SET_ENTITY_HEADING, v, h);
@@ -323,7 +334,7 @@ static bool ModShopMenu(const Frame &f, std::string &title, std::string &sub, st
     int v = g_ms.veh;
     if (!MsActive() || !Exists(v)) { CloseMenu(); return true; }
     const MsShop &s = MS_SHOPS[g_ms.shop];
-    title = s.kind == 1 ? "Benny's" : "Los Santos Customs";
+    title = s.kind == 2 ? "Arena Workshop" : s.kind == 1 ? "Benny's" : "Los Santos Customs";
     N(N_SET_VEHICLE_MOD_KIT, v, 0);
     int cls = N<int>(N_GET_VEHICLE_CLASS, v);
     switch (id) {
@@ -393,6 +404,7 @@ static bool ModShopMenu(const Frame &f, std::string &title, std::string &sub, st
         items.push_back({"Wheels", ">", "", [] { Open((MenuId)MS_WHEELS); }, [] { MsFocus(MF_SIDE); }});
         items.push_back({"Windows", ">", "", [] { Open((MenuId)MS_WINDOWS); }, [] { MsFocus(MF_TOP); }});
         if (s.kind == 1) for (int t : {25, 26, 37, 38, 42, 43, 45, 46}) MsCategory(items, v, t);
+        if (s.kind == 2) for (int t = 25; t <= 46; ++t) MsCategory(items, v, t);   // arena vehicles put their armour, rams, spikes and weapons here
         items.push_back({"Exit", "", "Drive out of the shop.", [] { MsExit(); }, [] { MsFocus(MF_OVERVIEW); }});
         return true;
     }
@@ -657,6 +669,7 @@ static void ModShopTick() {
         if (N<int>(N_GET_PLAYER_WANTED_LEVEL, Player()) > 0) { Help(std::string("Lose the cops before going into ") + (s.kind ? "Benny's." : "Los Santos Customs.")); return; }
         if (cls == 18) { Help("Emergency vehicles cannot be modified here."); return; }
         if (N<float>(N_GET_ENTITY_SPEED, v) > 12.f) return;
+        if (s.kind == 2 && !Owns("Arena Workshop: Maze Bank Arena")) { Help("Buy the ~b~Arena Workshop~s~ (Maze Bank Foreclosures) to upgrade arena vehicles here."); return; }
         MsEnter(i);
         return;
     }

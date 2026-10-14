@@ -316,6 +316,9 @@ static const InteriorDef INTERIORS[] = {
     {"carwash", 13.5f, -1397.1f, -74.0f, 0.f, "", "set_carwash_tints"},              // m25_1_int_tycoon_car_wash
     {"weedshop", -1161.9f, -1538.6f, -49.0f, 0.f, "", "!set_heli;!set_heli_tint;set_smoke;set_smoke_tint"},   // m25_1_int_tycoon_smoke_heli: Smoke on the Water's half
     {"helitours", -1161.9f, -1538.6f, -49.0f, 0.f, "", "!set_smoke;!set_smoke_tint;set_heli;set_heli_tint"},    // the same MLO dressed as Higgins Helitours
+    // Arena War (mpchristmas2018): the Arena Workshop under the Maze Bank Arena (am_mp_arena_garage's spawn) and the arena
+    {"arenaws", 209.421f, 5163.441f, -88.2f, 0.f, "xs_arena_interior_mod;xs_arena_interior_mod_2", "Set_Int_MOD_SHELL_DEF;Set_Int_MOD_BOOTH_COMBO;Set_Int_MOD_CONSTRUCTION_03;Set_Int_MOD_TROPHY_CAREER;Set_Int_MOD_TROPHY_WAR"},
+    {"arena", 2800.0f, -3800.0f, 101.0f, 0.f, "xs_arena_interior", ""},   // xs_x18_int_01
     {"kortz", 2603.17f, 5903.76f, -50.0f, 0.f, "",
      "set_background_art;set_exhibit_walls;set_exhibit_robbable;set_exhibit_dressing;set_alarm_panel;set_cameras_02;set_keypads_exhibit;set_glass_pane;set_tvs"},
     {"psbank", 247.0f, 222.0f, 106.3f, 160.f, "", ""},
@@ -347,12 +350,12 @@ static const char *WORLD_IPLS =
     // the newer businesses' exteriors (Ventures.inc): salvage yard signs, bail office fronts, the garment factory door, money fronts
     "m23_2_cs1_05_reds;m23_2_cs4_11_reds;m23_2_id2_04_reds;m23_2_sc1_03_reds;m23_2_sp1_03_reds;"
     "m24_1_bailoffice_davis;m24_1_bailoffice_delperro;m24_1_bailoffice_missionrow;m24_1_bailoffice_paletobay;m24_1_bailoffice_vinewood;"
-    "m24_2_garment_factory_door;m25_1_carwash;m25_1_helitours;m25_1_smokeonthewater";
+    "m24_2_garment_factory_door;m25_1_carwash;m25_1_helitours;m25_1_smokeonthewater;xs_arena_banners_ipl";
 
 // ---------------------------------------------------------------- Properties
 enum PType { T_APT, T_HOUSE, T_MANSION, T_PENTHOUSE, T_OFFICE, T_CLUB, T_METH, T_WEED, T_COKE, T_CASH, T_DOCS, T_BUNKER, T_HANGAR,
              T_FACILITY, T_NIGHTCLUB, T_ARCADE, T_AUTOSHOP, T_AGENCY, T_VEHWARE, T_KOSATKA, T_VILLA, T_GARAGE, T_DATACENTER,
-             T_SALVAGE, T_BAIL, T_GARMENT, T_CARWASH, T_WEEDSHOP, T_HELITOURS, T_COUNT };
+             T_SALVAGE, T_BAIL, T_GARMENT, T_CARWASH, T_WEEDSHOP, T_HELITOURS, T_ARENAWS, T_COUNT };
 struct TypeInfo { const char *label; int blip, colour, garage; bool residence, business; };
 static const TypeInfo TYPES[T_COUNT] = {
     {"Apartments", 40, 0, 10, true, false}, {"Houses", 40, 0, 10, true, false}, {"Mansions", 40, 46, 20, true, false},
@@ -366,6 +369,7 @@ static const TypeInfo TYPES[T_COUNT] = {
     {"Data Centers", 521, 3, 15, false, true},
     {"Salvage Yards", 68, 0, 10, false, true}, {"Bail Offices", 303, 0, 0, false, true}, {"Garment Factory", 521, 0, 0, false, true},
     {"Hands On Car Wash", 100, 0, 0, false, true}, {"Smoke on the Water", 140, 2, 0, false, true}, {"Higgins Helitours", 43, 0, 0, false, true},
+    {"Arena Workshop", 643, 17, 0, false, false},
 };
 // ob: index in O_BUILDINGS (GTA Online building: exact entrances/exits), -1 = Gori Online's own placement.
 // cars: garage size (0 = the type's default).
@@ -437,6 +441,7 @@ static const PropDef PROPS_GORI[] = {
     {"Hands On Car Wash: Strawberry", T_CARWASH, 1400000, 25.6f, -1409.1f, 29.8f, 270.f, "carwash"},
     {"Smoke on the Water: Vespucci", T_WEEDSHOP, 715000, -1163.7f, -1566.5f, 4.95f, 35.f, "weedshop"},
     {"Higgins Helitours: Vespucci Heliport", T_HELITOURS, 2050000, -758.7f, -1515.3f, 5.36f, 110.f, "helitours"},
+    {"Arena Workshop: Maze Bank Arena", T_ARENAWS, 1595000, -366.75f, -1864.03f, 19.53f, 160.f, "arenaws"},   // ArenaWar.inc / ModShop.inc
     {"Vehicle Warehouse: La Mesa", T_VEHWARE, 1500000, 812.5f, -2380.0f, 29.6f, 270.f, "vehware"},
     {"Kosatka", T_KOSATKA, 2200000, 0.f, 0.f, 0.f, 0.f, "kosatka"},
     {"Isla Neon Villa", T_VILLA, 0, ISLAND_VILLADOOR[0], ISLAND_VILLADOOR[1], ISLAND_VILLADOOR[2], ISLAND_VILLADOOR[3], "islavilla"},
@@ -3160,6 +3165,7 @@ static bool DeskTick(int pi, const float *at, const char *what, void (*open)(int
 #include "Deathmatch.inc"
 #include "ContactMissions.inc"
 #include "Survival.inc"
+#include "ArenaWar.inc"
 
 static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     items.clear();
@@ -3181,6 +3187,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
         items.push_back({"Heists", ">", "Preps and finales with Lester.", [] { Open(M_HEISTS); }});
         items.push_back({"Contact Missions", ">", "Gerald, Simeon, Lamar, Martin, Ron and Trevor's jobs, by rank.", [] { Open((MenuId)CMM_LIST); }});
         items.push_back({"Races", g_race.phase == RP_LOBBY ? "Lobby >" : ">", "GTA Online-style races: solo or with the other players, paid by position.", [] { Open((MenuId)RM_LIST); }});
+        items.push_back({"Arena War", g_aw.phase == AWP_LOBBY ? "Lobby >" : g_aw.phase != AWP_NONE ? "Playing >" : ">", "Carnage in the Maze Bank Arena: arena vehicles, alone against bots or online.", [] { Open((MenuId)AW_MENU); }});
         items.push_back({"Survival", g_sv.phase == SVP_LOBBY ? "Lobby >" : g_sv.phase != SVP_NONE ? "Playing >" : ">", "Ten waves of enemies, alone or with the other players.", [] { Open((MenuId)SV_LIST); }});
         if (CoopAvailable()) items.push_back({"Deathmatch", g_dm.phase == DP_LOBBY ? "Lobby >" : ">", "Fight the other players in an arena, paid by position.", [] { Open((MenuId)DM_LIST); }});
         if (CoopAvailable()) items.push_back({"Jobs", g_coopJobs.empty() ? ">" : std::to_string(g_coopJobs.size()) + " >", "Co-op jobs: join another player's mission and get paid when it passes.", [] { Open(M_JOBS); }});
@@ -3263,7 +3270,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
         title = "Real Estate"; sub = "DYNASTY 8 / MAZE BANK FORECLOSURES";
         static const int order[] = {T_APT, T_HOUSE, T_MANSION, T_PENTHOUSE, T_OFFICE, T_CLUB, T_METH, T_WEED, T_COKE, T_CASH, T_DOCS, T_BUNKER, T_HANGAR,
                                     T_FACILITY, T_NIGHTCLUB, T_ARCADE, T_AUTOSHOP, T_AGENCY, T_VEHWARE, T_KOSATKA,
-                                    T_SALVAGE, T_BAIL, T_GARMENT, T_CARWASH, T_WEEDSHOP, T_HELITOURS};
+                                    T_SALVAGE, T_BAIL, T_GARMENT, T_CARWASH, T_WEEDSHOP, T_HELITOURS, T_ARENAWS};
         for (int t : order) {
             int n = 0, owned = 0;
             for (int i = 0; i < NPROPS; ++i) if (PROPS[i].type == t) { n++; if (Owns(PROPS[i].name)) owned++; }
@@ -3452,7 +3459,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
         items.push_back({"Isla Neon Life", g_optIsland ? "ON" : "OFF", "Traffic, people and parked vehicles on the island.", [] { g_optIsland = !g_optIsland; Save(); }});
         break;
     default:
-        if (!CasinoMenu((int)f.id, title, sub, items) && !SpvMenu(f, title, sub, items) && !ShopsMenu(f, title, sub, items) && !ModShopMenu(f, title, sub, items) && !RacesMenu(f, title, sub, items) && !AcidMenu(f, title, sub, items) && !DmMenu(f, title, sub, items) && !ContactMenu(f, title, sub, items) && !SvMenu(f, title, sub, items) && !YachtMenu(f, title, sub, items)) GarageMenu((int)f.id, title, sub, items);
+        if (!CasinoMenu((int)f.id, title, sub, items) && !SpvMenu(f, title, sub, items) && !ShopsMenu(f, title, sub, items) && !ModShopMenu(f, title, sub, items) && !RacesMenu(f, title, sub, items) && !AcidMenu(f, title, sub, items) && !DmMenu(f, title, sub, items) && !ContactMenu(f, title, sub, items) && !SvMenu(f, title, sub, items) && !ArenaWarMenu(f, title, sub, items) && !YachtMenu(f, title, sub, items)) GarageMenu((int)f.id, title, sub, items);
         break;
     }
 }
@@ -3901,6 +3908,12 @@ static void CommandTick() {
         else if (a[0] == "cm" && a.size() > 2) { int c = std::atoi(a[1].c_str()) % NCONTACTS; StartContactMission(c, std::min(std::atoi(a[2].c_str()), CONTACTS[c].count - 1)); }   // cm <contact> <mission>
         else if (a[0] == "sv" && a.size() > 1) SvHost(std::max(0, std::min(NSV_LOCS - 1, std::atoi(a[1].c_str()))), a.size() > 2 && a[2] == "solo");   // sv <place> [solo]
         else if (a[0] == "svstart") SvHostStart();
+        else if (a[0] == "arena") {   // arena [theme map light vehicle bots minutes]: Arena War solo (test)
+            for (int k = 0; k < 6 && k + 1 < (int)a.size(); ++k) g_awSel[k] = std::atoi(a[k + 1].c_str());
+            AwStart(false);
+        }
+        else if (a[0] == "arenaquit") { if (g_aw.phase != AWP_NONE) AwFinish(); }
+        else if (a[0] == "arenastat") Log("arena: phase %d kills %d deaths %d bots %d interior %d room 0x%08X", g_aw.phase, g_aw.kills, g_aw.deaths, (int)g_aw.botList.size(), g_aw.interior, (unsigned)N<int>(N_GET_ROOM_KEY_FROM_ENTITY, Me()));
         else if (a[0] == "svquit") { if (g_sv.phase == SVP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_sv = SvRun(); } else if (g_sv.phase != SVP_NONE) { if (g_sv.host) SvHostEnd(); SvFinish(); } }
         else if (a[0] == "svstat") Log("survival: phase %d wave %d cleared %d kills %d enemies %d/%d alive %d", g_sv.phase, g_sv.wave, g_sv.cleared, g_sv.kills, g_sv.spawned, g_sv.total, (int)g_sv.peds.size());
         else if (a[0] == "lastdose") StartLastDose(std::max(0, std::min(4, std::atoi(rest.c_str()))));
@@ -3950,6 +3963,27 @@ static void CommandTick() {
             float gz = GroundAt(x, y, 1000.f, -1000.f);
             bool water = NB(N<int>(N_GET_WATER_HEIGHT, x, y, 100.f, &wz));
             Log("probez %.1f %.1f: ground %.2f water %s %.2f", x, y, gz, water ? "yes" : "no", wz);
+        }
+        else if (a[0] == "intsets" && a.size() > 4) {   // intsets x y z set1;set2;!set3: entity sets on the interior there (exploring)
+            int id = N<int>(N_GET_INTERIOR_AT_COORDS, F(1), F(2), F(3));
+            if (id) {
+                N(N_PIN_INTERIOR_IN_MEMORY, id);
+                int on = 0;
+                for (auto &st : Split(a[4], ';')) {
+                    if (st.empty()) continue;
+                    if (st[0] == '!') { N(N_DEACTIVATE_INTERIOR_ENTITY_SET, id, st.c_str() + 1); continue; }
+                    N(N_ACTIVATE_INTERIOR_ENTITY_SET, id, st.c_str());
+                    on += NB(N<int>(N_IS_INTERIOR_ENTITY_SET_ACTIVE, id, st.c_str())) ? 1 : 0;
+                }
+                N(N_REFRESH_INTERIOR, id);
+                Log("intsets %d: %d of the sets active", id, on);
+            }
+        }
+        else if (a[0] == "forceroom" && a.size() > 2) {   // forceroom <interior> <room key hex>: put the player and the camera in that room (exploring)
+            int id = std::atoi(a[1].c_str()); uint32_t key = (uint32_t)std::strtoul(a[2].c_str(), nullptr, 16);
+            N(N_FORCE_ROOM_FOR_ENTITY, Me(), id, key);
+            N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, id, key);
+            Log("forceroom %d 0x%08X: player interior %d room 0x%08X", id, key, N<int>(N_GET_INTERIOR_FROM_ENTITY, Me()), (unsigned)N<int>(N_GET_ROOM_KEY_FROM_ENTITY, Me()));
         }
         else if (a[0] == "intinfo") {   // intinfo [x y z]: the interior there (default: the player), and the player's room
             Vec3 p = a.size() > 3 ? V3(F(1), F(2), F(3)) : Pos(Me());
@@ -4339,6 +4373,8 @@ static void ScriptMain() {
         AcidTick();
         DmTick();
         SvTick();
+        ArenaWarTick();
+        ArenaWarWorldTick();
         PropertiesTick();
         DcDoorTick();
         PlazaTick();

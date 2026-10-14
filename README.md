@@ -4,7 +4,8 @@
 un servidor propio en Windows, un cliente `.asi` en cada PC que juega y el mod **Gori Online** con el
 contenido (personaje freemode, dinero, propiedades, negocios —también desguaces, oficinas de fianzas, la
 fábrica textil y los Money Fronts—, golpes, carreras Transform, deathmatch, Survival, misiones de contacto,
-Drug Wars, Los Santos Customs y Benny's como en Online, Ammu-Nation, teléfono de Online...).
+Drug Wars, Los Santos Customs y Benny's como en Online, Arena War con su taller, Ammu-Nation, teléfono de
+Online...).
 
 Sin servidores de Rockstar, sin Internet y sin cuentas de terceros: todo vive en tu LAN.
 

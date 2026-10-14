@@ -530,6 +530,28 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
 - **Known:** the Sultan's hood did not open for the engine view.
 - **Menu system additions:** `Item::hover` (runs when a row is selected), `g_menuBackHook` and `g_menuBanner`.
 
+## Arena War (Gori `ArenaWar.inc` + the Arena Workshop in `ModShop.inc`, 2026-10-14)
+
+- **The arena:** `xs_x18_int_01` at 2800,-3800,100, with the IPL `xs_arena_interior`. It is dressed the way fm_mission_controller does it:
+  - a theme's scene set (`Set_Dystopian_Scene` / `Set_Scifi_Scene` / `Set_Wasteland_Scene`) and one of its maps (`Set_Dystopian_01-17`, `Set_Scifi_01-10`, `Set_Wasteland_01-10`);
+  - the crowd (`Set_Crowd_A-D`, tinted by theme), a lighting set (`Set_Lights_night`, `_evening`, `_midday`, `_morning`, `_storm`, `_sandstorm`, `_toxic`, `_hell`, `_atlantis`, `_saccharine`) and `Set_Pit_Fence_Closed`.
+  - The set names come from fm_mission_controller (IS_INTERIOR_ENTITY_SET_ACTIVE says yes to any name, so it cannot check them).
+- **Rendering:** teleporting in does not put you in the interior's room, so only the sea renders. The player, the cars and the game viewport are forced into room 0x113B4A40 every frame (FORCE_ROOM_FOR_ENTITY / FORCE_ROOM_FOR_GAME_VIEWPORT). The radar shows the arena (SET_RADAR_AS_INTERIOR_THIS_FRAME).
+- **Carnage:** vehicle combat. It opens from Interaction Menu → Arena War, or with E at the Arena War blip at the Maze Bank Arena (-376,-1862).
+  - Options: theme (Apocalypse, Sci-Fi, Consumer Wasteland), map, lighting, vehicle, bots (solo) and 5/10/15 minutes.
+  - Vehicles: 12 arena vehicles, in the theme's variant (Apocalypse / Future Shock / Nightmare). If you own the model, its garage mods come with it.
+  - Countdown, spawns level with the arena floor, and a fresh car after every wreck or death. HUD: time, kills, deaths. Results board.
+  - Solo pays $5,000 + $1,500 a kill (max $60,000). Everyone gets 300 + 50/kill RP and 20 + 10/kill Arena Points (`@acid|arena_ap`).
+  - Bots: AI drivers in arena vehicles (TASK_VEHICLE_MISSION_PED_TARGET, attack), respawned 4 s after being wrecked. A wreck counts as your kill if you or your car damaged it.
+  - Online: a deathmatch job (kind 2, text `A|theme|map|light|minutes|vehicle`) with no bots. The server scores the players' kills and pays by position ($12,000 per 5 minutes).
+- **Arena Workshop:** a property under the Maze Bank Arena ($1,595,000, Real Estate). Its interior is `xs_x18_int_mod` (IPLs `xs_arena_interior_mod` + `_mod_2`), with the entity sets for the shell, the mechanic booth, the construction stage and the trophies.
+  - Owners who drive into its vehicle door (am_mp_arena_garage's first door area) get the mod shop on the workshop floor, with the `ShopUI_Title_ArenaWar` banner. Every mod slot is listed, so arena vehicles show their Armor Plating, rams, spikes and weapons.
+- **Verified in game 2026-10-14:**
+  - Solo Carnage: Apocalypse map 1, night, Imperator, 4 bots. The arena, the crowd, the bots on the radar, the HUD, the results and the cleanup all work.
+  - The Arena Workshop: test purchase, drive in, banner and Armor Plating.
+  - The test rewards and the purchase were reverted.
+- **Not done:** Online's other Arena War modes (Flag War, Hot Bomb, Wreck It, Games Masters...), the spectator box, the traps, and Arena career rewards beyond the AP total.
+
 ## Roadmap: GTA Online content (user request 2026-10-12)
 
 GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real network session, so they cannot run in story mode. They are recreated in Gori, multiplayer through the co-op jobs and races above.
