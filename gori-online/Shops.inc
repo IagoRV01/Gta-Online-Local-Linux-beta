@@ -198,15 +198,7 @@ static void ShopsTick() {
     }
     if (g_menuOpen || g_lscAt >= 0 || g_mActive) return;
     int me = Me();
-    if (InAnyVehicle()) {
-        int v = MyVehicle();
-        if (v != g_personal) return;   // other cars: SellCars offers to sell them here
-        int s = NearShop(LSC_SPOTS, (int)(sizeof LSC_SPOTS / sizeof *LSC_SPOTS), 9.f);
-        if (s < 0 || N<float>(N_GET_ENTITY_SPEED, v) > 4.f) return;
-        Help(std::string("Press ~INPUT_CONTEXT~ to enter ") + LSC_SPOTS[s].name + ".");
-        if (JustPressed(51)) LscStart(s);
-        return;
-    }
+    if (InAnyVehicle()) return;   // LS Customs and Benny's: ModShop.inc (drive into the garage)
     int s = NearShop(AMMU_SPOTS, (int)(sizeof AMMU_SPOTS / sizeof *AMMU_SPOTS), 3.f);
     if (s < 0 || Dead(me)) return;
     Help("Press ~INPUT_CONTEXT~ to browse Ammu-Nation.");

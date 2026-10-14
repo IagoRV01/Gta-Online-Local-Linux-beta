@@ -495,6 +495,41 @@ GTA Online's 2023-2025 businesses, bought on Real Estate (Maze Bank Foreclosures
   - Fixed on the way: a roof landing, then a fall through a shop front and a fall through the salvage door.
   - The test purchases were undone with `delprop`.
 
+## Los Santos Customs and Benny's like GTA Online (Gori `ModShop.inc`, 2026-10-14)
+
+Replaces the earlier LSC menu (Shops.inc's "press E at the door").
+
+- **Shops** (carmod_shop.ysc's 39-44): LSIA, La Mesa, Burton, Beeker's (Paleto Bay), Route 68 and Benny's.
+  - Entry areas, garage door hashes, the bay where the car is parked and the drive-out point all come from the script. Beeker's and Route 68 have no drive-out data there, so their bays are estimated from their doors.
+- **Entering:** drive into the entry area (not wanted, slower than 12 m/s; no aircraft, boats or emergency vehicles). The door opens, the car is parked in the bay and the shop menu opens.
+  - The header is the shop's own texture, `ShopUI_Title_Carmod` or `ShopUI_Title_Supermod`.
+  - The shop opens again only after the car has left the entry area. Leaving drops you 4 m past Online's drive-out point.
+- **Browsing:**
+  - Highlighting a part fits it on the car. The scripted camera turns to that part (front, rear, wheels, roof, engine with the hood open, interior). The camera is stopped short of walls by a ray test, so it never ends up outside the garage shell.
+  - Back puts the car back to what you own: a CaptureVehicle snapshot, re-applied after clearing every slot.
+  - Selecting pays (cash, then bank) and saves the car into its garage record.
+- **Categories (Online's order):**
+  - Armor, Brakes, Bumpers, Chassis, Engine, Exhaust, Fenders, Grille, Hood, Horns (they play when highlighted).
+  - Lights: xenon, its 13 colours, neon kits (layouts and colours).
+  - Livery, Plates.
+  - Respray: primary and secondary in Classic / Metallic / Matte / Metals / Chrome, Online's colour names; pearlescent.
+  - Roof, Skirts, Spoiler, Suspension, Transmission, Turbo Tuning.
+  - Wheels: 13 wheel types and their rims, wheel colour; tires: custom, bulletproof, tire smoke colours.
+  - Windows, Repair.
+- **Loss/Theft Prevention:** for a car that is not personal, tracker and insurance (5 % of its value, at least $1,000) make it a personal vehicle in a free garage. Other cars can be browsed, but not bought for.
+- **Benny's:**
+  - Upgrades: 20 Benny's Original Motor Works conversions (Banshee 900R, Sultan RS, Faction Custom / Donk, Chino, Moonbeam, Primo, Buccaneer, Voodoo, Sabre Turbo, Slamvan, Tornado, Virgo, Minivan, Glendale, Manana, Peyote, Yosemite, Elegy Retro, Specter Custom). The garage record changes model and the mods start over.
+  - Interior (trim, dash, dials, seats, steering, shifter, plaques, speakers, door speakers, trim and dashboard colours) and Engine Bay (engine block, air filter, struts).
+  - The supermod kit's plate holders, vanity plates, trunk, hydraulics, arch covers, aerials and tank.
+- **Prices:** Online's base prices (EMS 1-4 $9,000-$33,500, armor $2,500-$12,500, turbo $15,000, bulletproof tires $25,000...). They are scaled by the car's value (√(value / 150k), 0.6-2.5×). Online's real prices come from Rockstar's catalogue server.
+- **Verified in game 2026-10-14:**
+  - Burton: the entry area opens the shop with the LSC banner, the camera inside the garage, and a respray preview that is put back on Back.
+  - Loss/Theft Prevention ($1,000) and EMS Level 1 ($5,400 for a Sultan) are paid and saved, and the car drives out.
+  - Benny's: banner, the bay inside Benny's, "Faction Custom $335,000".
+  - The test money and the test car were reverted.
+- **Known:** the Sultan's hood did not open for the engine view.
+- **Menu system additions:** `Item::hover` (runs when a row is selected), `g_menuBackHook` and `g_menuBanner`.
+
 ## Roadmap: GTA Online content (user request 2026-10-12)
 
 GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real network session, so they cannot run in story mode. They are recreated in Gori, multiplayer through the co-op jobs and races above.

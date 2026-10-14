@@ -2998,15 +2998,18 @@ static void StartParty() {
 }
 
 // ---------------------------------------------------------------- Interaction menu
-struct Item { std::string label, right, desc; std::function<void()> act; };
+struct Item { std::string label, right, desc; std::function<void()> act; std::function<void()> hover = nullptr; };   // hover: runs when the row gets selected (shop previews)
 enum MenuId { M_MAIN, M_INV, M_VEH, M_SELL, M_SITES, M_SITE, M_SITECLASS, M_REALESTATE, M_PTYPE, M_MYPROPS, M_PROP, M_BIZ, M_BIZONE,
               M_HEISTS, M_ISLAND, M_SERVICES, M_OPTIONS, M_JOBS };
 struct Frame { MenuId id; int param; int sel; };
 static std::vector<Frame> g_stack;
 static volatile bool g_wantMenu = false, g_wantSell = false;
 
-static void Open(MenuId id, int param = 0) { g_stack.push_back({id, param, 0}); Sound("SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET"); }
-static void CloseMenu() { g_menuOpen = false; g_stack.clear(); }
+static long long g_hoverKey = -1;                              // which row's hover ran last
+static std::function<bool(const Frame &)> g_menuBackHook;      // true: the back press was handled (shops revert previews, leave)
+static const char *g_menuBanner = nullptr;                     // a ShopUI_Title_* texture dictionary drawn as the header
+static void Open(MenuId id, int param = 0) { g_stack.push_back({id, param, 0}); g_hoverKey = -1; Sound("SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET"); }
+static void CloseMenu() { g_menuOpen = false; g_stack.clear(); g_hoverKey = -1; }
 
 static void BuyCar(const CatCar *c) {
     PayWhat what("vehicle");
@@ -3151,6 +3154,7 @@ static bool DeskTick(int pi, const float *at, const char *what, void (*open)(int
 #include "BizApps.inc"
 #include "Phone.inc"
 #include "Shops.inc"
+#include "ModShop.inc"
 #include "Races.inc"
 #include "AcidLab.inc"
 #include "Deathmatch.inc"
@@ -3448,7 +3452,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
         items.push_back({"Isla Neon Life", g_optIsland ? "ON" : "OFF", "Traffic, people and parked vehicles on the island.", [] { g_optIsland = !g_optIsland; Save(); }});
         break;
     default:
-        if (!CasinoMenu((int)f.id, title, sub, items) && !SpvMenu(f, title, sub, items) && !ShopsMenu(f, title, sub, items) && !RacesMenu(f, title, sub, items) && !AcidMenu(f, title, sub, items) && !DmMenu(f, title, sub, items) && !ContactMenu(f, title, sub, items) && !SvMenu(f, title, sub, items) && !YachtMenu(f, title, sub, items)) GarageMenu((int)f.id, title, sub, items);
+        if (!CasinoMenu((int)f.id, title, sub, items) && !SpvMenu(f, title, sub, items) && !ShopsMenu(f, title, sub, items) && !ModShopMenu(f, title, sub, items) && !RacesMenu(f, title, sub, items) && !AcidMenu(f, title, sub, items) && !DmMenu(f, title, sub, items) && !ContactMenu(f, title, sub, items) && !SvMenu(f, title, sub, items) && !YachtMenu(f, title, sub, items)) GarageMenu((int)f.id, title, sub, items);
         break;
     }
 }
@@ -3468,6 +3472,10 @@ static void MenuTick() {
     if (g_stack.empty() || &g_stack.back() != &f) return;
     if (items.empty()) items.push_back({"(nothing here)", "", "", [] {}});
     if (f.sel >= (int)items.size()) f.sel = (int)items.size() - 1;
+    {
+        long long key = ((long long)g_stack.size() << 48) ^ ((long long)f.id << 32) ^ ((long long)(f.param & 0xffff) << 16) ^ (long long)f.sel;
+        if (key != g_hoverKey) { g_hoverKey = key; if (items[f.sel].hover) items[f.sel].hover(); }
+    }
 
     // Input (keyboard arrows/Enter/Backspace or pad), with auto-repeat
     int now = Now();
@@ -3488,7 +3496,9 @@ static void MenuTick() {
     }
     if (NB(N<int>(N_IS_CONTROL_JUST_PRESSED, 2, 202)) || NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 0, 199)) || NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 0, 200))) {
         Sound("BACK", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+        if (g_menuBackHook && g_menuBackHook(f)) return;
         g_stack.pop_back();
+        g_hoverKey = -1;
         if (g_stack.empty()) g_menuOpen = false;
         return;
     }
@@ -3496,9 +3506,17 @@ static void MenuTick() {
     // Draw (Online-style: blue header, dark rows, white selection)
     const float x = 0.17f, w = 0.26f, rowH = 0.034f;
     float y = 0.12f;
-    Rect(x, y, w, 0.07f, 30, 110, 200, 235);
-    Text(title.size() > 26 ? title.substr(0, 26) : title, x, y - 0.022f, title.size() > 18 ? 0.55f : 0.7f, 1, 255, 255, 255, 255, 0);
-    y += 0.035f + 0.016f;
+    if (g_menuBanner && NB(N<int>(N_HAS_STREAMED_TEXTURE_DICT_LOADED, g_menuBanner))) {   // a shop's own header, like Online's
+        const float bh = 0.10f;
+        N(N_DRAW_SPRITE, g_menuBanner, g_menuBanner, x, y - 0.035f + bh / 2, w, bh, 0.f, 255, 255, 255, 255, 0, 0);
+        y += bh - 0.035f;
+    } else {
+        if (g_menuBanner) N(N_REQUEST_STREAMED_TEXTURE_DICT, g_menuBanner, 0);
+        Rect(x, y, w, 0.07f, 30, 110, 200, 235);
+        Text(title.size() > 26 ? title.substr(0, 26) : title, x, y - 0.022f, title.size() > 18 ? 0.55f : 0.7f, 1, 255, 255, 255, 255, 0);
+        y += 0.035f;
+    }
+    y += 0.016f;
     Rect(x, y, w, 0.032f, 0, 0, 0, 230);
     Text(sub, x - w / 2 + 0.006f, y - 0.012f, 0.32f, 0, 120, 190, 255, 255, 1);
     Text(std::to_string(f.sel + 1) + " / " + std::to_string(items.size()), x, y - 0.012f, 0.32f, 0, 200, 200, 200, 255, 2, x + w / 2 - 0.006f);
@@ -3847,7 +3865,7 @@ static void CommandTick() {
         }
         else if (a[0] == "avctl") AvengerTakeControls();
         else if (a[0] == "ammu") { g_menuOpen = true; g_stack.clear(); Open((MenuId)SH_AMMU); }   // the Ammu-Nation menu anywhere (test)
-        else if (a[0] == "lsc") { if (InAnyVehicle()) LscStart(0); }                            // LS Customs on the current vehicle (test)
+        else if (a[0] == "lsc") { if (InAnyVehicle()) MsEnter(std::max(0, std::min(NMS_SHOPS - 1, a.size() > 1 ? std::atoi(a[1].c_str()) : 2))); }   // lsc [shop]: a mod shop on the current vehicle (test)
         else if (a[0] == "shops") {
             Log("shops: near LSC %d, near Ammu-Nation %d, in vehicle %d (personal %d), lsc %d, armour %d", NearShop(LSC_SPOTS, 6, 9.f), NearShop(AMMU_SPOTS, 11, 3.f),
                 MyVehicle(), (int)(MyVehicle() == g_personal), g_lscAt, N<int>(N_GET_PED_ARMOUR, Me()));
@@ -4134,6 +4152,14 @@ static void CommandTick() {
             }
             if (!line.empty()) Log("globals: %s", line.c_str());
         }
+        else if (a[0] == "phonepic" && a.size() > 2) {   // phonepic <contact> <label>: that contact's picture label (Lester's silhouette test)
+            if (uint64_t *e = GlobalPtr(PH_CHARS + std::atoi(a[1].c_str()) * PH_CHAR_STRIDE)) {
+                char pic[16] = {}; std::strncpy(pic, a[2].c_str(), 15); std::memcpy(e + 7, pic, 16);
+                std::string txd = Label(pic);
+                if (!txd.empty()) N(N_REQUEST_STREAMED_TEXTURE_DICT, txd.c_str(), 0);
+                Log("phonepic %s -> %s (%s, loaded %d)", a[1].c_str(), pic, txd.c_str(), txd.empty() ? 0 : (int)NB(N<int>(N_HAS_STREAMED_TEXTURE_DICT_LOADED, txd.c_str())));
+            }
+        }
         else if (a[0] == "phonechars") {   // the contact charsheet (Global_2350 in 3889): index, name, picture, known by
             uint64_t *owner = GlobalPtr(21650);
             Log("phonechars: phone owner Global_21650 = %lld", owner ? (long long)*owner : -1LL);
@@ -4327,6 +4353,7 @@ static void ScriptMain() {
         PhoneTick();
         SpecialVehiclesTick();
         ShopsTick();
+        ModShopTick();
         InternetTick();
         SfDebugTick();
         TrafficTick();
