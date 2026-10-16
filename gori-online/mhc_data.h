@@ -4,5 +4,6 @@ static const float MHC_ENTRANCE[] = {-175.34143f, -1033.83258f, 28.0f, 162.0f};
 static const float MHC_OFFICE[] = {-153.58663f, -966.8782f, 244.35f, -18.0f};   // arrival in the lift foyer
 static const float MHC_COMPUTER[] = {-151.85692f, -934.37173f, 243.35f, 162.0f};   // the boss's chair
 static const char *MHC_OFFICE_IPL = "islaneon_mhc_office_s01";   // our suite's styles s01..s03: islaneon_mhc_office_<style>
-static const float MHC_GARAGE[][4] = {{-158.5f, -982.0f, -50.0f, -18.0f}, {-158.5f, -982.0f, -85.0f, -18.0f}, {-158.5f, -982.0f, -120.0f, -18.0f}, };   // floors 1-3: imp_impexp_int_01 like every office garage
+static const float MHC_GARAGE_ENTRANCE[] = {-91.07406f, -949.23198f, 28.61037f, -18.0f};   // the garage's vehicle entrance, north street
+static const float MHC_GARAGE[][4] = {{-158.5f, -982.0f, 62.0f, -18.0f}, {-158.5f, -982.0f, 102.0f, -18.0f}, {-158.5f, -982.0f, 142.0f, -18.0f}, };   // floors 1-3: imp_impexp_int_01 like every office garage
 static const char *MHC_GARAGE_IPL[] = {"islaneon_mhc_cargarage_a", "islaneon_mhc_cargarage_b", "islaneon_mhc_cargarage_c"};

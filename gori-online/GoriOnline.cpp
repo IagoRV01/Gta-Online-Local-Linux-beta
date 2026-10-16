@@ -1708,6 +1708,7 @@ static void PropertiesTick() {
         Vec3 e = PropExt(i);
         if (PROPS[i].type == T_VILLA && !onFoot) e = V3(ISLAND_VILLAGARAGE[0], ISLAND_VILLAGARAGE[1], ISLAND_VILLAGARAGE[2]);
         if (PROPS[i].type == T_DATACENTER && !onFoot) e = V3(DC_GARAGE_ENTRANCE[0], DC_GARAGE_ENTRANCE[1], DC_GARAGE_ENTRANCE[2]);   // the garage has its own door
+        if (!onFoot && !std::strcmp(PROPS[i].interior, "office_mhc")) e = V3(MHC_GARAGE_ENTRANCE[0], MHC_GARAGE_ENTRANCE[1], MHC_GARAGE_ENTRANCE[2]);   // the office garage's door on the north street
         d = Dist(mp, e);
         if (d < 40.f) Marker(e, 93, 182, 229);
         if (d < (onFoot ? 1.6f : 3.0f) && !g_menuOpen) {
@@ -1944,6 +1945,7 @@ static void DriveOut(int k) {
     if (ob) { CutsceneDriveOut(pi, v); return; }   // GTA Online's garage exit
     else if (PROPS[pi].type == T_VILLA) { e = V3(ISLAND_VILLACAR[0], ISLAND_VILLACAR[1], ISLAND_VILLACAR[2]); h = ISLAND_VILLACAR[3]; }
     else if (PROPS[pi].type == T_DATACENTER) { e = V3(DC_GARAGE_ENTRANCE[0], DC_GARAGE_ENTRANCE[1], DC_GARAGE_ENTRANCE[2]); h = DC_GARAGE_ENTRANCE[3]; }
+    else if (!std::strcmp(PROPS[pi].interior, "office_mhc")) { e = V3(MHC_GARAGE_ENTRANCE[0], MHC_GARAGE_ENTRANCE[1], MHC_GARAGE_ENTRANCE[2]); h = MHC_GARAGE_ENTRANCE[3]; }
     else if (air) { float r = h * 3.14159265f / 180.f; e = V3(e.x - std::sin(r) * 25.f, e.y + std::cos(r) * 25.f, e.z); }   // out on the apron
     else { Vec3 out{}; float oh = h; if (NB(N<int>(N_GET_CLOSEST_VEHICLE_NODE_WITH_HEADING, e.x, e.y, e.z, &out, &oh, 1, 3.0f, 0.0f)) && Dist(out, e) < 70.f) { e = out; h = oh; } }
     N(N_SET_ENTITY_COORDS, v, e.x, e.y, e.z + (air ? 1.5f : 0.5f), 0, 0, 0, 0);
@@ -4026,6 +4028,18 @@ static void CommandTick() {
             float gz = GroundAt(x, y, 1000.f, -1000.f);
             bool water = NB(N<int>(N_GET_WATER_HEIGHT, x, y, 100.f, &wz));
             Log("probez %.1f %.1f: ground %.2f water %s %.2f", x, y, gz, water ? "yes" : "no", wz);
+        }
+        else if (a[0] == "holescan" && a.size() > 7) {   // holescan u0 v0 u1 v1 step ztop zmin: points of the MHC block (tower frame) with no ground, or ground below zmin
+            float u0 = F(1), v0 = F(2), u1 = F(3), v1 = F(4), st = std::max(0.2f, F(5)), zt = F(6), zmin = F(7);
+            float r = MHC_GARAGE[0][3] * 3.14159265f / 180.f, c = std::cos(r), s = std::sin(r);
+            int n = 0, holes = 0;
+            for (float v = v0; v <= v1; v += st) for (float u = u0; u <= u1; u += st) {
+                float x = MHC_GARAGE[0][0] + u * c - v * s, y = MHC_GARAGE[0][1] + u * s + v * c;
+                if (++n % 300 == 0) { N(N_REQUEST_COLLISION_AT_COORD, x, y, zt); Wait(0); }
+                float gz = GroundAt(x, y, zt, -1000.f);
+                if (gz < zmin && holes++ < 600) Log("hole %.1f %.1f %.2f", u, v, gz);
+            }
+            Log("holescan done: %d points, %d holes", n, holes);
         }
         else if (a[0] == "intsets" && a.size() > 4) {   // intsets x y z set1;set2;!set3: entity sets on the interior there (exploring)
             int id = N<int>(N_GET_INTERIOR_AT_COORDS, F(1), F(2), F(3));
