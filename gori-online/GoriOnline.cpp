@@ -301,8 +301,11 @@ static const InteriorDef INTERIORS[] = {
     {"mansion3", -2601.71f, 1874.83f, 166.0f, 0.f, "m25_2_ch1_09_mansion_interior_a;m25_2_ch1_09_mansion_interior_b;m25_2_ch1_09_mansion_interior_c", MANSION_SETS},
     {"vehware", 994.59f, -3002.59f, -39.65f, 0.f, "imp_impexp_interior_placement_interior_1_impexp_intwaremed_milo_", "branded_style_set;car_floor_hatch"},
     {"casino", 1089.97f, 206.0f, -49.0f, 0.f, "vw_casino_main", ""},
+    {"whs_s", 1088.5f, -3099.4f, -39.0f, 270.f, "ex_exec_warehouse_placement_interior_1_int_warehouse_s_dlc_milo_", ""},   // CEO warehouses
+    {"whs_m", 1048.4f, -3097.1f, -39.0f, 270.f, "ex_exec_warehouse_placement_interior_0_int_warehouse_m_dlc_milo_", ""},
+    {"whs_l", 993.0f, -3097.8f, -39.0f, 270.f, "ex_exec_warehouse_placement_interior_2_int_warehouse_l_dlc_milo_", ""},
     {"datacenter", DC_SPAWN[0], DC_SPAWN[1], DC_SPAWN[2], DC_SPAWN[3], DC_IPL, "dc_equipment_basic;dc_staff_basic;dc_security_basic;dc_lights_blue"},   // Mile High Data Center (IslandBuilder Annex.cs)
-    {"office_mhc", MHC_OFFICE[0], MHC_OFFICE[1], MHC_OFFICE[2], MHC_OFFICE[3], MHC_OFFICE_IPL, "office_chairs;office_booze"},   // Mile High Club: our own MLO, like ex_dt1_02_office_01a (IslandBuilder MhcInteriors.cs)
+    {"office_mhc", MHC_OFFICE[0], MHC_OFFICE[1], MHC_OFFICE[2], MHC_OFFICE[3], MHC_OFFICE_IPL, "office_chairs;office_booze"},   // Mile High Club: our own suite MLO (IslandBuilder MhcSuite.cs)
     {"islavilla", ISLAND_VILLAINSIDE[0], ISLAND_VILLAINSIDE[1], ISLAND_VILLAINSIDE[2] - 1.0f, 0.f, "", ""},   // the island mansion (IslandBuilder)
     {"freakshop", 570.0f, -415.0f, -68.6f, 0.f, "", ""},   // Los Santos Drug Wars: xm3_dlc_int_03_xm3 (Dax's Freakshop)
     {"acidlab", 485.0f, -2625.0f, -49.0f, 270.f, "", ""},
@@ -355,7 +358,7 @@ static const char *WORLD_IPLS =
 // ---------------------------------------------------------------- Properties
 enum PType { T_APT, T_HOUSE, T_MANSION, T_PENTHOUSE, T_OFFICE, T_CLUB, T_METH, T_WEED, T_COKE, T_CASH, T_DOCS, T_BUNKER, T_HANGAR,
              T_FACILITY, T_NIGHTCLUB, T_ARCADE, T_AUTOSHOP, T_AGENCY, T_VEHWARE, T_KOSATKA, T_VILLA, T_GARAGE, T_DATACENTER,
-             T_SALVAGE, T_BAIL, T_GARMENT, T_CARWASH, T_WEEDSHOP, T_HELITOURS, T_ARENAWS, T_COUNT };
+             T_SALVAGE, T_BAIL, T_GARMENT, T_CARWASH, T_WEEDSHOP, T_HELITOURS, T_ARENAWS, T_WAREHOUSE, T_COUNT };
 struct TypeInfo { const char *label; int blip, colour, garage; bool residence, business; };
 static const TypeInfo TYPES[T_COUNT] = {
     {"Apartments", 40, 0, 10, true, false}, {"Houses", 40, 0, 10, true, false}, {"Mansions", 40, 46, 20, true, false},
@@ -370,6 +373,7 @@ static const TypeInfo TYPES[T_COUNT] = {
     {"Salvage Yards", 68, 0, 10, false, true}, {"Bail Offices", 303, 0, 0, false, true}, {"Garment Factory", 521, 0, 0, false, true},
     {"Hands On Car Wash", 100, 0, 0, false, true}, {"Smoke on the Water", 140, 2, 0, false, true}, {"Higgins Helitours", 43, 0, 0, false, true},
     {"Arena Workshop", 643, 17, 0, false, false},
+    {"Special Cargo Warehouses", 473, 0, 0, false, true},   // bought on the SecuroServ computer (BizApps.inc), like GTA Online
 };
 // ob: index in O_BUILDINGS (GTA Online building: exact entrances/exits), -1 = Gori Online's own placement.
 // cars: garage size (0 = the type's default).
@@ -382,6 +386,29 @@ static const PropDef PROPS_GORI[] = {
     {"Richman Villa", T_MANSION, 12800000, -1630.43f, 470.85f, 128.0f, 0.f, "mansion2"},
     {"The Tongva Estate", T_MANSION, 11800000, -2601.71f, 1874.83f, 166.0f, 0.f, "mansion3"},
     {"Diamond Casino Penthouse", T_PENTHOUSE, 1500000, 924.4f, 46.9f, 81.1f, 60.f, "penthouse"},
+    // GTA Online's 22 Special Cargo warehouses (appsecuroserv.ysc: positions, sizes; prices: GTA Online)
+    {"Pacific Bait Storage", T_WAREHOUSE, 376000, 50.92f, -2560.01f, 6.00f, 0.f, "whs_s"},
+    {"White Widow Garage", T_WAREHOUSE, 360000, -1074.85f, -1257.45f, 5.69f, 0.f, "whs_s"},
+    {"Celltowa Unit", T_WAREHOUSE, 318000, 901.94f, -1019.43f, 34.97f, 0.f, "whs_s"},
+    {"Convenience Store Lockup", T_WAREHOUSE, 250000, 253.90f, -1955.93f, 22.95f, 0.f, "whs_s"},
+    {"Foreclosed Garage", T_WAREHOUSE, 400000, -426.28f, 180.90f, 80.69f, 0.f, "whs_s"},
+    {"Xero Gas Factory", T_WAREHOUSE, 2365000, -1050.36f, -2023.94f, 12.16f, 0.f, "whs_l"},
+    {"Derriere Lingerie Backlot", T_WAREHOUSE, 902000, -1275.38f, -815.43f, 17.11f, 0.f, "whs_m"},
+    {"Bilgeco Warehouse", T_WAREHOUSE, 2825000, -883.29f, -2730.54f, 12.83f, 0.f, "whs_l"},
+    {"Pier 400 Utility Building", T_WAREHOUSE, 392000, 269.68f, -3016.28f, 5.72f, 0.f, "whs_s"},
+    {"GEE Warehouse", T_WAREHOUSE, 880000, 1561.40f, -2138.70f, 77.53f, 0.f, "whs_m"},
+    {"LS Marine Building 3", T_WAREHOUSE, 994000, -303.79f, -2698.39f, 6.00f, 0.f, "whs_m"},
+    {"Railyard Warehouse", T_WAREHOUSE, 1017000, 507.21f, -649.59f, 24.75f, 0.f, "whs_m"},
+    {"Fridgit Annexe", T_WAREHOUSE, 925000, -525.82f, -1775.87f, 21.35f, 0.f, "whs_m"},
+    {"Disused Factory Outlet", T_WAREHOUSE, 971000, -291.64f, -1352.56f, 31.31f, 0.f, "whs_m"},
+    {"Discount Retail Unit", T_WAREHOUSE, 948000, 348.64f, 324.43f, 104.32f, 0.f, "whs_m"},
+    {"Logistics Depot", T_WAREHOUSE, 2600000, 922.08f, -1561.30f, 29.75f, 0.f, "whs_l"},
+    {"Darnell Bros Warehouse", T_WAREHOUSE, 3500000, 763.74f, -885.21f, 25.09f, 0.f, "whs_l"},
+    {"Wholesale Furniture", T_WAREHOUSE, 1900000, 1043.88f, -2172.60f, 30.47f, 0.f, "whs_l"},
+    {"Cypress Warehouses", T_WAREHOUSE, 3265000, 1001.66f, -2511.88f, 28.30f, 0.f, "whs_l"},
+    {"West Vinewood Backlot", T_WAREHOUSE, 2135000, -263.14f, 194.34f, 85.18f, 0.f, "whs_l"},
+    {"Old Power Station", T_WAREHOUSE, 1000000, 547.81f, -1942.51f, 23.99f, 0.f, "whs_m"},
+    {"Walker & Sons Warehouse", T_WAREHOUSE, 3040000, 88.97f, -2216.88f, 6.06f, 0.f, "whs_l"},
     {"Mile High Data Center", T_DATACENTER, 3450000, DC_ENTRANCE[0], DC_ENTRANCE[1], DC_ENTRANCE[2], DC_ENTRANCE[3], "datacenter"},   // the MHC annex (IslandBuilder Annex.cs)
     {"Mile High Club Office", T_OFFICE, 5650000, MHC_ENTRANCE[0], MHC_ENTRANCE[1], MHC_ENTRANCE[2], MHC_ENTRANCE[3], "office_mhc"},
     {"Meth Lab: Paleto Bay", T_METH, 910000, 51.6f, 6486.0f, 31.4f, 315.f, "meth"},
@@ -1470,6 +1497,13 @@ static void EnterProperty(int i) {
         long long money = BankBalance(); if (money < 0) money = GetCash();
         int lvl = (int)std::min(10LL, std::max(0LL, money / 1000000));
         for (int k = 1; k <= 10; ++k) { char b[16]; std::snprintf(b, sizeof b, "cash_set_%02d", k); if (k <= lvl) sets += std::string(";") + b; else g_unsets.push_back(b); }
+        // the swag displays fill up with the special cargo in your warehouses (one more piece every 10 crates)
+        static const char *SWAG[] = {"swag_art", "swag_jewelwatch", "swag_booze_cigs", "swag_electronic", "swag_guns", "swag_silver",
+                                     "swag_gems", "swag_furcoats", "swag_ivory", "swag_med", "swag_drugstatue", "swag_pills"};
+        int crates = 0;
+        for (int k = 0; k < NPROPS; ++k) if (PROPS[k].type == T_WAREHOUSE && Owns(PROPS[k].name)) { BizState *b = BizOf(PROPS[k].name); if (b) crates += (int)b->stock; }
+        int nswag = std::min(12, (crates + 9) / 10);
+        for (int k = 0; k < 12; ++k) { if (k < nswag) sets += std::string(";") + SWAG[k]; else g_unsets.push_back(SWAG[k]); }
         cd.sets = sets.c_str();
     }
     Vec3 sp; float sh;
@@ -1971,7 +2005,22 @@ static const BizInfo *ProductionOf(int type) { for (const BizInfo &b : BIZ) if (
 static const int SUPPLY_COST = 75000;
 static int CargoMax(int type) { return type == T_VEHWARE ? 10 : 50; }
 static int CargoValue(int type) { return type == T_OFFICE ? 22000 : type == T_HANGAR ? 10000 : 90000; }
-static bool IsCargo(int type) { return type == T_OFFICE || type == T_HANGAR || type == T_VEHWARE; }
+static bool IsCargo(int type) { return type == T_OFFICE || type == T_HANGAR || type == T_VEHWARE || type == T_WAREHOUSE; }
+// Special Cargo warehouses (GTA Online): 16 / 42 / 111 crates; a sale pays per crate more the more crates go at once
+static int CargoMaxP(int pi) {
+    if (PROPS[pi].type != T_WAREHOUSE) return CargoMax(PROPS[pi].type);
+    std::string in = PROPS[pi].interior; return in == "whs_s" ? 16 : in == "whs_m" ? 42 : 111;
+}
+static int CrateValue(int n) {   // GTA Online's price per crate for a sale of n crates
+    static const int T[][2] = {{1, 10000}, {2, 11000}, {3, 12000}, {5, 13000}, {7, 14000}, {9, 15000}, {14, 16000}, {19, 17000}, {24, 17500},
+                               {29, 18000}, {34, 18500}, {39, 19000}, {44, 19500}, {1000, 20000}};
+    for (auto &t : T) if (n <= t[0]) return t[1];
+    return 20000;
+}
+static int CargoTotal(int pi, int n) {   // what n units sell for
+    int type = PROPS[pi].type;
+    return type == T_WAREHOUSE ? n * CrateValue(n) : type == T_VEHWARE ? CargoValue(type) : n * CargoValue(type);
+}
 static void SafeIncome(int type, int &perDay, int &cap) {
     perDay = type == T_NIGHTCLUB ? 30000 : type == T_ARCADE ? 5000 : type == T_AGENCY ? 20000 : type == T_AUTOSHOP ? 8000 : type == T_DATACENTER ? 12000 :
              type == T_SALVAGE ? 18000 : type == T_BAIL ? 15000 : type == T_GARMENT ? 12000 : type == T_CARWASH ? 9000 : type == T_WEEDSHOP ? 11000 :
@@ -1980,6 +2029,12 @@ static void SafeIncome(int type, int &perDay, int &cap) {
 }
 static int g_lastMinute = 0;
 static float DcSpeed(int pi);   // the data center's upgrades (Internet.inc's CUSTOM)
+// the data center's staff and research (BizApps.inc, its DataNet computer like the Bunker's Disruption Logistics)
+static float DcMfgShare(int pi);     // 1 all staff on production, 0.5 both, 0 research only
+static float DcHackBonus(int pi);    // research unlocks: hacking contract pay multiplier
+static int DcHackSeconds(int pi), DcHackWanted(int pi);
+static float DcSellBonus(int pi);
+static bool g_dcSellFar = false;     // "sell to Los Santos": further buyers, +50%
 static void BusinessTick() {
     int now = Now();
     if (!g_lastMinute) g_lastMinute = now;
@@ -1991,7 +2046,7 @@ static void BusinessTick() {
         if (i < 0) continue;
         int type = PROPS[i].type;
         if (const BizInfo *p = ProductionOf(type)) {
-            float step = 100.f / (float)p->fillMinutes * (type == T_DATACENTER ? DcSpeed(i) : 1.f);
+            float step = 100.f / (float)p->fillMinutes * (type == T_DATACENTER ? DcSpeed(i) * DcMfgShare(i) : 1.f);
             if (b.supplies > 0.f && b.stock < 100.f) {
                 b.stock = std::min(100.f, b.stock + step);
                 b.supplies = std::max(0.f, b.supplies - step * 2.f);
@@ -2404,6 +2459,11 @@ static void SellProduct(int pi) {
     if (b->stock < 5.f) { Notify("~r~There is no product to sell."); return; }
     int value = (int)(info->fullValue * b->stock / 100.f);
     int drops = b->stock > 50.f ? 2 : 1;
+    if (PROPS[pi].type == T_DATACENTER) {   // DataNet: local buyers, or buyers across Los Santos for more (like the Bunker's sale)
+        value = (int)(value * DcSellBonus(pi) * (g_dcSellFar ? 1.5f : 1.f));
+        if (g_dcSellFar) drops++;
+        g_dcSellFar = false;
+    }
     Mission m; m.name = std::string("SELL ") + info->product;
     for (auto &c : m.name) c = (char)toupper((unsigned char)c);
     std::string prop = PROPS[pi].name;
@@ -2428,7 +2488,7 @@ static void SellProduct(int pi) {
     m.onFail = [prop] { if (BizState *s = BizOf(prop)) { s->stock = std::max(0.f, s->stock * 0.5f); Save(); } };
     StartMission(m);
 }
-static void SourceCargo(int pi) {
+static void SourceCargo(int pi, int shipment = 0) {   // shipment: crates bought on SecuroServ (warehouses)
     int type = PROPS[pi].type;
     std::string prop = PROPS[pi].name;
     Mission m;
@@ -2442,14 +2502,15 @@ static void SourceCargo(int pi) {
         m.steps.push_back(Deliver(std::string("Take it to your ~y~warehouse~s~."), PropExt(pi)));
         m.onSuccess = [prop] { if (BizState *b = BizOf(prop)) b->stock = std::min(10.f, b->stock + 1.f); Save(); GiveRP(800, "vehicle sourced"); Shard("~g~VEHICLE SOURCED", "Stored in your warehouse"); };
     } else {
-        m.name = type == T_OFFICE ? "SOURCE SPECIAL CARGO" : "SOURCE AIR FREIGHT";
+        m.name = type == T_OFFICE || type == T_WAREHOUSE ? "SOURCE SPECIAL CARGO" : "SOURCE AIR FREIGHT";
         const char *(&gang)[2] = GANGS[Rand(6)];
-        int crates = type == T_OFFICE ? 1 + Rand(3) : 2 + Rand(3);
+        int crates = shipment > 0 ? shipment : type == T_OFFICE ? 1 + Rand(3) : 2 + Rand(3);
+        int cap = CargoMaxP(pi);
         Step a = Pickup("Collect the ~g~crates~s~.", PickSpot(HOSTILE_SPOTS), crates, "prop_box_wood02a");
         a.snapFoot = true;
         m.steps.push_back(Enemies(a, 5, gang[0], gang[1]));
         m.steps.push_back(Goto(std::string("Take the cargo to ~y~") + prop + "~s~.", PropExt(pi), 5.f));
-        m.onSuccess = [prop, crates] { if (BizState *b = BizOf(prop)) b->stock = std::min(50.f, b->stock + crates); Save(); GiveRP(700, "cargo sourced"); Shard("~g~CARGO SOURCED", std::to_string(crates) + " crate(s) stored"); };
+        m.onSuccess = [prop, crates, cap] { if (BizState *b = BizOf(prop)) b->stock = std::min((float)cap, b->stock + crates); Save(); GiveRP(700, "cargo sourced"); Shard("~g~CARGO SOURCED", std::to_string(crates) + " crate(s) stored"); };
     }
     m.timeLimitMs = 20 * 60000;
     StartMission(m);
@@ -2461,10 +2522,10 @@ static void SellCargo(int pi) {
     std::string prop = PROPS[pi].name;
     Mission m;
     int count = type == T_VEHWARE ? 1 : (int)b->stock;
-    int value = count * CargoValue(type);
+    int value = CargoTotal(pi, count);
     m.name = type == T_VEHWARE ? "EXPORT VEHICLE" : "SELL CARGO";
     Step get; get.type = S_STEAL; get.text = "Get in the ~b~vehicle~s~."; get.pos = PropExt(pi); get.heading = PROPS[pi].h;
-    get.vehicle = type == T_VEHWARE ? STEAL_CARS[Rand((int)(sizeof STEAL_CARS / sizeof *STEAL_CARS))] : type == T_OFFICE ? "brickade" : "mule";
+    get.vehicle = type == T_VEHWARE ? STEAL_CARS[Rand((int)(sizeof STEAL_CARS / sizeof *STEAL_CARS))] : type == T_OFFICE || type == T_WAREHOUSE ? "brickade" : "mule";
     m.steps.push_back(get);
     Step d = Deliver("Deliver it to the ~y~buyer~s~.", type == T_VEHWARE ? V3(1200.f, -3000.f, 5.9f) : PickSpot(DROPS));
     if (Rand(2)) d.chasers = 1;
@@ -2490,14 +2551,14 @@ static void HackContract(int pi) {
     Mission m; m.name = "HACKING CONTRACT";
     Vec3 t = PickSpot(HACK_TARGETS);
     m.steps.push_back(Goto("Go to the ~y~client's target~s~.", t, 25.f));
-    Step h = Hold("Stay by the ~g~server terminal~s~ while the hack runs.", t, 30);
+    Step h = Hold("Stay by the ~g~server terminal~s~ while the hack runs.", t, DcHackSeconds(pi));
     h.snapFoot = true;
     m.steps.push_back(Enemies(h, 4 + Rand(3), "s_m_m_security_01", "weapon_pistol"));
     Step e = Escape("Lose the ~r~police~s~.");
-    e.wanted = 3;
+    e.wanted = DcHackWanted(pi);
     m.steps.push_back(e);
     m.timeLimitMs = 20 * 60000;
-    int pay = 55000 + Rand(40000) + (int)((DcSpeed(pi) - 1.f) * 50000);
+    int pay = (int)((55000 + Rand(40000) + (int)((DcSpeed(pi) - 1.f) * 50000)) * DcHackBonus(pi));
     m.onSuccess = [prop, pay] {
         if (BizState *b = BizOf(prop)) b->stock = std::min(100.f, b->stock + 15.f);
         AddCash(pay); Save(); GiveRP(1200, "hacking contract");
@@ -3040,7 +3101,7 @@ static std::string BizStatus(int pi) {
     int type = PROPS[pi].type;
     char buf[64];
     if (ProductionOf(type)) { std::snprintf(buf, sizeof buf, "Stock %d%% | Sup %d%%", (int)b->stock, (int)b->supplies); return buf; }
-    if (IsCargo(type)) { std::snprintf(buf, sizeof buf, "%d/%d", (int)b->stock, CargoMax(type)); return buf; }
+    if (IsCargo(type)) { std::snprintf(buf, sizeof buf, "%d/%d", (int)b->stock, CargoMaxP(pi)); return buf; }
     int perDay, cap; SafeIncome(type, perDay, cap);
     if (perDay) return "Safe " + Money(b->safe);
     return "";
@@ -3131,14 +3192,15 @@ static void DcDoorTick() {
 }
 static int g_secSince = 0;
 static bool DeskTick(int pi, const float *at, const char *what, void (*open)(int), const Vec3 &mp, bool onFoot);
-static bool SecuroServTick(int pi, const Vec3 &mp, bool onFoot) { return DeskTick(pi, MHC_COMPUTER, "the SecuroServ computer", OpenSecuroServ, mp, onFoot); }
-static bool DataTerminalTick(int pi, const Vec3 &mp, bool onFoot) { return DeskTick(pi, DC_TERMINAL, "the DataNet terminal", OpenDataNet, mp, onFoot); }
+static void BizOpenSecuroServ(int pi); static void BizOpenDataNet(int pi); static bool BizAppOpen();   // BizAppsUI.inc: Rockstar's own apps
+static bool SecuroServTick(int pi, const Vec3 &mp, bool onFoot) { return DeskTick(pi, MHC_COMPUTER, "the SecuroServ computer", BizOpenSecuroServ, mp, onFoot); }
+static bool DataTerminalTick(int pi, const Vec3 &mp, bool onFoot) { return DeskTick(pi, DC_TERMINAL, "the DataNet terminal", BizOpenDataNet, mp, onFoot); }
 // sit at a desk (GTA Online's office computer), open its site; logging off stands you up
 static bool DeskTick(int pi, const float *at, const char *what, void (*open)(int), const Vec3 &mp, bool onFoot) {
     int me = Me();
     Vec3 pc = V3(at[0], at[1], at[2]);
     if (g_secSeat == 1 && Now() > g_secSince + 2600) { g_secSeat = 2; open(pi); }
-    if (g_secSeat == 2 && !g_webOpen) {   // logged off: stand up, then run what was chosen (a mission, the garage)
+    if (g_secSeat == 2 && !g_webOpen && !BizAppOpen()) {   // logged off: stand up, then run what was chosen (a mission, the garage)
         g_secSeat = 0; N(N_CLEAR_PED_TASKS, me);
         if (g_secPending) { auto f = g_secPending; g_secPending = nullptr; Wait(600); f(); }
         return true;
@@ -3157,6 +3219,7 @@ static bool DeskTick(int pi, const float *at, const char *what, void (*open)(int
 #include "Yacht.inc"
 #include "Web.inc"
 #include "BizApps.inc"
+#include "BizAppsUI.inc"
 #include "Phone.inc"
 #include "Shops.inc"
 #include "ModShop.inc"
@@ -3352,9 +3415,9 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
             items.push_back({"Sell Product", Money(value), "Deliver it to the buyers.", [pi] { CloseMenu(); SellProduct(pi); }});
         } else if (IsCargo(type)) {
             int n = (int)b->stock;
-            items.push_back({type == T_VEHWARE ? "Vehicles in stock" : "Crates in stock", std::to_string(n) + "/" + std::to_string(CargoMax(type)), "", [] {}});
+            items.push_back({type == T_VEHWARE ? "Vehicles in stock" : "Crates in stock", std::to_string(n) + "/" + std::to_string(CargoMaxP(pi)), "", [] {}});
             items.push_back({type == T_VEHWARE ? "Source Vehicle" : "Source Cargo", "", "Steal more stock.", [pi] { CloseMenu(); SourceCargo(pi); }});
-            int value = type == T_VEHWARE ? CargoValue(type) : n * CargoValue(type);
+            int value = CargoTotal(pi, n);
             items.push_back({type == T_VEHWARE ? "Export Vehicle" : "Sell Cargo", Money(value), "Deliver to the buyer.", [pi] { CloseMenu(); SellCargo(pi); }});
         }
         int perDay, cap; SafeIncome(type, perDay, cap);
@@ -4001,6 +4064,17 @@ static void CommandTick() {
                 id ? (int)NB(N<int>(N_IS_VALID_INTERIOR, id)) : 0, id ? (int)NB(N<int>(N_IS_INTERIOR_READY, id)) : 0, id ? (int)NB(N<int>(N_IS_INTERIOR_DISABLED, id)) : 0,
                 at.x, at.y, at.z, nh, Joaat(a[4].c_str()));
         }
+        else if (a[0] == "app" && a.size() > 1) {   // app securo|datanet: open the business computer (test)
+            if (a[1] == "securo") BizOpenSecuroServ(FindProp("Mile High Club Office"));
+            else BizOpenDataNet(FindProp("Mile High Data Center"));
+        }
+        else if (a[0] == "dims") {   // dims <model>...: bounding box
+            for (size_t k = 1; k < a.size(); ++k) {
+                Vec3 mn{}, mx{};
+                N(N_GET_MODEL_DIMENSIONS, Joaat(a[k].c_str()), &mn, &mx);
+                Log("dims %s: %.2f %.2f %.2f .. %.2f %.2f %.2f", a[k].c_str(), mn.x, mn.y, mn.z, mx.x, mx.y, mx.z);
+            }
+        }
         else if (a[0] == "txd") {   // txd <dict>...: can a texture dictionary stream
             for (size_t k = 1; k < a.size(); ++k) {
                 N(N_REQUEST_STREAMED_TEXTURE_DICT, a[k].c_str(), 0);
@@ -4241,6 +4315,7 @@ static void CommandTick() {
         else if (a[0] == "internet") { OpenInternet(); if (a.size() > 2) WebGo((int)F(1), (int)F(2), a.size() > 3 ? (int)F(3) : -1); }
         else if (a[0] == "mapcol" && a.size() > 2) { g_mapColours[(int)F(1)] = (int)F(2); BuildIslandMap(); }
         else if (a[0] == "where") { Vec3 p = Pos(Me()); Log("at %.2f %.2f %.2f heading %.1f ground %.2f interior %d", p.x, p.y, p.z, N<float>(N_GET_ENTITY_HEADING, Me()), GroundAt(p.x, p.y, p.z + 3.f, -999.f), N<int>(N_GET_INTERIOR_FROM_ENTITY, Me())); }
+        else if (a[0] == "rmipl") { N(N_REMOVE_IPL, rest.c_str()); Wait(500); Log("ipl %s active=%d", rest.c_str(), N<int>(N_IS_IPL_ACTIVE, rest.c_str())); }
         else if (a[0] == "ipl") { N(N_REQUEST_IPL, rest.c_str()); Wait(500); Log("ipl %s active=%d", rest.c_str(), N<int>(N_IS_IPL_ACTIVE, rest.c_str())); }
         else if (a[0] == "iplq") Log("ipl %s active=%d", rest.c_str(), N<int>(N_IS_IPL_ACTIVE, rest.c_str()));
         else if (a[0] == "obj") {   // obj <archetype> [dx dy dz]: spawn one of our archetypes near the player
@@ -4392,6 +4467,7 @@ static void ScriptMain() {
         ModShopTick();
         InternetTick();
         SfDebugTick();
+        BizAppTick();
         TrafficTick();
         Events();
         SellCars();

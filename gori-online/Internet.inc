@@ -11,6 +11,7 @@ struct CustCat { const char *interior; const char *name; int kind; const CustOpt
 static const CustOpt O_OFFICE[] = {{"Old Spice Warm", 325000, "01a"}, {"Old Spice Classical", 380000, "01b"}, {"Old Spice Vintage", 420000, "01c"},
     {"Executive Contrast", 150000, "02a"}, {"Executive Rich", 0, "02b"}, {"Executive Cool", 200000, "02c"},
     {"Power Broker Ice", 700000, "03a"}, {"Power Broker Conservative", 780000, "03b"}, {"Power Broker Polished", 850000, "03c"}};
+static const CustOpt O_MHCSUITE[] = {{"Skyline Noir", 0, "s01"}, {"Skyline Ivory", 450000, "s02"}, {"Heritage Walnut", 600000, "s03"}};   // the Mile High Club suite (IslandBuilder MhcSuite.cs)
 static const CustOpt O_DCEQUIP[] = {{"Standard Servers", 0, "dc_equipment_basic"}, {"High-Density Racks", 1155000, "dc_equipment_basic;dc_equipment_upgrade"}};   // data center
 static const CustOpt O_DCSTAFF[] = {{"Skeleton Crew", 0, "dc_staff_basic"}, {"Full Hacker Team", 598500, "dc_staff_basic;dc_staff_upgrade"}};
 static const CustOpt O_DCSEC[] = {{"Guard Desk", 0, "dc_security_basic"}, {"Cameras & Lockdown", 351000, "dc_security_basic;dc_security_upgrade"}};
@@ -66,7 +67,7 @@ static const CustOpt O_AFLOOR[] = {{"Floor 1", 0, "entity_set_floor_option_01"},
 static const CustCat CUSTOM[] = {
     {"office_arc", "Office Style", 1, O_OFFICE, NOPT(O_OFFICE), 4}, {"office_mbt", "Office Style", 1, O_OFFICE, NOPT(O_OFFICE), 4},
     {"office_lom", "Office Style", 1, O_OFFICE, NOPT(O_OFFICE), 4}, {"office_mbw", "Office Style", 1, O_OFFICE, NOPT(O_OFFICE), 4},
-    {"office_mhc", "Office Style", 1, O_OFFICE, NOPT(O_OFFICE), 4},   // the Mile High Club places Rockstar's office: the same nine styles
+    {"office_mhc", "Office Style", 1, O_MHCSUITE, NOPT(O_MHCSUITE), 0},   // the Mile High Club: our own suite, three looks
     {"datacenter", "Equipment", 0, O_DCEQUIP, NOPT(O_DCEQUIP), 0}, {"datacenter", "Staff", 0, O_DCSTAFF, NOPT(O_DCSTAFF), 0},
     {"datacenter", "Security", 0, O_DCSEC, NOPT(O_DCSEC), 0}, {"datacenter", "Lighting", 0, O_DCLIGHT, NOPT(O_DCLIGHT), 0},
     {"officegarage", "Garage Decor", 0, O_GDECOR, NOPT(O_GDECOR), 0}, {"officegarage", "Garage Lighting", 0, O_GLIGHT, NOPT(O_GLIGHT), 0},
