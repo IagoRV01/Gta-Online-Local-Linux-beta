@@ -856,7 +856,7 @@ static int LoadInterior(const InteriorDef &d) {
     if (!std::strcmp(d.id, "islavilla")) { g_unsets.clear(); return 0; }   // the island mansion is our own geometry, not an MLO
     for (auto &ipl : Split(d.ipls, ';')) if (!ipl.empty() && !NB(N<int>(N_IS_IPL_ACTIVE, ipl.c_str()))) N(N_REQUEST_IPL, ipl.c_str());
     int id = 0;
-    for (int i = 0; i < 60; ++i) {
+    for (int i = 0; i < 160; ++i) {   // up to 8 s: streaming in from across the map
         id = N<int>(N_GET_INTERIOR_AT_COORDS, d.x, d.y, d.z);
         if (id && NB(N<int>(N_IS_VALID_INTERIOR, id))) break;
         id = 0; Wait(50);
@@ -878,24 +878,30 @@ static int LoadInterior(const InteriorDef &d) {
     N(N_REFRESH_INTERIOR, id);
     return id;
 }
-static void TeleportInside(const InteriorDef &d) {
+static bool TeleportInside(const InteriorDef &d) {
     int me = Me();
     if (InAnyVehicle()) { N(N_TASK_LEAVE_VEHICLE, me, MyVehicle(), 16); Wait(300); }
     N(N_DO_SCREEN_FADE_OUT, 400);
     Wait(450);
-    int id = LoadInterior(d);
+    // go there first (frozen, faded out) so the area and its interior stream in, then look for the interior: from far away
+    // (a respawn at the hospital) it is not loaded yet and would not be found
     N(N_SET_ENTITY_COORDS, me, d.x, d.y, d.z + 1.0f, 0, 0, 0, 0);
     N(N_FREEZE_ENTITY_POSITION, me, 1);
+    N(N_REQUEST_COLLISION_AT_COORD, d.x, d.y, d.z);
+    int id = LoadInterior(d);
     for (int i = 0; id && i < 80 && !NB(N<int>(N_IS_INTERIOR_READY, id)); ++i) Wait(50);
     N(N_REQUEST_COLLISION_AT_COORD, d.x, d.y, d.z);
     Wait(500);
     float gz = GroundAt(d.x, d.y, d.z + 1.5f, -1000.f);
-    if (gz > d.z - 4.f && gz < d.z + 1.6f) N(N_SET_ENTITY_COORDS, me, d.x, d.y, gz + 1.0f, 0, 0, 0, 0);
+    bool floor = gz > d.z - 4.f && gz < d.z + 1.6f;
+    if (floor) N(N_SET_ENTITY_COORDS, me, d.x, d.y, gz + 1.0f, 0, 0, 0, 0);
+    if (!id && !floor) { N(N_FREEZE_ENTITY_POSITION, me, 0); return false; }   // nothing to stand on (the caller takes the player out; the screen stays black)
     N(N_SET_ENTITY_HEADING, me, d.h);
     N(N_FREEZE_ENTITY_POSITION, me, 0);
     N(N_SET_GAMEPLAY_CAM_RELATIVE_HEADING, 0.f);
     Wait(200);
     N(N_DO_SCREEN_FADE_IN, 500);
+    return true;
 }
 
 // ---------------------------------------------------------------- Isla Neón (the map itself is the islaneon DLC built by IslandBuilder)
@@ -1508,6 +1514,10 @@ static void EnterProperty(int i) {
     }
     Vec3 sp; float sh;
     bool onlineSpot = OnlinePoint(i, 6, sp, sh);
+    if (onlineSpot && std::hypot(sp.x - d0->x, sp.y - d0->y) > 60.f) {   // the metadata block read was another template's: not this interior
+        Log("interior %s: online spot %.1f %.1f %.1f is %.0f m away, using the interior's own", d0->id, sp.x, sp.y, sp.z, std::hypot(sp.x - d0->x, sp.y - d0->y));
+        onlineSpot = false;
+    }
     if (onlineSpot) {   // GTA Online's spot at the front door, facing away from the door
         cd.x = sp.x; cd.y = sp.y; cd.z = sp.z; cd.h = std::fmod(sh + 180.f, 360.f);
         Vec3 da, db; float dh;
@@ -1518,7 +1528,11 @@ static void EnterProperty(int i) {
     }
     const InteriorDef *d = &cd;
     CutsceneWalkIn(i);
-    TeleportInside(*d);
+    if (!TeleportInside(*d)) {   // never leave the player in the air: back to the front door
+        Log("interior %s: no interior or floor at %.1f %.1f %.1f, back outside", d->id, d->x, d->y, d->z);
+        GoToProperty(i);
+        return;
+    }
     g_inside = i;
     if (onlineSpot) {   // walking in from the front door
         Vec3 cp; float ch, pitch;
