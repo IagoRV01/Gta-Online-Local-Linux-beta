@@ -66,6 +66,7 @@ constexpr uint64_t N_DISABLE_CONTROL_ACTION = 0xFE99B66D079CF6BC; // void DISABL
 constexpr uint64_t N_DISABLE_PLAYER_FIRING = 0x5E6CC07646BBEAB8; // void DISABLE_PLAYER_FIRING(Player player, BOOL toggle)
 constexpr uint64_t N_DISPLAY_ONSCREEN_KEYBOARD = 0x00DC833F2568DBF6; // void DISPLAY_ONSCREEN_KEYBOARD(int p0, const char* windowTitle, const char* p2, const char* defaultText, const char* defaultConcat1, const char* defaultConcat2, const char* defaultConcat3, int maxInputLength)
 constexpr uint64_t N_DOES_BLIP_EXIST = 0xA6DB27D19ECBB7DA; // BOOL DOES_BLIP_EXIST(Blip blip)
+constexpr uint64_t N_DOES_CAM_EXIST = 0xA7A932170592B50E; // BOOL DOES_CAM_EXIST(Cam cam)
 constexpr uint64_t N_DOES_ENTITY_EXIST = 0x7239B21A38F536BA; // BOOL DOES_ENTITY_EXIST(Entity entity)
 constexpr uint64_t N_DOES_EXTRA_EXIST = 0x1262D55792428154; // BOOL DOES_EXTRA_EXIST(Vehicle vehicle, int extraId)
 constexpr uint64_t N_DOES_WEAPON_TAKE_WEAPON_COMPONENT = 0x5CEE3DF569CECAB0; // BOOL DOES_WEAPON_TAKE_WEAPON_COMPONENT(Hash weaponHash, Hash componentHash)

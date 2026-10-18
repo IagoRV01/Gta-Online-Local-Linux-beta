@@ -232,6 +232,7 @@ static void RWFeedDynasty8() {
         N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 0);
         RWEnd();
     }
+    NaptFeedDynasty8(g_rw.d8Slots);   // the new apartments (NewApartmentsRt.inc)
     RWCall("UPDATE_TEXT"); RWEnd();
     Log("web: Dynasty 8 listing: %d properties", (int)g_rw.d8Slots.size());
 }

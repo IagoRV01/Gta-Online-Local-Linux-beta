@@ -379,6 +379,7 @@ static const TypeInfo TYPES[T_COUNT] = {
 // cars: garage size (0 = the type's default).
 struct PropDef { const char *name; uint8_t type; int price; float x, y, z, h; const char *interior; int ob = -1; int cars = 0; };
 #include "online_props.h"
+#include "NewApartments.inc"   // new apartments in empty buildings (IslandBuilder Apartments.cs)
 // Gori Online's own properties (businesses, bunkers, mansions...). Apartments, houses, garages,
 // offices and MC clubhouses come from GTA Online's data (online_props.h).
 static const PropDef PROPS_GORI[] = {
@@ -479,9 +480,10 @@ static void BuildProps() {
     if (NPROPS) return;
     for (int i = 0; i < NO_PROPS; ++i) PROPS.push_back(O_PROPS[i]);
     for (const PropDef &p : PROPS_GORI) PROPS.push_back(p);
+    NaptAddProps(PROPS);
     NPROPS = (int)PROPS.size();
 }
-static const OBuilding *BuildingOf(int i) { return i >= 0 && i < NPROPS && PROPS[i].ob >= 0 ? &O_BUILDINGS[PROPS[i].ob] : nullptr; }
+static const OBuilding *BuildingOf(int i) { return i >= 0 && i < NPROPS && PROPS[i].ob >= 0 ? BldAt(PROPS[i].ob) : nullptr; }
 // first entrance of a kind (1 walk-in, 2 garage) of an Online building
 static const OEntrance *EntranceOf(const OBuilding *b, int kind) {
     if (b) for (int k = 0; k < b->ne; ++k) if (b->e[k].kind == kind) return &b->e[k];
@@ -489,7 +491,7 @@ static const OEntrance *EntranceOf(const OBuilding *b, int kind) {
 }
 static const InteriorDef *FindInteriorOnline(const char *id) {
     for (const InteriorDef &d : O_INTERIORS) if (!std::strcmp(d.id, id)) return &d;
-    return nullptr;
+    return FindInteriorNapt(id);
 }
 static int FindProp(const std::string &name) { for (int i = 0; i < NPROPS; ++i) if (name == PROPS[i].name) return i; return -1; }
 
@@ -1216,7 +1218,11 @@ static int SpawnGarage(int pi, int page, bool movePlayer);
 static InteriorDef CustomisedInterior(int pi, const InteriorDef &d, std::string &ipls, std::string &sets, std::vector<std::string> &unsets);
 // ---------------------------------------------------------------- GTA Online interiors + cutscenes
 // O_PROPS rows come first in PROPS, so PROPS[i] for i < NO_PROPS has its GTA Online interior frame.
-static const OInterior *PIntOf(int i) { return i >= 0 && i < NO_PROPS ? &O_PINT[i] : nullptr; }
+static const OInterior *PIntOf(int i) {
+    if (i >= 0 && i < NO_PROPS) return &O_PINT[i];
+    int k = NaptIndexOfProp(i);   // the new apartments: their template's frame, moved (NewApartments.inc)
+    return k >= 0 ? &g_naptPint[k] : nullptr;
+}
 // GTA Online's func_48: an interior point of the template (metadata block, read by the game itself)
 // moved from the template's origin to this property's origin. Point 6 = where you appear when you
 // come in, points 1-2 = the exit area at the apartment's front door.
@@ -1675,7 +1681,7 @@ static void OnlineBuildingsTick(Vec3 mp, bool onFoot) {
     std::map<int, std::vector<int>> owned;
     for (auto &o : g_props) { int i = FindProp(o); if (i >= 0 && PROPS[i].ob >= 0) owned[PROPS[i].ob].push_back(i); }
     for (auto &kv : owned) {
-        const OBuilding &b = O_BUILDINGS[kv.first];
+        const OBuilding &b = *BldAt(kv.first);
         const std::vector<int> &units = kv.second;
         for (int k = 0; k < b.ne; ++k) {
             const OEntrance &e = b.e[k];
@@ -1719,8 +1725,10 @@ static void OnlineBuildingsTick(Vec3 mp, bool onFoot) {
 static void OpenSecuroServ(int pi);
 static bool SecuroServTick(int pi, const Vec3 &mp, bool onFoot);
 static bool DataTerminalTick(int pi, const Vec3 &mp, bool onFoot);
+static void NaptResolveTick(Vec3 mp);
 static void PropertiesTick() {
     int me = Me(); Vec3 mp = Pos(me);
+    NaptResolveTick(mp);
     bool onFoot = !InAnyVehicle();
     if (g_inside >= 0) {
         const InteriorDef *d = PropInterior(g_inside);
@@ -3296,7 +3304,9 @@ static bool DeskTick(int pi, const float *at, const char *what, void (*open)(int
 }
 #include "SpecialVehicles.inc"
 #include "Yacht.inc"
+static void NaptFeedDynasty8(std::vector<int> &slots);
 #include "Web.inc"
+#include "NewApartmentsRt.inc"   // the new apartments' doors and Dynasty 8 rows
 #include "BizApps.inc"
 #include "BizAppsUI.inc"
 #include "Phone.inc"
@@ -4594,7 +4604,7 @@ static void CommandTick() {
             if (pi >= 0) { if (t == T_SALVAGE) SalvageRobbery(pi); else if (t == T_BAIL) BountyTarget(pi); else SabotageJob(pi); }
         }
         else if (a[0] == "buyprop") { int i = FindProp(rest); if (i >= 0 && !Owns(PROPS[i].name)) { g_props.push_back(PROPS[i].name); Save(); RefreshPropertyBlips(); } Log("buyprop %s -> %d", rest.c_str(), i); }
-        else if (a[0] == "props") { for (int i = 0; i < NPROPS; ++i) if (PROPS[i].ob >= 0) { const OBuilding &b = O_BUILDINGS[PROPS[i].ob]; Log("prop %d %s type %d ob %d (id %d) walk %.2f %.2f %.2f cars %d int %s", i, PROPS[i].name, PROPS[i].type, PROPS[i].ob, b.id, b.e[0].mx, b.e[0].my, b.e[0].mz, GarageSlots(i), PROPS[i].interior); } }
+        else if (a[0] == "props") { for (int i = 0; i < NPROPS; ++i) if (PROPS[i].ob >= 0) { const OBuilding &b = *BldAt(PROPS[i].ob); Log("prop %d %s type %d ob %d (id %d) walk %.2f %.2f %.2f cars %d int %s", i, PROPS[i].name, PROPS[i].type, PROPS[i].ob, b.id, b.e[0].mx, b.e[0].my, b.e[0].mz, GarageSlots(i), PROPS[i].interior); } }
         else if (a[0] == "door") {   // stand in the exit area at the front door of the current GTA Online interior
             Vec3 pa, pb; float h;
             if (g_inside >= 0 && OnlinePoint(g_inside, 1, pa, h) && OnlinePoint(g_inside, 2, pb, h)) {
@@ -4672,6 +4682,16 @@ static void CommandTick() {
         else if (a[0] == "chips") { g_chips = (int)F(1); Save(); }
         else if (a[0] == "wheelreset") { g_wheelNext = 0; Save(); }
         else if (a[0] == "water") { float h = 0.f; int r = N<int>(N_GET_WATER_HEIGHT, F(1), F(2), F(3), &h); Log("water at %.1f %.1f: %d height %.2f", F(1), F(2), r, h); }
+        else if (a[0] == "napt" && a.size() > 1) {   // napt <id> [in]: go to a new apartment's door (in: inside, at GTA Online's entry spot)
+            for (int k = 0; k < (int)g_naptProp.size(); ++k) if (a[1] == NEW_APTS[k].id) {
+                if (a.size() > 2 && a[2] == "in") { EnterProperty(g_naptProp[k]); break; }
+                const NewAptPlace *p = NaptPlaceOf(k);
+                if (!g_naptResolved[k]) { Teleport(p->fx, p->fy - p->hy - 8.f, p->z, 0.f); Wait(3000); NaptResolve(k); }
+                const OEntrance &e = g_naptBld[k].e[0];
+                TeleportExact(e.mx, e.my, e.mz + 1.f, e.mh);
+                break;
+            }
+        }
         else if (a[0] == "knoway") {   // knoway [go | wp x y]: the robotaxi fleet; go = stand next to the nearest one, wp = set a waypoint (testing)
             if (a.size() > 3 && a[1] == "wp") N(N_SET_NEW_WAYPOINT, (float)F(2), (float)F(3));
             Vec3 me = Pos(Me()); int best = -1; float bd = 1e9f;
@@ -4788,7 +4808,7 @@ static void CommandTick() {
         }
         else if (a[0] == "cam") {   // cam x y z pitch heading [fov]: scripted camera for screenshots
             static int cam = 0;
-            if (!cam) cam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
+            if (!cam || !NB(N<int>(N_DOES_CAM_EXIST, cam))) cam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);   // a death destroys script cameras
             N(N_SET_CAM_COORD, cam, F(1), F(2), F(3));
             N(N_SET_CAM_ROT, cam, F(4), 0.f, F(5), 2);
             N(N_SET_CAM_FOV, cam, a.size() > 6 ? F(6) : 60.f);
