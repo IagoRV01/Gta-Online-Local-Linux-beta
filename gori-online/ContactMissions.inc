@@ -66,7 +66,7 @@ static const ContactDef CONTACTS[] = {
 static const int NCONTACTS = (int)(sizeof CONTACTS / sizeof *CONTACTS);
 enum { CMM_LIST = 270, CMM_CONTACT = 271 };   // CMM_CONTACT + contact index
 
-static void StartContactMission(int c, int i) {
+static void StartContactMission(int c, int i, int diff = 1) {   // diff: 0 easy, 1 normal, 2 hard (the lobby's setting)
     const ContactMission &cm = CONTACTS[c].missions[i];
     Vec3 t = V3(cm.x, cm.y, cm.z);
     Vec3 back = PickSpot(DROPS);
@@ -74,7 +74,7 @@ static void StartContactMission(int c, int i) {
     m.name = cm.name;
     for (auto &ch : m.name) ch = (char)toupper((unsigned char)ch);
     m.timeLimitMs = 25 * 60000;
-    int n = 5 + cm.rank / 4;
+    int n = std::max(2, (5 + cm.rank / 4) * (diff == 0 ? 6 : diff == 2 ? 14 : 10) / 10);
     switch (cm.kind) {
     case CM_ELIM:
         m.steps.push_back(Enemies(Goto("Go to the ~y~target area~s~.", t, 25.f), n + 2, cm.enemy, cm.weapon));
@@ -118,12 +118,66 @@ static void StartContactMission(int c, int i) {
         break;
     }
     }
-    int pay = cm.pay;
+    int pay = cm.pay * (diff == 0 ? 8 : diff == 2 ? 13 : 10) / 10, rp = 500 + pay / 20;
     std::string name = cm.name, who = CONTACTS[c].name;
     m.coopPay = pay / 2;
-    m.onSuccess = [pay, name, who] { AddCash(pay); GiveRP(500 + pay / 20, "contact mission"); Shard("~g~MISSION PASSED", name + "  " + Money(pay)); };
+    m.corona = true; m.resultCash = pay; m.resultRp = rp;
+    m.onSuccess = [pay, rp] { AddCash(pay); GiveRP(rp, "contact mission"); };
     Notify(cm.text);
     StartMission(m);
+}
+// the lobby for a contact mission, like Online's: difficulty, then the invite page
+static CoronaDef ContactCorona(int c, int i) {
+    const ContactMission &cm = CONTACTS[c].missions[i];
+    CoronaDef d;
+    d.title = cm.name;
+    std::string brief = cm.text;
+    size_t q = brief.find('"');
+    if (q != std::string::npos) brief = brief.substr(q + 1, brief.size() - q - 2);   // the contact's line, without "Name: "
+    d.desc = std::string(CONTACTS[c].name) + ": " + brief + "  Rank " + std::to_string(cm.rank) + ", " + Money(cm.pay) + ". 1-4 players.";
+    d.theme = 0; d.maxPlayers = 4; d.payout = cm.pay;
+    d.at = V3(cm.x, cm.y, cm.z);
+    d.opts.push_back({"Difficulty", {"Easy", "Normal", "Hard"}, 1, "Easy: fewer enemies, less pay. Hard: more of them, more pay."});
+    d.onPlay = [c, i](const std::vector<int> &sel) { StartContactMission(c, i, sel.empty() ? 1 : sel[0]); };
+    return d;
+}
+// the contact's "Request Job": a call, then an invite to one of their jobs at your rank (accept with E)
+static int g_cmInviteC = -1, g_cmInviteI = -1, g_cmInviteUntil = 0;
+static void ContactRequestJob(int c) {
+    int rank = LevelOf(g_rp);
+    std::vector<int> ok;
+    for (int i = 0; i < CONTACTS[c].count; ++i) if (rank >= CONTACTS[c].missions[i].rank) ok.push_back(i);
+    if (ok.empty()) { Notify(std::string(CONTACTS[c].name) + ": \"Come back when you've got some rank.\""); return; }
+    g_cmInviteC = c; g_cmInviteI = ok[Rand((int)ok.size())]; g_cmInviteUntil = Now() + 45000;
+    const char *pics[] = {"CHAR_MP_GERALD", "CHAR_SIMEON", "CHAR_LAMAR", "CHAR_MARTIN", "CHAR_RON", "CHAR_TREVOR"};
+    const char *pic = c < 6 ? pics[c] : "CHAR_DEFAULT";
+    N(N_REQUEST_STREAMED_TEXTURE_DICT, pic, 0);
+    for (int k = 0; k < 20 && !NB(N<int>(N_HAS_STREAMED_TEXTURE_DICT_LOADED, pic)); ++k) Wait(25);
+    N(N_BEGIN_TEXT_COMMAND_THEFEED_POST, "STRING");
+    N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, (std::string("Invite to ~y~") + CONTACTS[c].missions[g_cmInviteI].name + "~s~.").c_str());
+    N(N_END_TEXT_COMMAND_THEFEED_POST_MESSAGETEXT, pic, pic, 1, 1, CONTACTS[c].name, "Job Invite");
+    N(N_END_TEXT_COMMAND_THEFEED_POST_TICKER, 0, 1);
+    Sound("Text_Arrive_Tone", "Phone_SoundSet_Default");
+}
+static void ContactInviteTick() {
+    if (g_cmInviteC < 0) return;
+    if (Now() > g_cmInviteUntil || g_mActive || CoronaActive()) { g_cmInviteC = -1; return; }
+    if (!g_menuOpen) Help("Press ~INPUT_CONTEXT~ to accept the job invite: ~y~" + std::string(CONTACTS[g_cmInviteC].missions[g_cmInviteI].name));
+    if (!g_menuOpen && NB(N<int>(N_IS_CONTROL_JUST_PRESSED, 0, 51))) {
+        int c = g_cmInviteC, i = g_cmInviteI;
+        g_cmInviteC = -1;
+        OpenCorona(ContactCorona(c, i));
+    }
+}
+// the results board for a mission started from a lobby
+static void ContactResults(bool passed, const std::string &why, const Mission &m) {
+    std::vector<CoronaResultRow> rows;
+    CoronaResultRow me; me.name = g_myName.empty() ? "You" : g_myName; me.rank = LevelOf(g_rp); me.kills = g_mKills; me.deaths = passed ? 0 : 1;
+    me.rp = passed ? m.resultRp : 0; me.cash = passed ? m.resultCash : 0; me.me = true;
+    rows.push_back(me);
+    for (auto &n : Split(g_coop.members, ',')) if (!n.empty()) { CoronaResultRow r; r.name = n; rows.push_back(r); }
+    std::string title = m.name;
+    CoronaResults(title, passed, why, rows);
 }
 static bool ContactMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     int id = (int)f.id;
@@ -136,11 +190,12 @@ static bool ContactMenu(const Frame &f, std::string &title, std::string &sub, st
         int c = id - CMM_CONTACT;
         title = CONTACTS[c].name; sub = "CONTACT MISSIONS";
         int rank = LevelOf(g_rp);
+        items.push_back({"Request Job", "", std::string("Ask ") + CONTACTS[c].name + " for a job at your rank: an invite arrives.", [c] { CloseMenu(); ContactRequestJob(c); }});
         for (int i = 0; i < CONTACTS[c].count; ++i) {
             const ContactMission &cm = CONTACTS[c].missions[i];
             bool ok = rank >= cm.rank;
             items.push_back({cm.name, ok ? Money(cm.pay) : "Rank " + std::to_string(cm.rank), cm.text,
-                             ok ? std::function<void()>([c, i] { CloseMenu(); StartContactMission(c, i); }) : nullptr});
+                             ok ? std::function<void()>([c, i] { CloseMenu(); OpenCorona(ContactCorona(c, i)); }) : nullptr});
         }
         return true;
     }
@@ -151,3 +206,20 @@ static MenuId ContactMenuFor(int phoneId) {
     for (int c = 0; c < NCONTACTS; ++c) if (CONTACTS[c].phoneId == phoneId) return (MenuId)(CMM_CONTACT + c);
     return M_MAIN;
 }
+// wiring: the phone's job contacts, the results boards (host and members)
+static void ContactsInit() {
+    g_contactCall = [](int c) { ContactRequestJob(c); };
+    g_missionEnd = [](bool passed, const std::string &why, const Mission &m) { ContactResults(passed, why, m); };
+    g_coopMemberEnd = [](bool passed, const CoopState &s) {
+        std::vector<CoronaResultRow> rows;
+        CoronaResultRow h; h.name = s.host; rows.push_back(h);
+        for (auto &n : Split(s.members, ',')) {
+            if (n.empty()) continue;
+            CoronaResultRow r; r.name = n == "you" ? (g_myName.empty() ? "You" : g_myName) : n;
+            if (n == "you") { r.me = true; r.rank = LevelOf(g_rp); r.cash = passed ? s.payout : 0; }
+            rows.push_back(r);
+        }
+        CoronaResults(g_coopTitle.empty() ? "Job" : g_coopTitle, passed, passed ? "" : s.host + "'s job failed.", rows);
+    };
+}
+

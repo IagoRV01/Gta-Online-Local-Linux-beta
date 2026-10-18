@@ -57,6 +57,9 @@ private:
         long long sessionId = 0;
         int lastProfileSaveMs = -100000;
         std::string appearanceJson;   // validated look, relayed to the other players
+        uint16_t rank = 0;            // v11: from the client (Gori's RP), shown in the player lists
+        uint8_t infoFlags = 0;        // proto::InfoFlags
+        uint32_t session = 0;         // the server's: 0 freemode, a running job's id, or a private solo session
         int combatWindowMs = 0, shotsInWindow = 0, damageInWindow = 0;
         int kills = 0, deaths = 0;
         std::string characterUuid;        // known after ProfileRequest/ProfileSave
@@ -77,6 +80,10 @@ private:
     void HandleProfileRequest(Client &c);
     void HandleProfileSave(Client &c, const proto::ProfileSaveMsg &m);
     void HandleAppearance(Client &c, const proto::AppearanceUpdateMsg &m);
+    void HandlePlayerInfo(Client &c, const proto::PlayerInfoMsg &m);
+    uint32_t SessionOf(const Client &c) const;
+    void RefreshSessions();                     // after any job or flag change: relays the players whose session changed
+    void RelayInfo(const Client &c, _ENetPeer *only);   // nullptr = everyone authed
     void HandleShot(Client &c, const proto::ShotMsg &m);
     void HandleDamage(Client &c, const proto::DamageMsg &m);
     void HandleDeath(Client &c, const proto::DeathMsg &m);

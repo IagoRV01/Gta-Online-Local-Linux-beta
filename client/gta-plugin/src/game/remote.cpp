@@ -57,6 +57,11 @@ struct Player {
     Vec3 aim;                         // newest aim point
     bool shownDead = false;
     uint8_t wanted = 0, shownWanted = 0;   // Phase 7: stars on the name tag, flashing red blip
+    uint16_t rank = 0;                // v11
+    uint8_t infoFlags = 0;
+    uint32_t session = 0;
+    unsigned long long highlightUntil = 0;
+    bool shownHighlight = false;
 };
 
 std::map<uint16_t, Player> g_players;
@@ -65,6 +70,11 @@ uint16_t g_specId = 0;
 int g_lastMetric = 0;
 interp::Clock g_clock;
 uint16_t g_self = 0;
+uint16_t Self() { return g_self ? g_self : net::SelfNetId(); }   // SetSelf is optional: the connection knows our netId
+int g_myRank = 0, g_myFlags = 0;
+uint32_t g_mySession = 0;
+uint16_t g_infoSentAs = 0;           // the netId our info was last sent under (0 = send again)
+int g_infoSentRank = -1, g_infoSentFlags = -1;
 
 double LocalSeconds() { return (double)GetTickCount64() / 1000.0; }
 
@@ -109,6 +119,19 @@ void OnMessage(MsgType type, wire::Reader &r) {
             gta::Notify("~b~" + it->second.name + "~s~ left.");
             DeletePuppet(it->second);
             g_players.erase(it);
+            break;
+        }
+        case MsgType::PlayerInfoRelay: {
+            PlayerInfoRelayMsg m;
+            if (!Get(r, m)) return;
+            if (m.netId == Self()) {
+                if (m.session != g_mySession) LOGI("remote", "-", "our session: %u -> %u", g_mySession, m.session);
+                g_mySession = m.session;
+                return;
+            }
+            Player &p = g_players[m.netId];
+            p.netId = m.netId;
+            p.rank = m.rank; p.infoFlags = m.flags; p.session = m.session;
             break;
         }
         case MsgType::PlayerAppearance: {
@@ -480,6 +503,15 @@ bool PuppetCombat(Player &p, const interp::Result &r) {
 }
 
 void WantedBlip(Player &p) {
+    bool hl = p.highlightUntil > GetTickCount64();
+    if (p.blip && hl != p.shownHighlight) {   // Highlight Player: a flashing, bigger, blue blip
+        p.shownHighlight = hl;
+        N(N_SET_BLIP_SCALE, p.blip, hl ? 1.3f : 1.0f);
+        N(N_SET_BLIP_FLASHES, p.blip, hl ? 1 : 0);
+        N(N_SET_BLIP_COLOUR, p.blip, hl ? 3 : p.wanted ? 1 : 0);
+        if (!hl) p.shownWanted = 255;
+    }
+    if (hl) return;
     if (!p.blip || p.wanted == p.shownWanted) return;
     N(N_SET_BLIP_COLOUR, p.blip, p.wanted ? 1 : 0);   // red while wanted, white otherwise
     N(N_SET_BLIP_FLASHES, p.blip, p.wanted ? 1 : 0);
@@ -532,7 +564,30 @@ std::string NameOf(uint16_t id) {
 
 std::vector<Row> Rows() {
     std::vector<Row> out;
-    for (auto &kv : g_players) out.push_back({kv.first, kv.second.name.empty() ? "player " + std::to_string(kv.first) : kv.second.name, kv.second.wanted});
+    for (auto &kv : g_players) {
+        const Player &p = kv.second;
+        if (p.session != g_mySession || kv.first == Self()) continue;
+        out.push_back({kv.first, p.name.empty() ? "player " + std::to_string(kv.first) : p.name, p.wanted, p.rank, (p.infoFlags & kInfoPassive) != 0,
+                       gta::Exists(p.ped) ? p.ped : 0});
+    }
+    return out;
+}
+
+void SetMyInfo(int rank, int flags) { g_myRank = rank; g_myFlags = flags; }
+void Highlight(uint16_t netId, int ms) {
+    auto it = g_players.find(netId);
+    if (it != g_players.end()) it->second.highlightUntil = GetTickCount64() + (unsigned long long)(ms < 0 ? 0 : ms);
+}
+int MyRank() { return g_myRank; }
+int MyFlags() { return g_myFlags; }
+uint32_t MySession() { return g_mySession; }
+std::string PlayersText() {
+    std::string out;
+    for (auto &kv : g_players) {
+        const Player &p = kv.second;
+        out += std::to_string(kv.first) + "|" + (p.name.empty() ? "player " + std::to_string(kv.first) : p.name) + "|" + std::to_string(p.rank) + "|" +
+               std::to_string(p.infoFlags) + "|" + std::to_string(p.session) + (p.session == g_mySession ? "|1" : "|0") + "\n";
+    }
     return out;
 }
 
@@ -569,10 +624,22 @@ void SetSelf(uint16_t id) { g_self = id; }
 int Count() { return (int)g_players.size(); }
 
 void Frame() {
+    uint16_t self = Self();
+    if (self && (g_infoSentAs != self || g_infoSentRank != g_myRank || g_infoSentFlags != g_myFlags)) {   // our rank / flags to the server
+        wire::Writer w;
+        Put(w, PlayerInfoMsg{(uint16_t)(g_myRank < 0 ? 0 : g_myRank > kMaxRank ? kMaxRank : g_myRank), (uint8_t)(g_myFlags & 3)});
+        net::SendEvent(w);
+        g_infoSentAs = self; g_infoSentRank = g_myRank; g_infoSentFlags = g_myFlags;
+    }
     if (!g_clock.Synced()) return;
     double renderT = g_clock.ServerNow(LocalSeconds()) - kDelay;
     for (auto &kv : g_players) {
         Player &p = kv.second;
+        if (p.session != g_mySession) {   // another session (a job, a solo activity): not here
+            if (p.ped || p.veh) { LOGI("remote", p.name.c_str(), "in another session: hidden"); DeletePuppet(p); }
+            p.buf.Clear();
+            continue;
+        }
         if (p.buf.Empty()) continue;
         interp::Result r = p.buf.At(renderT);
         if (!r.valid) continue;
@@ -604,6 +671,7 @@ void Clear() {
     StopSpectate();
     for (auto &kv : g_players) DeletePuppet(kv.second);
     g_players.clear();
+    g_mySession = 0; g_infoSentAs = 0;
 }
 
 double ServerNowMs() { return g_clock.Synced() ? g_clock.ServerNow(LocalSeconds()) * 1000.0 : -1.0; }

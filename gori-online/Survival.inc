@@ -461,10 +461,7 @@ static bool SvMenu(const Frame &f, std::string &title, std::string &sub, std::ve
     case SV_LOC: {
         int l = f.param;
         title = SV_LOCS[l].name; sub = "SURVIVAL";
-        if (CoopAvailable() && LO().jobOpenKind)
-            items.push_back({"Host Survival", Money(SV_PAYOUT) + " for 10 waves", "Open a lobby: other players join from Jobs. Each one is paid by the waves they survive.",
-                             [l] { CloseMenu(); SvHost(l, false); }});
-        items.push_back({"Play Solo", Money(SV_PAYOUT) + " for 10 waves", "Just you. Dying ends it.", [l] { CloseMenu(); SvHost(l, true); }});
+        items.push_back({"Play", Money(SV_PAYOUT) + " for 10 waves", "The survival's lobby: alone or with the other players.", [l] { CloseMenu(); OpenSvCorona(l); }});
         items.push_back({"Set GPS", "", "", [l] { N(N_SET_NEW_WAYPOINT, SV_LOCS[l].x, SV_LOCS[l].y); CloseMenu(); }});
         return true;
     }

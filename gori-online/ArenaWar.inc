@@ -740,10 +740,7 @@ static bool ArenaWarMenu(const Frame &f, std::string &title, std::string &sub, s
     items.push_back({"Bots (solo)", "< " + std::to_string(g_awSel[4] * 2) + " >", "AI drivers that come for you.", [] { g_awSel[4] = (g_awSel[4] + 1) % 5; }});
     items.push_back({"Time", "< " + std::to_string(AW_MINUTES[g_awSel[5]]) + " min >", "", [] { g_awSel[5] = (g_awSel[5] + 1) % 3; }});
     items.push_back({"Traps (solo)", g_awSel[7] ? "< On >" : "< Off >", "Flippers, fire pits, mines and spikes on the arena floor.", [] { g_awSel[7] = !g_awSel[7]; }});
-    items.push_back({"Play Solo", "", std::string(AW_MODES[mode].name) + " against the bots.", [] { CloseMenu(); AwStart(false); }});
-    if (mode == AWM_CARNAGE && CoopAvailable() && LO().jobOpenKind)
-        items.push_back({"Host Online", Money(12000 * AW_MINUTES[g_awSel[5]] / 5) + " to the winner", "Open a lobby: other players join from Jobs. Paid by position.",
-                         [] { CloseMenu(); AwStart(true); }});
+    items.push_back({"Play", "", "The event's lobby: mode, arena, vehicle and the rest, alone or online.", [] { CloseMenu(); OpenAwCorona(); }});
     items.push_back({"Arena Points", std::to_string(AwApGet()), "Earned in every Arena War event.", nullptr});
     items.push_back({"Set GPS to the Maze Bank Arena", "", "", [] { N(N_SET_NEW_WAYPOINT, -376.f, -1862.f); CloseMenu(); }});
     return true;

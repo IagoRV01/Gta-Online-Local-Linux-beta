@@ -20,7 +20,15 @@ uint16_t NetIdOfPed(int ped);      // remote player driving/owning this ped, 0 i
 std::string NameOf(uint16_t netId); // account name of a remote player ("player N" if unknown)
 double ServerNowMs();                // the server's clock (ms) as estimated from the snapshots, -1 before the first one
 int PedOf(const std::string &namePrefix);
-struct Row { uint16_t netId; std::string name; int wanted; };
-std::vector<Row> Rows();           // for the player list (HUD)   // puppet ped of a remote player (tests), 0 if none
+struct Row { uint16_t netId; std::string name; int wanted; int rank; bool passive; int ped; };
+std::vector<Row> Rows();           // for the player list (HUD): the players in our session only
+// v11 player info: our rank and InfoFlags (from Gori through the exports), sent when they change;
+// the session the server put us in (players of other sessions are not drawn).
+void SetMyInfo(int rank, int flags);
+void Highlight(uint16_t netId, int ms);   // "Highlight Player": the blip flashes for a while
+int MyRank();
+int MyFlags();
+uint32_t MySession();
+std::string PlayersText();         // "netId|name|rank|flags|session" per line, every known player (Gori's menus)
 
 }  // namespace remote

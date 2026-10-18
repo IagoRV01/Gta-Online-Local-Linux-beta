@@ -120,6 +120,7 @@ static void PhoneContactsOnline(bool on) {
     if (!on) g_phoneKnownSaved.clear();
 }
 static int g_phoneCallAt = 0, g_phoneCallee = -1;
+static std::function<void(int)> g_contactCall;   // ContactMissions.inc: a job contact's call is a "Request Job" (their index)
 static void OpenMenuAt(MenuId menu) { g_menuOpen = true; g_stack.clear(); Open(M_MAIN); if (menu != M_MAIN) Open(menu); }
 static std::vector<PhoneContact> &PhoneContacts() {
     static std::vector<PhoneContact> c = {
@@ -148,7 +149,9 @@ static void PhoneCallTick() {
     g_phoneCallAt = 0;
     PhoneAway("appContacts");
     Notify(c->says);
-    OpenMenuAt(c->menu);
+    int jc = (int)c->menu - 271;   // the contact missions' contacts (menus 271..276): like Online, the call brings a job invite
+    if (jc >= 0 && jc < 6 && g_contactCall) g_contactCall(jc);
+    else OpenMenuAt(c->menu);
     Log("phone: called contact %d", who);
 }
 static void PhoneTick() {

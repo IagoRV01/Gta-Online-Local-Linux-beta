@@ -12,6 +12,8 @@ static CoopState g_coop;
 static std::string g_coopTitle;            // title of the job we are a member of
 static int g_coopRev = -1, g_coopBlip = 0, g_coopNext = 0;
 static bool g_coopHosting = false;
+static bool g_coopLobbyOpen = false;
+static std::function<void(bool, const CoopState &)> g_coopMemberEnd;   // Corona.inc: a member's results board   // a lobby (Corona.inc) already opened the job: the mission takes it over
 static int g_coopStep = -1;
 static Vec3 g_coopPos{};
 
@@ -34,6 +36,7 @@ static std::string CoopFetch(int (*get)(char *, int)) {
 static void CoopOpen(const std::string &name, const Vec3 &start, int payout) {
     g_coopHosting = false; g_coopStep = -1;
     if (!CoopAvailable()) return;
+    if (g_coopLobbyOpen) { g_coopLobbyOpen = false; g_coopHosting = true; Log("coop: the lobby's job runs \"%s\"", name.c_str()); return; }
     g_coopHosting = LO().jobOpen(name.c_str(), start.x, start.y, start.z, payout);
     if (g_coopHosting) Log("coop: opened job \"%s\" (members' payout %d)", name.c_str(), payout);
 }
@@ -90,7 +93,8 @@ static void CoopRefresh() {
         Shard("~y~" + (g_coopTitle.empty() ? std::string("JOB") : g_coopTitle), s.host + "'s job. Follow the objective.");
     }
     if (same && s.status != g_coop.status) {
-        if (s.status == COOP_PASSED) {
+        if ((s.status == COOP_PASSED || s.status == COOP_FAILED) && g_coopMemberEnd) g_coopMemberEnd(s.status == COOP_PASSED, s);   // the results board
+        else if (s.status == COOP_PASSED) {
             Shard("~g~JOB PASSED", (g_coopTitle.empty() ? std::string("Job") : g_coopTitle) + "  " + Money(s.payout) + " to your bank");
             Sound("Mission_Pass_Notify", "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS");
         } else if (s.status == COOP_FAILED) {

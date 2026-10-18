@@ -384,6 +384,38 @@ static void TestCombatMessages() {
     NEAR(sr2.target.z, 6.f, 1e-6);
 }
 
+static void TestPlayerInfoMessages() {   // v11: rank + flags up, rank + flags + session down
+    using namespace proto;
+    {
+        wire::Writer w;
+        Put(w, PlayerInfoMsg{120, kInfoPassive | kInfoActivity});
+        wire::Reader r(w.Bytes().data(), w.Size());
+        Header h; PlayerInfoMsg m;
+        CHECK(GetHeader(r, h) && h.type == MsgType::PlayerInfo && Get(r, m) && m.rank == 120 && m.flags == 3);
+    }
+    {
+        wire::Writer w;
+        Put(w, PlayerInfoMsg{kMaxRank + 1, 0});   // out of range: refused
+        wire::Reader r(w.Bytes().data(), w.Size());
+        Header h; PlayerInfoMsg m;
+        CHECK(GetHeader(r, h) && !Get(r, m));
+    }
+    {
+        wire::Writer w;
+        Put(w, PlayerInfoMsg{5, 8});   // unknown flag bits: refused
+        wire::Reader r(w.Bytes().data(), w.Size());
+        Header h; PlayerInfoMsg m;
+        CHECK(GetHeader(r, h) && !Get(r, m));
+    }
+    {
+        wire::Writer w;
+        Put(w, PlayerInfoRelayMsg{7, 42, kInfoPassive, kPrivateSession | 7});
+        wire::Reader r(w.Bytes().data(), w.Size());
+        Header h; PlayerInfoRelayMsg m;
+        CHECK(GetHeader(r, h) && h.type == MsgType::PlayerInfoRelay && Get(r, m) && m.netId == 7 && m.rank == 42 && m.flags == kInfoPassive && m.session == (kPrivateSession | 7));
+    }
+}
+
 static void TestAppearanceMessages() {
     using namespace proto;
     character::Character c = character::MakeDefault(false);
@@ -586,6 +618,7 @@ int main() {
     TestWorld();
     TestInterp();
     TestAppearanceMessages();
+    TestPlayerInfoMessages();
     TestVehicleState();
     TestCombatMessages();
     TestSha256();

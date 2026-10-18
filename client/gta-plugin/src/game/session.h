@@ -27,6 +27,7 @@ void OnKey(DWORD key);               // keyboard hook thread: only sets flags
 bool InYou();
 void EnterYou();                     // same as F10 -> Play as YOU (used by the start screen)
 std::string CharacterName();         // "" when no character exists yet
+std::string DisplayName();           // the name the others see (the account name, else the character's)
 // YOU character's money (other mods use it through the exports in main.cpp). AddMoney clamps at 0
 // and fails (false) when it would go negative or YOU is not active; it saves the profile.
 // Money() is wallet + bank. AddMoney: earnings (> 0) go to the bank, costs (< 0) come from the

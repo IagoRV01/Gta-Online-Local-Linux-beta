@@ -10,6 +10,7 @@
 #include "engine/gta.h"
 #include "engine/shv.h"
 #include "game/jobs.h"
+#include "game/remote.h"
 #include "game/devcmd.h"
 #include "game/economy.h"
 #include "game/net_client.h"
@@ -112,7 +113,14 @@ extern "C" __declspec(dllexport) void LocalOnline_RaceProgress(int checkpoints, 
     jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs > 0 ? (uint32_t)finishMs : 0);
 }
 extern "C" __declspec(dllexport) int LocalOnline_GetRaceStandings(char *buf, int cap) { return CopyOut(jobs::StandingsText(), buf, cap); }
-extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 6; }
+extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 7; }
+// API v7: Gori's rank and flags (passive mode, in a solo activity) for the player lists and the sessions,
+// and every known player for Gori's menus ("netId|name|rank|flags|session|sameSession" lines).
+extern "C" __declspec(dllexport) void LocalOnline_SetPlayerInfo(int rank, int flags) { remote::SetMyInfo(rank, flags); }
+extern "C" __declspec(dllexport) int LocalOnline_GetPlayers(char *buf, int cap) { return CopyOut(remote::PlayersText(), buf, cap); }
+extern "C" __declspec(dllexport) unsigned LocalOnline_GetSession() { return remote::MySession(); }
+extern "C" __declspec(dllexport) int LocalOnline_GetPlayerName(char *buf, int cap) { return CopyOut(session::DisplayName(), buf, cap); }
+extern "C" __declspec(dllexport) void LocalOnline_HighlightPlayer(unsigned netId, int ms) { remote::Highlight((uint16_t)netId, ms); }
 extern "C" __declspec(dllexport) bool LocalOnline_IsYouActive() { return session::InYou(); }
 extern "C" __declspec(dllexport) long long LocalOnline_GetMoney() { return session::Money(); }
 extern "C" __declspec(dllexport) bool LocalOnline_AddMoney(long long delta, const char *reason) { return session::AddMoney(delta, reason); }

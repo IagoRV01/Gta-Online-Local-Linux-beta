@@ -21,7 +21,7 @@
 namespace proto {
 
 constexpr uint8_t kMagic = 0x4C;
-constexpr uint8_t kProtocolVersion = 10;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races
+constexpr uint8_t kProtocolVersion = 11;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions
 constexpr uint8_t kChanControl = 0, kChanState = 1, kChanEvents = 2, kNumChannels = 3;
 constexpr size_t kMaxPacket = 64 * 1024;       // anything bigger is dropped before parsing
 constexpr size_t kMaxProfileJson = 48 * 1024;
@@ -42,6 +42,8 @@ enum class MsgType : uint16_t {
     PlayerLeft = 11,     // S  {u16 netId, u8 reason}
     AppearanceUpdate = 12,   // C  {str json}   own look (character JSON without state); server validates + relays
     PlayerAppearance = 13,   // S  {u16 netId, str json}
+    PlayerInfo = 14,         // C  {u16 rank, u8 flags}                      own rank and InfoFlags (Gori sets them)
+    PlayerInfoRelay = 15,    // S  {u16 netId, u16 rank, u8 flags, u32 session}  to everyone, the player itself included
     // combat (channel 2, reliable) — Phase 6
     Shot = 30,           // C  {u32 weapon, vec3 origin, vec3 target}          visual only
     ShotRelay = 31,      // S  {u16 shooter, u32 weapon, vec3 origin, vec3 target}
@@ -266,6 +268,18 @@ inline void Put(wire::Writer &w, const ProfileSaveMsg &m) { PutHeader(w, MsgType
 inline bool Get(wire::Reader &r, ProfileSaveMsg &m) { m.baseRevision = r.U32(); m.json = r.Str(kMaxProfileJson); return r.Done(); }
 inline void Put(wire::Writer &w, const ProfileSavedMsg &m) { PutHeader(w, MsgType::ProfileSaved); w.U8(m.ok); w.U32(m.revision); w.Str(m.reason, kMaxReason); }
 inline bool Get(wire::Reader &r, ProfileSavedMsg &m) { m.ok = r.U8() != 0; m.revision = r.U32(); m.reason = r.Str(kMaxReason); return r.Done(); }
+
+// Player info (v11). The session is the server's: the id of the running job the player is in, a private one
+// (0x80000000 | netId) for a solo activity, 0 for freemode. Players only see, shoot and hurt their own session.
+enum InfoFlags : uint8_t { kInfoPassive = 1 << 0, kInfoActivity = 1 << 1 };
+constexpr uint16_t kMaxRank = 8000;
+constexpr uint32_t kPrivateSession = 0x80000000u;
+struct PlayerInfoMsg { uint16_t rank = 0; uint8_t flags = 0; };
+struct PlayerInfoRelayMsg { uint16_t netId = 0, rank = 0; uint8_t flags = 0; uint32_t session = 0; };
+inline void Put(wire::Writer &w, const PlayerInfoMsg &m) { PutHeader(w, MsgType::PlayerInfo); w.U16(m.rank); w.U8(m.flags); }
+inline bool Get(wire::Reader &r, PlayerInfoMsg &m) { m.rank = r.U16(); m.flags = r.U8(); return r.Done() && m.rank <= kMaxRank && m.flags < 4; }
+inline void Put(wire::Writer &w, const PlayerInfoRelayMsg &m) { PutHeader(w, MsgType::PlayerInfoRelay); w.U16(m.netId); w.U16(m.rank); w.U8(m.flags); w.U32(m.session); }
+inline bool Get(wire::Reader &r, PlayerInfoRelayMsg &m) { m.netId = r.U16(); m.rank = r.U16(); m.flags = r.U8(); m.session = r.U32(); return r.Done(); }
 
 struct AppearanceUpdateMsg { std::string json; };
 struct PlayerAppearanceMsg { uint16_t netId = 0; std::string json; };

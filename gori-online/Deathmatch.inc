@@ -237,8 +237,7 @@ static bool DmMenu(const Frame &f, std::string &title, std::string &sub, std::ve
         title = DM_ARENAS[a].name; sub = "DEATHMATCH";
         items.push_back({"Time Limit", "< " + std::to_string(g_dmSelMin) + " min >", "", [] { g_dmSelMin = g_dmSelMin >= 15 ? 5 : g_dmSelMin + 5; }});
         items.push_back({"Weapons", std::string("< ") + DM_LOADOUT_NAMES[g_dmSelLoad] + " >", "Given to everyone (with full armor) at every spawn.", [] { g_dmSelLoad = (g_dmSelLoad + 1) % 3; }});
-        items.push_back({"Host Deathmatch", Money(10000 * g_dmSelMin / 5) + " to the winner", "Open a lobby: other players join from Jobs. Paid by position.",
-                         [a] { CloseMenu(); DmHost(a, g_dmSelMin, g_dmSelLoad); }});
+        items.push_back({"Play", Money(10000 * g_dmSelMin / 5) + " to the winner", "The deathmatch's lobby: the other players join from Jobs.", [a] { CloseMenu(); OpenDmCorona(a); }});
         items.push_back({"Set GPS", "", "", [a] { N(N_SET_NEW_WAYPOINT, DM_ARENAS[a].x, DM_ARENAS[a].y); CloseMenu(); }});
         return true;
     }

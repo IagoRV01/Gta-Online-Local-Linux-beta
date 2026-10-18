@@ -654,8 +654,9 @@ void YouFrame() {
     if (!dead && now - g_lastSave > g_cfg.autosaveSeconds * 1000) SaveNow("auto");
     else if (!dead && g_modDataDirtyAt && now - g_modDataDirtyAt > 2000) SaveNow("mod data");
     MultiplayerFrame(me);
-    std::vector<hud::PlayerRow> rows{{g_cfg.server.playerName.empty() ? g_char.name : g_cfg.server.playerName, true, N<int>(N_GET_PLAYER_WANTED_LEVEL, gta::PlayerId())}};
-    for (const auto &r : remote::Rows()) rows.push_back({r.name, false, r.wanted});
+    std::vector<hud::PlayerRow> rows{{g_cfg.server.playerName.empty() ? g_char.name : g_cfg.server.playerName, true, N<int>(N_GET_PLAYER_WANTED_LEVEL, gta::PlayerId()),
+                                      remote::MyRank(), (remote::MyFlags() & proto::kInfoPassive) != 0, me}};
+    for (const auto &r : remote::Rows()) rows.push_back({r.name, false, r.wanted, r.rank, r.passive, r.ped});
     hud::Frame(g_char.money, g_char.bank, rows, sync::StatusLine());
     online_ui::Frame(g_cfg.server.playerName.empty() ? g_char.name : g_cfg.server.playerName, g_char.money, g_char.bank);
     bank::Frame(me);
@@ -787,6 +788,7 @@ void EnterYou() {
     if (g_mode != Mode::You && NB(N<int>(N_IS_SCREEN_FADED_OUT))) gta::FadeIn(500);   // refused: never leave a black screen
 }
 
+std::string DisplayName() { return g_cfg.server.playerName.empty() ? g_char.name : g_cfg.server.playerName; }
 std::string CharacterName() { return g_haveChar ? g_char.name : ""; }
 
 long long Money() { return g_haveChar ? g_char.money + g_char.bank : 0; }

@@ -1,9 +1,13 @@
-# Protocol v7 — GTA client ⇄ Windows game server
+# Protocol v11 — GTA client ⇄ Windows game server
 
 v2 (2026-10-08) added the vehicle block to `PlayerState`/`RemoteState`; v3 the aim point and the
 combat events; v4 (2026-10-09) the wanted level (`u8`, after armour, 0..5) and `WorldState`;
 v5 the economy messages; v6 personal vehicles; v7 (2026-10-09) wallet + Maze Bank accounts in
 `MoneyChange`/`MoneyResult`.
+v8 the Maze Bank ledger; v9 co-op jobs; v10 races; v11 (2026-10-18) player info and sessions: each player's rank
+and flags (passive mode, in a solo activity), and the session the server puts them in. The session is the id of the
+running job the player is in, a private one (`0x80000000 | netId`) during a solo activity, or 0 (freemode). Snapshots,
+shots and damage only go between players of the same session; damage to or from a passive player is refused.
 Older clients are rejected with "protocol mismatch".
 
 The source of truth is [`shared/protocol/protocol.h`](../shared/protocol/protocol.h): one header compiled into both
@@ -48,6 +52,8 @@ All values are little endian. A wrong magic or version gets `Reject(BadVersion)`
 | 11 PlayerLeft | S→C | u16 netId, u8 reason |
 | 12 AppearanceUpdate | C→S | str json: own look (`character::AppearanceOnly`); validated, re-serialised by the server |
 | 13 PlayerAppearance | S→C | u16 netId, str json: another player's look (also sent to newcomers) |
+| 14 PlayerInfo | C→S | u16 rank (≤8000), u8 flags (1 passive mode, 2 in a solo activity) (v11) |
+| 15 PlayerInfoRelay | S→C | u16 netId, u16 rank, u8 flags, u32 session: to everyone, the player itself included (v11) |
 | 20 PlayerState | C→S | see below (47 bytes total) |
 | 21 Snapshot | S→C | u32 tick, u32 serverTimeMs, u8 count (≤32), count × RemoteState |
 

@@ -661,6 +661,11 @@ struct LocalOnlineApi {
     bool (*jobOpenKind)(const char *, float, float, float, int, int) = nullptr;   // API v6: races (Races.inc)
     void (*raceProgress)(int, int) = nullptr;
     int (*getRaceStandings)(char *, int) = nullptr;
+    void (*setPlayerInfo)(int, int) = nullptr;                     // API v7: rank + flags (passive, in an activity), the players, the session
+    int (*getPlayers)(char *, int) = nullptr;
+    unsigned (*getSession)() = nullptr;
+    int (*getPlayerName)(char *, int) = nullptr;
+    void (*highlightPlayer)(unsigned, int) = nullptr;
     bool tried = false;
 };
 static LocalOnlineApi &LO() {
@@ -693,6 +698,11 @@ static LocalOnlineApi &LO() {
             api.raceProgress = (void (*)(int, int))GetProcAddress(h, "LocalOnline_RaceProgress");
             api.getRaceStandings = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_GetRaceStandings");
             if (!api.jobOpenKind || !api.raceProgress || !api.getRaceStandings) api.jobOpenKind = nullptr;
+            api.setPlayerInfo = (void (*)(int, int))GetProcAddress(h, "LocalOnline_SetPlayerInfo");
+            api.getPlayers = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_GetPlayers");
+            api.getSession = (unsigned (*)())GetProcAddress(h, "LocalOnline_GetSession");
+            api.getPlayerName = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_GetPlayerName");
+            api.highlightPlayer = (void (*)(unsigned, int))GetProcAddress(h, "LocalOnline_HighlightPlayer");
         }
     }
     return api;
@@ -2119,9 +2129,12 @@ struct Mission {
     std::function<void()> onSuccess, onFail;
     bool keepVehicle = false;
     int coopPay = -1;   // what each co-op member gets when it passes (-1: by its length)
+    bool corona = false; int resultCash = 0, resultRp = 0;   // started from a lobby: the results board at the end
 };
 static Mission g_m;
 static bool g_mActive = false, g_stepInit = false, g_enemiesUp = false, g_snapped = false;
+static int g_mKills = 0;                                                        // enemies you killed (the results board)
+static std::function<void(bool, const std::string &, const Mission &)> g_missionEnd;   // Corona.inc: the results
 static size_t g_mStep = 0;
 static int g_mEnds = 0, g_mBlip = 0, g_mVeh = 0, g_mVehBlip = 0, g_mAlly = 0, g_holdMs = 0, g_holdLast = 0, g_holding = 0, g_collected = 0;
 static std::vector<int> g_mPeds, g_mCars, g_mObjs, g_mPedBlips, g_mObjBlips;
@@ -2224,9 +2237,21 @@ static void CleanupMission() {
     g_holding = 0;
     g_mActive = false;
 }
+// a reachable spot near p: walkable, flat, outside interiors and water (GET_SAFE_COORD_FOR_PED flags 4|8|16), and not on a
+// roof far above the nearest road; otherwise the pavement by that road
+static Vec3 ReachableSpot(Vec3 p) {
+    Vec3 out{}, node{};
+    bool haveNode = NB(N<int>(N_GET_CLOSEST_VEHICLE_NODE, p.x, p.y, p.z, &node, 1, 3.0f, 0.0f));
+    float nodeD = haveNode ? std::hypot(node.x - p.x, node.y - p.y) : 1e9f;
+    if (NB(N<int>(N_GET_SAFE_COORD_FOR_PED, p.x, p.y, p.z, 1, &out, 28)) && std::hypot(out.x - p.x, out.y - p.y) < 60.f &&
+        (!haveNode || nodeD > 120.f || std::fabs(out.z - node.z) < 15.f)) return V3(out.x, out.y, out.z + 1.0f);
+    if (haveNode && NB(N<int>(N_GET_SAFE_COORD_FOR_PED, node.x, node.y, node.z, 1, &out, 1 | 4 | 8))) return V3(out.x, out.y, out.z + 1.0f);
+    if (haveNode) return V3(node.x, node.y, node.z + 1.0f);
+    return p;
+}
 static void StartMission(const Mission &m) {
     if (g_mActive) { Notify("~r~Finish or quit your current job first."); return; }
-    g_m = m; g_mActive = true; g_mStep = 0; g_stepInit = false; g_mVeh = 0; g_mAlly = 0;
+    g_m = m; g_mActive = true; g_mStep = 0; g_stepInit = false; g_mVeh = 0; g_mAlly = 0; g_mKills = 0;
     g_mEnds = m.timeLimitMs ? Now() + m.timeLimitMs : 0;
     Shard("~y~" + m.name, m.steps.empty() ? "" : m.steps[0].text);
     Log("mission start: %s (%d steps)", m.name.c_str(), (int)m.steps.size());
@@ -2234,19 +2259,21 @@ static void StartMission(const Mission &m) {
 }
 static void FailMission(const std::string &why) {
     std::function<void()> cb = g_m.onFail;
+    Mission done = g_m;
     CoopReport(COOP_FAILED, (int)g_mStep, Pos(Me()), why);
     CleanupMission();
-    Shard("~r~MISSION FAILED", why);
-    Sound("ScreenFlash", "MissionFailedSounds");
+    if (done.corona && g_missionEnd) g_missionEnd(false, why, done);
+    else { Shard("~r~MISSION FAILED", why); Sound("ScreenFlash", "MissionFailedSounds"); }
     if (cb) cb();
 }
 static void PassMission() {
     std::function<void()> cb = g_m.onSuccess;
-    std::string name = g_m.name;
+    Mission done = g_m;
     CoopReport(COOP_PASSED, (int)g_mStep, Pos(Me()), "");
     CleanupMission();
-    Sound("Mission_Pass_Notify", "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS");
+    if (!done.corona) Sound("Mission_Pass_Notify", "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS");
     if (cb) cb();
+    if (done.corona && g_missionEnd) g_missionEnd(true, "", done);
 }
 static void NextStep() {
     Step &s = g_m.steps[g_mStep];
@@ -2325,13 +2352,22 @@ static void MissionTick() {
     if (g_mVeh && (s.type == S_DELIVER || s.needMissionVehicle) && (!Exists(g_mVeh) || Dead(g_mVeh) || !NB(N<int>(N_IS_VEHICLE_DRIVEABLE, g_mVeh, 0)))) {
         g_mVeh = 0; FailMission("The vehicle was destroyed."); return;
     }
+    // dead enemies leave the radar at once (their blips stayed and pointed at bodies)
+    for (size_t i = 0; i < g_mPeds.size() && i < g_mPedBlips.size(); ++i)
+        if (g_mPedBlips[i] && (!Exists(g_mPeds[i]) || Dead(g_mPeds[i]))) {
+            RemoveBlip(g_mPedBlips[i]);
+            if (Exists(g_mPeds[i]) && (N<int>(N_GET_PED_SOURCE_OF_DEATH, g_mPeds[i]) == me || NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, g_mPeds[i], me, 1)))) ++g_mKills;
+        }
     float d = Dist(mp, s.pos);
-    // Move targets onto a road / walkable spot once the area is streamed in
-    if (!g_snapped && d < 200.f && (s.snapRoad || s.snapFoot)) {
+    // Every target onto a spot you can reach, once the area (collision, navmesh) is streamed in: roads for vehicles,
+    // otherwise walkable ground outside closed interiors and water, never a rooftop high above the street
+    bool snapAny = s.snapRoad || s.snapFoot || s.type == S_GOTO || s.type == S_PICKUP || s.type == S_HOLD || s.type == S_DELIVER;
+    if (!g_snapped && d < 150.f && snapAny) {
         g_snapped = true;
-        Vec3 out{};
+        Vec3 out{}, before = s.pos;
         if (s.snapRoad && NB(N<int>(N_GET_CLOSEST_VEHICLE_NODE, s.pos.x, s.pos.y, s.pos.z, &out, 1, 3.0f, 0.0f)) && Dist(out, s.pos) < 80.f) s.pos = out;
-        else if (s.snapFoot && NB(N<int>(N_GET_SAFE_COORD_FOR_PED, s.pos.x, s.pos.y, s.pos.z, 1, &out, 16)) && Dist(out, s.pos) < 40.f) s.pos = V3(out.x, out.y, out.z + 1.0f);
+        else if (s.type != S_DELIVER || s.snapFoot) s.pos = ReachableSpot(s.pos);
+        if (Dist(before, s.pos) > 2.f) Log("mission: step %d target %.1f %.1f %.1f -> %.1f %.1f %.1f", (int)g_mStep, before.x, before.y, before.z, s.pos.x, s.pos.y, s.pos.z);
         if (g_mBlip) N(N_SET_BLIP_COORDS, g_mBlip, s.pos.x, s.pos.y, s.pos.z);
         d = Dist(mp, s.pos);
     }
@@ -2707,6 +2743,7 @@ static void StartHeist(int h) {
     bool finale = st == HEISTS[h].stages - 1;
     if (st == 0) { PayWhat what("heist setup (job)"); if (!Pay(HEISTS[h].fee)) return; }
     Mission m;
+    m.corona = true; m.resultCash = finale ? HEISTS[h].payout : 0; m.resultRp = HEISTS[h].rp;   // the results board at the end
     m.name = std::string(HEISTS[h].name) + (finale ? "" : std::string(": ") + HEISTS[h].stageNames[st]);
     for (auto &c : m.name) c = (char)toupper((unsigned char)c);
     m.timeLimitMs = 30 * 60000;
@@ -3080,9 +3117,10 @@ static void StartParty() {
 }
 
 // ---------------------------------------------------------------- Interaction menu
-struct Item { std::string label, right, desc; std::function<void()> act; std::function<void()> hover = nullptr; };   // hover: runs when the row gets selected (shop previews)
+struct Item { std::string label, right, desc; std::function<void()> act; std::function<void()> hover = nullptr;   // hover: runs when the row gets selected (shop previews)
+              std::function<void(int)> cycle = nullptr; };                                                            // left / right on a "< value >" row
 enum MenuId { M_MAIN, M_INV, M_VEH, M_SELL, M_SITES, M_SITE, M_SITECLASS, M_REALESTATE, M_PTYPE, M_MYPROPS, M_PROP, M_BIZ, M_BIZONE,
-              M_HEISTS, M_ISLAND, M_SERVICES, M_OPTIONS, M_JOBS };
+              M_HEISTS, M_ISLAND, M_SERVICES, M_OPTIONS, M_JOBS, M_STYLE, M_ACTIVITIES, M_PROPHUB };
 struct Frame { MenuId id; int param; int sel; };
 static std::vector<Frame> g_stack;
 static volatile bool g_wantMenu = false, g_wantSell = false;
@@ -3237,47 +3275,259 @@ static bool DeskTick(int pi, const float *at, const char *what, void (*open)(int
 #include "BizApps.inc"
 #include "BizAppsUI.inc"
 #include "Phone.inc"
+static int g_ibtn = 0;
+static std::string g_myName;
+static void TextLong(const std::string &t, float x, float y, float scale, int r, int g, int b, float wrapL, float wrapR) {   // over 99 characters: several components
+    N(N_SET_TEXT_FONT, 0); N(N_SET_TEXT_SCALE, scale, scale); N(N_SET_TEXT_COLOUR, r, g, b, 255); N(N_SET_TEXT_WRAP, wrapL, wrapR);
+    N(N_BEGIN_TEXT_COMMAND_DISPLAY_TEXT, t.size() > 90 ? "CELL_EMAIL_BCON" : "STRING");   // CELL_EMAIL_BCON: ~a~ repeated, for text over 99 characters
+    for (size_t i = 0; i < t.size(); i += 90) N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, t.substr(i, 90).c_str());
+    N(N_END_TEXT_COMMAND_DISPLAY_TEXT, x, y, 0);
+}
+static int TextLines(const std::string &t, float x, float y, float scale, float wrapL, float wrapR) {
+    N(N_SET_TEXT_FONT, 0); N(N_SET_TEXT_SCALE, scale, scale); N(N_SET_TEXT_WRAP, wrapL, wrapR);
+    N(N_BEGIN_TEXT_COMMAND_GET_NUMBER_OF_LINES_FOR_STRING, t.size() > 90 ? "CELL_EMAIL_BCON" : "STRING");
+    for (size_t i = 0; i < t.size(); i += 90) N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, t.substr(i, 90).c_str());
+    return std::max(1, N<int>(N_END_TEXT_COMMAND_GET_NUMBER_OF_LINES_FOR_STRING, x, y));
+}
+static void MenuButtons() {   // Select / Back, bottom right
+    if (!g_ibtn) g_ibtn = N<int>(N_REQUEST_SCALEFORM_MOVIE, "instructional_buttons");
+    if (!NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_ibtn))) return;
+    static int builtAt = 0;
+    if (Now() - builtAt > 1000) {
+        builtAt = Now();
+        N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_ibtn, "CLEAR_ALL"); N(N_END_SCALEFORM_MOVIE_METHOD);
+        const struct { int control; const char *label; } btns[] = {{202, "Back"}, {201, "Select"}};
+        for (int i = 0; i < 2; ++i) {
+            N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_ibtn, "SET_DATA_SLOT");
+            N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, i);
+            N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_PLAYER_NAME_STRING, N<const char *>(N_GET_CONTROL_INSTRUCTIONAL_BUTTONS_STRING, 2, btns[i].control, 1));
+            N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_PLAYER_NAME_STRING, btns[i].label);
+            N(N_END_SCALEFORM_MOVIE_METHOD);
+        }
+        N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_ibtn, "DRAW_INSTRUCTIONAL_BUTTONS"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 0); N(N_END_SCALEFORM_MOVIE_METHOD);
+    }
+    N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_ibtn, 255, 255, 255, 255, 0);
+}
+// the activities' lobbies (Coronas.inc, after every activity)
+static void OpenRaceCorona(int idx);
+static void OpenSvCorona(int loc);
+static void OpenDmCorona(int arena);
+static void OpenAwCorona();
+static void OpenHeistCorona(int h);
 #include "Shops.inc"
 #include "ModShop.inc"
 #include "Races.inc"
 #include "AcidLab.inc"
 #include "Deathmatch.inc"
+#include "Corona.inc"
 #include "ContactMissions.inc"
 #include "Survival.inc"
 #include "ArenaWar.inc"
+#include "Coronas.inc"
+
+// ---- Interaction Menu helpers (Online's options)
+// Quick GPS destinations: the nearest of each kind
+struct QgpsKind { const char *name; std::vector<std::pair<float, float>> at; };
+static const QgpsKind QGPS[] = {
+    {"None", {}},
+    {"Ammu-Nation", {{1692.f, 3758.f}, {252.f, -50.f}, {842.f, -1033.f}, {-330.f, 6083.f}, {-662.f, -935.f}, {-1305.f, -394.f}, {-1118.f, 2697.f},
+                     {2567.f, 294.f}, {-3171.f, 1087.f}, {22.f, -1107.f}, {810.f, -2157.f}}},
+    {"Barber", {{-814.f, -183.f}, {136.f, -1708.f}, {-1282.f, -1117.f}, {1931.f, 3730.f}, {1212.f, -472.f}, {-32.f, -152.f}, {-278.f, 6228.f}}},
+    {"Clothes Store", {{72.f, -1399.f}, {-822.f, -1073.f}, {426.f, -806.f}, {-1193.f, -768.f}, {1696.f, 4829.f}, {4.f, 6512.f}, {1190.f, 2713.f},
+                       {-3172.f, 1048.f}, {-1108.f, 2709.f}, {614.f, 2762.f}, {125.f, -223.f}, {-708.f, -152.f}, {-163.f, -302.f}, {-1450.f, -237.f}}},
+    {"Tattoo Parlor", {{1322.f, -1651.f}, {-1153.f, -1425.f}, {322.f, 180.f}, {-3170.f, 1075.f}, {1864.f, 3747.f}, {-293.f, 6200.f}}},
+    {"Los Santos Customs", {{-365.4f, -131.8f}, {731.8f, -1088.9f}, {-1155.5f, -2005.4f}, {1175.f, 2640.f}, {110.9f, 6626.4f}}},
+    {"Benny's Original Motor Works", {{-205.f, -1305.f}}},
+    {"Convenience Store", {{25.f, -1347.f}, {-48.f, -1757.f}, {1136.f, -982.f}, {1163.f, -323.f}, {374.f, 326.f}, {2557.f, 382.f}, {-3041.f, 585.f},
+                           {-3243.f, 1001.f}, {547.f, 2671.f}, {1961.f, 3741.f}, {1729.f, 6414.f}, {1698.f, 4924.f}, {-707.f, -914.f}, {-1222.f, -907.f},
+                           {-1487.f, -379.f}, {-2968.f, 391.f}, {1166.f, 2708.f}, {2678.f, 3281.f}}},
+    {"Arena War", {{-376.f, -1862.f}}},
+    {"Your Property", {}},
+};
+static const int NQGPS = (int)(sizeof QGPS / sizeof *QGPS);
+static int g_qgps = 0;
+static void QuickGps() {
+    if (g_qgps == 0) { N(N_SET_WAYPOINT_OFF); Notify("Waypoint removed."); return; }
+    Vec3 me = Pos(Me());
+    float bx = 0, by = 0, bd = 1e12f;
+    if (QGPS[g_qgps].at.empty()) {   // your properties
+        for (int i = 0; i < NPROPS; ++i) if (Owns(PROPS[i].name)) { float d = Dist2(me, V3(PROPS[i].x, PROPS[i].y, 0)); if (d < bd) { bd = d; bx = PROPS[i].x; by = PROPS[i].y; } }
+        if (bd > 1e11f) { Notify("You don't own a property yet."); return; }
+    } else for (auto &p : QGPS[g_qgps].at) { float d = Dist2(me, V3(p.first, p.second, 0)); if (d < bd) { bd = d; bx = p.first; by = p.second; } }
+    N(N_SET_NEW_WAYPOINT, bx, by);
+    Sound("WAYPOINT_SET", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+}
+// the other players in our session, for Highlight Player
+static int g_hlSel = 0;
+static std::vector<std::pair<unsigned, std::string>> PlayersHere() {
+    std::vector<std::pair<unsigned, std::string>> out;
+    if (!LO().getPlayers || !YouActive()) return out;
+    std::vector<char> buf(8192);
+    LO().getPlayers(buf.data(), (int)buf.size());
+    std::string line;
+    for (const char *c = buf.data(); ; ++c) {
+        if (*c == '\n' || !*c) {
+            auto f = Split(line, '|');
+            if (f.size() >= 6 && f[5] == "1") out.push_back({(unsigned)std::strtoul(f[0].c_str(), nullptr, 10), f[1]});
+            line.clear();
+            if (!*c) break;
+        } else line += *c;
+    }
+    return out;
+}
+// Passive Mode: the server refuses damage to and from a passive player; we keep the weapons down
+static bool g_passive = false;
+static int g_passiveAt = 0;
+static bool InActivity() {
+    return g_mActive || (g_race.phase != RP_NONE && g_race.phase != RP_LOBBY) || (g_aw.phase != AWP_NONE && g_aw.phase != AWP_LOBBY) ||
+           (g_sv.phase != SVP_NONE && g_sv.phase != SVP_LOBBY) || (g_dm.phase != DP_NONE && g_dm.phase != DP_LOBBY);
+}
+static void TogglePassive() {
+    if (!g_passive && InActivity()) { Notify("~r~Passive Mode is not available during a job."); return; }
+    if (Now() - g_passiveAt < 5000) { Notify("Wait a moment before changing Passive Mode again."); return; }
+    g_passive = !g_passive; g_passiveAt = Now();
+    if (g_passive) N(N_SET_CURRENT_PED_WEAPON, Me(), Joaat("WEAPON_UNARMED"), 1);
+    Notify(g_passive ? "Passive Mode ~g~enabled~s~." : "Passive Mode ~r~disabled~s~.");
+}
+static void PassiveTick() {
+    if (g_passive && (!YouActive() || InActivity())) { g_passive = false; Notify("Passive Mode ~r~disabled~s~."); }
+    if (!g_passive) return;
+    for (int c : {24, 25, 37, 45, 47, 58, 140, 141, 142, 143, 257, 263, 264, 68, 69, 70, 91, 92}) N(N_DISABLE_CONTROL_ACTION, 0, c, 1);
+    N(N_DISABLE_PLAYER_FIRING, Player(), 1);
+}
+// Simeon's showroom (Premium Deluxe Motorsport) is locked in story mode outside its missions: open, like Online's
+static void DoorsTick() {
+    static int at = 0;
+    if (!YouActive() || Now() - at < 2000) return;
+    at = Now();
+    if (Dist(Pos(Me()), V3(-45.f, -1100.f, 26.f)) > 150.f) return;
+    static const struct { const char *model; float x, y, z; } doors[] = {
+        {"v_ilev_csr_door_l", -37.33f, -1108.87f, 26.72f}, {"v_ilev_csr_door_r", -39.13f, -1108.21f, 26.72f},
+        {"v_ilev_csr_door_l", -60.55f, -1094.75f, 26.89f}, {"v_ilev_csr_door_r", -59.89f, -1092.95f, 26.88f}};
+    for (auto &d : doors) N(N_SET_STATE_OF_CLOSEST_DOOR_OF_TYPE, Joaat(d.model), d.x, d.y, d.z, 0, 0.f, 0);
+}
+// rank, passive and "in an activity" (a private session) to LocalOnline, once a second
+static void PlayerInfoTick() {
+    static int at = 0;
+    if (!LO().setPlayerInfo || Now() - at < 1000) return;
+    at = Now();
+    LO().setPlayerInfo(LevelOf(g_rp), (g_passive ? 1 : 0) | (InActivity() ? 2 : 0));
+}
+// Appearance: walk style, mood, accessories
+struct NamedSet { const char *name, *set; };
+static const NamedSet WALKS[] = {{"Normal", ""}, {"Gangster", "move_m@gangster@generic"}, {"Confident", "move_m@confident"}, {"Tough", "move_m@tough_guy@"},
+                                 {"Posh", "move_m@posh@"}, {"Sassy", "move_f@sassy"}, {"Hurried", "move_m@hurry@a"}, {"Swagger", "move_m@swagger"},
+                                 {"Drunk", "move_m@drunk@moderatedrunk"}, {"Injured", "move_m@injured"}};
+static const int NWALKS = (int)(sizeof WALKS / sizeof *WALKS);
+static const NamedSet MOODS[] = {{"Normal", ""}, {"Happy", "mood_happy_1"}, {"Angry", "mood_angry_1"}, {"Injured", "mood_injured_1"}, {"Stressed", "mood_stressed_1"},
+                                 {"Smug", "mood_smug_1"}, {"Sulk", "mood_sulk_1"}, {"Aiming", "mood_aiming_1"}, {"Sleeping", "mood_sleeping_1"}};
+static const int NMOODS = (int)(sizeof MOODS / sizeof *MOODS);
+static int g_walk = 0, g_mood = 0;
+static void ApplyWalk() {
+    int me = Me();
+    if (!*WALKS[g_walk].set) { N(N_RESET_PED_MOVEMENT_CLIPSET, me, 0.25f); return; }
+    N(N_REQUEST_CLIP_SET, WALKS[g_walk].set);
+    for (int i = 0; i < 40 && !NB(N<int>(N_HAS_CLIP_SET_LOADED, WALKS[g_walk].set)); ++i) Wait(25);
+    N(N_SET_PED_MOVEMENT_CLIPSET, me, WALKS[g_walk].set, 0.25f);
+}
+static void ApplyMood() {
+    if (!*MOODS[g_mood].set) N(N_CLEAR_FACIAL_IDLE_ANIM_OVERRIDE, Me());
+    else N(N_SET_FACIAL_IDLE_ANIM_OVERRIDE, Me(), MOODS[g_mood].set, 0);
+}
+static int g_accSaved[3][2] = {{-1, 0}, {-1, 0}, {-1, 0}};   // hat (prop 0), glasses (prop 1), mask (component 1): what was taken off
+static bool AccessoryOn(int k) {
+    int me = Me();
+    if (k == 2) return N<int>(N_GET_PED_DRAWABLE_VARIATION, me, 1) > 0;
+    return N<int>(N_GET_PED_PROP_INDEX, me, k, 0) >= 0;
+}
+static void ToggleAccessory(int k) {
+    int me = Me();
+    if (AccessoryOn(k)) {   // off, remembering it
+        if (k == 2) { g_accSaved[2][0] = N<int>(N_GET_PED_DRAWABLE_VARIATION, me, 1); g_accSaved[2][1] = N<int>(N_GET_PED_TEXTURE_VARIATION, me, 1); N(N_SET_PED_COMPONENT_VARIATION, me, 1, 0, 0, 0); }
+        else { g_accSaved[k][0] = N<int>(N_GET_PED_PROP_INDEX, me, k, 0); g_accSaved[k][1] = N<int>(N_GET_PED_PROP_TEXTURE_INDEX, me, k); N(N_CLEAR_PED_PROP, me, k, 0); }
+        return;
+    }
+    if (g_accSaved[k][0] < 0) { Notify("Nothing to put back on: change your outfit in a clothes store."); return; }
+    if (k == 2) N(N_SET_PED_COMPONENT_VARIATION, me, 1, g_accSaved[2][0], g_accSaved[2][1], 0);
+    else N(N_SET_PED_PROP_INDEX, me, k, g_accSaved[k][0], g_accSaved[k][1], 1, 0);
+}
 
 static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     items.clear();
     switch (f.id) {
     case M_MAIN: {
-        title = "Interaction Menu"; sub = "GORI ONLINE";
+        title = "Interaction Menu"; sub = "INTERACTION MENU";
         if (g_mActive) items.push_back({"Quit Job", "", "Abandon the current mission.", [] { CloseMenu(); FailMission("You quit the job."); }});
+        {   // Quick GPS: left / right through the destinations, select to set the waypoint (Online's PIM_TQGPS)
+            items.push_back({"Quick GPS", "< " + std::string(QGPS[g_qgps].name) + " >", "Select to place your waypoint at a set location.",
+                             [] { QuickGps(); }, nullptr, [](int d) { g_qgps = (g_qgps + d + NQGPS) % NQGPS; }});
+        }
         if (g_inside >= 0 && TYPES[PROPS[g_inside].type].business) {
             int pi = g_inside;
-            items.push_back({std::string("Business: ") + PROPS[pi].name, ">", "Manage this business.", [pi] { Open(M_BIZONE, pi); }});
+            items.push_back({PROPS[pi].name, ">", "Manage this business.", [pi] { Open(M_BIZONE, pi); }});
         }
-        items.push_back({"Inventory", ">", "Snacks and body armor.", [] { Open(M_INV); }});
-        items.push_back({"Vehicles", ">", "Request, return or sell your personal vehicles.", [] { Open(M_VEH); }});
-        items.push_back({"Internet", "", "The browser, like your phone's: vehicle websites, Dynasty 8, Maze Bank Foreclosures, upgrades.", [] { CloseMenu(); if (!g_realWebDefault || !RealWebOpen("WWW_EYEFIND_INFO")) OpenInternet(); }});
-        items.push_back({"Vehicle Websites", ">", "Every Online vehicle: Legendary, SSASA, Warstock, Elitas, Docktease.", [] { Open(M_SITES); }});
-        items.push_back({"Real Estate", ">", "Dynasty 8 and Maze Bank Foreclosures: homes, offices and businesses.", [] { Open(M_REALESTATE); }});
-        items.push_back({"My Properties", ">", "Fast travel, enter, spawn location.", [] { Open(M_MYPROPS); }});
-        items.push_back({"Businesses", ">", "Supplies, product, cargo and safes.", [] { Open(M_BIZ); }});
-        items.push_back({"Heists", ">", "Preps and finales with Lester.", [] { Open(M_HEISTS); }});
-        items.push_back({"Contact Missions", ">", "Gerald, Simeon, Lamar, Martin, Ron and Trevor's jobs, by rank.", [] { Open((MenuId)CMM_LIST); }});
-        items.push_back({"Races", g_race.phase == RP_LOBBY ? "Lobby >" : ">", "GTA Online-style races: solo or with the other players, paid by position.", [] { Open((MenuId)RM_LIST); }});
-        items.push_back({"Arena War", g_aw.phase == AWP_LOBBY ? "Lobby >" : g_aw.phase != AWP_NONE ? "Playing >" : ">", "Carnage in the Maze Bank Arena: arena vehicles, alone against bots or online.", [] { Open((MenuId)AW_MENU); }});
-        items.push_back({"Survival", g_sv.phase == SVP_LOBBY ? "Lobby >" : g_sv.phase != SVP_NONE ? "Playing >" : ">", "Ten waves of enemies, alone or with the other players.", [] { Open((MenuId)SV_LIST); }});
-        if (CoopAvailable()) items.push_back({"Deathmatch", g_dm.phase == DP_LOBBY ? "Lobby >" : ">", "Fight the other players in an arena, paid by position.", [] { Open((MenuId)DM_LIST); }});
-        if (CoopAvailable()) items.push_back({"Jobs", g_coopJobs.empty() ? ">" : std::to_string(g_coopJobs.size()) + " >", "Co-op jobs: join another player's mission and get paid when it passes.", [] { Open(M_JOBS); }});
-        items.push_back({"Isla Neon", ">", "Your island from goricito.cc, in the ocean west of Los Santos.", [] { Open(M_ISLAND); }});
-        items.push_back({"Services", ">", "Lester, Ammu-Nation and GPS.", [] { Open(M_SERVICES); }});
-        items.push_back({"Options", ">", "Online map and other settings.", [] { Open(M_OPTIONS); }});
+        items.push_back({"Health and Ammo", ">", "Snacks, body armor and ammo.", [] { Open(M_INV); }});
+        items.push_back({"Appearance", ">", "Walk style, mood and accessories.", [] { Open(M_STYLE); }});
+        items.push_back({"Manage Vehicles", ">", "Request, return or sell your personal vehicles.", [] { Open(M_VEH); }});
+        items.push_back({"Services", ">", "Lester, Ammu-Nation, your special vehicles and the Acid Lab.", [] { Open(M_SERVICES); }});
+        {
+            std::string busy = g_race.phase == RP_LOBBY || g_aw.phase == AWP_LOBBY || g_sv.phase == SVP_LOBBY || g_dm.phase == DP_LOBBY ? "Lobby" :
+                               g_mActive || g_aw.phase != AWP_NONE || g_sv.phase != SVP_NONE ? "Playing" : "";
+            items.push_back({"Activities", busy.empty() ? ">" : busy, "Contact missions, heists, races, Arena War, Survival, Deathmatch and the other players' jobs.", [] { Open(M_ACTIVITIES); }});
+        }
+        items.push_back({"Properties", ">", "Your properties and businesses, Real Estate, the vehicle websites and the Internet.", [] { Open(M_PROPHUB); }});
+        {   // Highlight Player: the chosen player's blip flashes (Online's PIM_TITLE12)
+            auto ps = PlayersHere();
+            if (!ps.empty()) {
+                g_hlSel = (g_hlSel % (int)ps.size() + (int)ps.size()) % (int)ps.size();
+                unsigned id = ps[g_hlSel].first;
+                items.push_back({"Highlight Player", "< " + ps[g_hlSel].second + " >", "Highlight a player on the radar.",
+                                 [id] { if (LO().highlightPlayer) LO().highlightPlayer(id, 10000); Notify("Player highlighted on the radar."); }, nullptr,
+                                 [](int d) { g_hlSel += d; }});
+            }
+        }
+        items.push_back({"Preferences", ">", "Online map and other settings.", [] { Open(M_OPTIONS); }});
+        items.push_back({g_passive ? "Disable Passive Mode" : "Enable Passive Mode", "",
+                         g_passive ? "Turn passive mode off: you can attack and be attacked by other players again." :
+                                     "In passive mode other players can't hurt you, and you can't use weapons against them.",
+                         [] { TogglePassive(); }});
         items.push_back({"Kill Yourself", "", "Respawn at your home or the nearest hospital.", [] { CloseMenu(); N(N_SET_ENTITY_HEALTH, Me(), 0, 0, 0); }});
         break;
     }
+    case M_STYLE: {
+        title = "Appearance"; sub = "APPEARANCE";
+        items.push_back({"Walk Style", "< " + std::string(WALKS[g_walk].name) + " >", "How your character walks.", [] { ApplyWalk(); },
+                         nullptr, [](int d) { g_walk = (g_walk + d + NWALKS) % NWALKS; ApplyWalk(); }});
+        items.push_back({"Mood", "< " + std::string(MOODS[g_mood].name) + " >", "Your character's expression.", [] { ApplyMood(); },
+                         nullptr, [](int d) { g_mood = (g_mood + d + NMOODS) % NMOODS; ApplyMood(); }});
+        items.push_back({"Hat", AccessoryOn(0) ? "On" : "Off", "Take your hat or helmet off, or put it back on.", [] { ToggleAccessory(0); }});
+        items.push_back({"Glasses", AccessoryOn(1) ? "On" : "Off", "Take your glasses off, or put them back on.", [] { ToggleAccessory(1); }});
+        items.push_back({"Mask", AccessoryOn(2) ? "On" : "Off", "Take your mask off, or put it back on.", [] { ToggleAccessory(2); }});
+        break;
+    }
+    case M_ACTIVITIES: {
+        title = "Activities"; sub = "ACTIVITIES";
+        items.push_back({"Contact Missions", ">", "Gerald, Simeon, Lamar, Martin, Ron and Trevor's jobs, by rank.", [] { Open((MenuId)CMM_LIST); }});
+        items.push_back({"Heists", ">", "Preps and finales with Lester.", [] { Open(M_HEISTS); }});
+        items.push_back({"Races", g_race.phase == RP_LOBBY ? "Lobby >" : ">", "Races: solo or with the other players, paid by position.", [] { Open((MenuId)RM_LIST); }});
+        items.push_back({"Arena War", g_aw.phase == AWP_LOBBY ? "Lobby >" : g_aw.phase != AWP_NONE ? "Playing >" : ">", "Events in the Maze Bank Arena, alone against bots or online.", [] { Open((MenuId)AW_MENU); }});
+        items.push_back({"Survival", g_sv.phase == SVP_LOBBY ? "Lobby >" : g_sv.phase != SVP_NONE ? "Playing >" : ">", "Ten waves of enemies, alone or with the other players.", [] { Open((MenuId)SV_LIST); }});
+        if (CoopAvailable()) items.push_back({"Deathmatch", g_dm.phase == DP_LOBBY ? "Lobby >" : ">", "Fight the other players in an arena, paid by position.", [] { Open((MenuId)DM_LIST); }});
+        if (CoopAvailable()) items.push_back({"Jobs", g_coopJobs.empty() ? ">" : std::to_string(g_coopJobs.size()) + " >", "Join another player's job and get paid when it passes.", [] { Open(M_JOBS); }});
+        break;
+    }
+    case M_PROPHUB: {
+        title = "Properties"; sub = "PROPERTIES";
+        items.push_back({"My Properties", ">", "Fast travel, enter, spawn location.", [] { Open(M_MYPROPS); }});
+        items.push_back({"Businesses", ">", "Supplies, product, cargo and safes.", [] { Open(M_BIZ); }});
+        items.push_back({"Real Estate", ">", "Dynasty 8 and Maze Bank Foreclosures: homes, offices and businesses.", [] { Open(M_REALESTATE); }});
+        items.push_back({"Vehicle Websites", ">", "Every Online vehicle: Legendary, SSASA, Warstock, Elitas, Docktease.", [] { Open(M_SITES); }});
+        items.push_back({"Internet", "", "The browser, like your phone's.", [] { CloseMenu(); if (!g_realWebDefault || !RealWebOpen("WWW_EYEFIND_INFO")) OpenInternet(); }});
+        items.push_back({"Isla Neon", ">", "Your island from goricito.cc, in the ocean west of Los Santos.", [] { Open(M_ISLAND); }});
+        break;
+    }
     case M_INV: {
-        title = "Inventory"; sub = "INVENTORY";
+        title = "Health and Ammo"; sub = "HEALTH AND AMMO";
         static const char *names[3] = {"P's & Q's", "EgoChaser", "Meteorite"};
         static const int heal[3] = {15, 30, 50}, price[3] = {1, 5, 10};
         for (int i = 0; i < 3; ++i) {
@@ -3464,7 +3714,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
             std::string right = !ok ? "LOCKED" : st == HEISTS[h].stages - 1 ? "FINALE" : std::string("PREP ") + std::to_string(st + 1) + "/" + std::to_string(HEISTS[h].stages - 1);
             std::string desc = std::string(HEISTS[h].desc) + " Next: " + HEISTS[h].stageNames[st] + ". Payout " + Money(HEISTS[h].payout) +
                                (st == 0 ? ", setup " + Money(HEISTS[h].fee) : "") + "." + (ok ? "" : " " + why);
-            items.push_back({HEISTS[h].name, right, desc, [h] { CloseMenu(); StartHeist(h); }});
+            items.push_back({HEISTS[h].name, right, desc, [h] { CloseMenu(); OpenHeistCorona(h); }});
         }
         break;
     case M_ISLAND: {
@@ -3544,6 +3794,94 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
 }
 
 static int g_navHeld = 0, g_navNext = 0;
+// ---- Online's menu look (the shop / interaction menu library in am_pi_menu.ysc): a 0.225 wide column at the
+// top-left of the safe zone; header: CommonMenu/Interaction_bgd with the player's name (or a shop's banner);
+// subtitle bar with the section in blue and "n / N"; gradient_bgd rows, gradient_nav on the selected one;
+// the up/down arrows when the list scrolls; the description box; Select / Back instructional buttons.
+static void MenuDraw(const Frame &f, const std::string &title, const std::string &sub, const std::vector<Item> &items) {
+    N(N_REQUEST_STREAMED_TEXTURE_DICT, "CommonMenu", 0);
+    bool cm = NB(N<int>(N_HAS_STREAMED_TEXTURE_DICT_LOADED, "CommonMenu"));
+    float sz = N<float>(N_GET_SAFE_ZONE_SIZE); if (sz < 0.85f || sz > 1.f) sz = 1.f;
+    const float m = (1.f - sz) * 0.5f, w = 0.225f, left = m + 0.016f, x = left + w / 2, rowH = 0.034722f, ts = 0.35f;
+    float y = m + 0.018f;   // top edge of the next block
+    // header
+    const float hh = 0.0898f;
+    if (g_menuBanner && NB(N<int>(N_HAS_STREAMED_TEXTURE_DICT_LOADED, g_menuBanner))) {   // a shop's own banner
+        N(N_DRAW_SPRITE, g_menuBanner, g_menuBanner, x, y + hh / 2, w, hh, 0.f, 255, 255, 255, 255, 0, 0);
+    } else {
+        if (g_menuBanner) N(N_REQUEST_STREAMED_TEXTURE_DICT, g_menuBanner, 0);
+        if (cm) N(N_DRAW_SPRITE, "CommonMenu", "interaction_bgd", x, y + hh / 2, w, hh, 0.f, 255, 255, 255, 255, 0, 0);
+        else Rect(x, y + hh / 2, w, hh, 25, 85, 160, 255);
+        bool interaction = !g_stack.empty() && g_stack.front().id == M_MAIN;   // the Interaction Menu: the player's name, like Online's
+        if (interaction && g_myName.empty() && LO().getPlayerName) { char b[64] = {0}; LO().getPlayerName(b, sizeof b); g_myName = b; }
+        std::string head = interaction && !g_myName.empty() ? g_myName : title;
+        float hs = head.size() > 20 ? 0.6f : 0.75f;
+        Text(head, left + 0.012f, y + hh / 2 - hs * 0.037f, hs, 0, 255, 255, 255, 255, 1);
+    }
+    y += hh;
+    // subtitle: section in blue, "n / N"
+    Rect(x, y + rowH / 2, w, rowH, 0, 0, 0, 255);
+    std::string s = sub;
+    for (char &c : s) c = (char)toupper((unsigned char)c);
+    Text(s, left + 0.005f, y + 0.0045f, ts, 0, 93, 182, 229, 255, 1);
+    Text(std::to_string(f.sel + 1) + " / " + std::to_string(items.size()), x, y + 0.0045f, ts, 0, 93, 182, 229, 255, 2, left + w - 0.005f);
+    y += rowH;
+    // rows
+    const int visible = g_menuBanner ? 10 : 7;
+    int first = f.sel - visible + 1; if (first < 0) first = 0;
+    int shown = std::min(visible, (int)items.size() - first);
+    if (cm) N(N_DRAW_SPRITE, "CommonMenu", "gradient_bgd", x, y + rowH * shown / 2, w, rowH * shown, 0.f, 255, 255, 255, 255, 0, 0);
+    else Rect(x, y + rowH * shown / 2, w, rowH * shown, 0, 0, 0, 160);
+    for (int i = first; i < first + shown; ++i) {
+        const Item &it = items[i];
+        bool sel = i == f.sel, off = !it.act && !it.cycle;
+        if (sel) {
+            if (cm) N(N_DRAW_SPRITE, "CommonMenu", "gradient_nav", x, y + rowH / 2, w, rowH, 0.f, 255, 255, 255, 255, 0, 0);
+            else Rect(x, y + rowH / 2, w, rowH, 245, 245, 245, 255);
+        }
+        int c = sel ? 0 : off ? 155 : 245;
+        std::string label = it.label.size() > 38 ? it.label.substr(0, 37) + "." : it.label;
+        Text(label, left + 0.005f, y + 0.0045f, ts, 0, c, c, c, 255, 1);
+        std::string r = it.right;
+        if (r == ">") r.clear();   // Online's menus show no arrow for a submenu
+        else if (r.size() > 2 && r.compare(r.size() - 2, 2, " >") == 0 && r[0] != '<') r = r.substr(0, r.size() - 2);
+        bool list = r.size() > 4 && r[0] == '<' && r.back() == '>';
+        if (list && sel && cm) {   // the left / right arrows around the value
+            std::string v = r.substr(2, r.size() - 4);
+            float vw = 0.f;
+            N(N_BEGIN_TEXT_COMMAND_GET_SCREEN_WIDTH_OF_DISPLAY_TEXT, "STRING"); N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, v.c_str());
+            N(N_SET_TEXT_FONT, 0); N(N_SET_TEXT_SCALE, ts, ts);
+            vw = N<float>(N_END_TEXT_COMMAND_GET_SCREEN_WIDTH_OF_DISPLAY_TEXT, 1);
+            float rx = left + w - 0.016f;
+            Text(v, x, y + 0.0045f, ts, 0, 0, 0, 0, 255, 2, rx);
+            N(N_DRAW_SPRITE, "CommonMenu", "arrowright", rx + 0.0075f, y + rowH / 2, 0.0115f, 0.0204f, 0.f, 0, 0, 0, 255, 0, 0);
+            N(N_DRAW_SPRITE, "CommonMenu", "arrowleft", rx - vw - 0.0075f, y + rowH / 2, 0.0115f, 0.0204f, 0.f, 0, 0, 0, 255, 0, 0);
+        } else if (!r.empty()) {
+            if (list) r = r.substr(2, r.size() - 4);
+            Text(r, x, y + 0.0045f, ts, 0, c, c, c, 255, 2, left + w - 0.005f);
+        }
+        y += rowH;
+    }
+    // up / down arrows when the list scrolls
+    if ((int)items.size() > visible) {
+        Rect(x, y + rowH / 2, w, rowH, 0, 0, 0, 204);
+        if (cm) N(N_DRAW_SPRITE, "CommonMenu", "shop_arrows_upanddown", x, y + rowH / 2, 0.0156f, 0.0347f, 0.f, 255, 255, 255, 255, 0, 0);
+        y += rowH;
+    }
+    // description
+    const std::string &d = items[f.sel].desc;
+    if (!d.empty()) {
+        y += 0.0028f;
+        Rect(x, y + 0.0014f, w, 0.0028f, 0, 0, 0, 255);
+        y += 0.0028f;
+        int lines = TextLines(d, left + 0.005f, y + 0.005f, ts, left + 0.005f, left + w - 0.005f);
+        float dh = 0.011f + 0.0262f * lines;
+        if (cm) N(N_DRAW_SPRITE, "CommonMenu", "gradient_bgd", x, y + dh / 2, w, dh, 0.f, 255, 255, 255, 255, 0, 0);
+        else Rect(x, y + dh / 2, w, dh, 0, 0, 0, 160);
+        TextLong(d, left + 0.005f, y + 0.004f, ts, 255, 255, 255, left + 0.005f, left + w - 0.005f);
+    }
+    MenuButtons();
+}
 static void MenuTick() {
     if (!g_menuOpen || g_stack.empty()) return;
     // Block weapon/phone/attack controls while browsing
@@ -3566,11 +3904,19 @@ static void MenuTick() {
     // Input (keyboard arrows/Enter/Backspace or pad), with auto-repeat
     int now = Now();
     bool up = NB(N<int>(N_IS_CONTROL_PRESSED, 2, 188)), down = NB(N<int>(N_IS_CONTROL_PRESSED, 2, 187));
+    bool left = NB(N<int>(N_IS_CONTROL_PRESSED, 2, 189)), right = NB(N<int>(N_IS_CONTROL_PRESSED, 2, 190));
     if (up || down) {
         if (!g_navHeld || now >= g_navNext) {
             f.sel = (f.sel + (down ? 1 : -1) + (int)items.size()) % (int)items.size();
             Sound("NAV_UP_DOWN", "HUD_FRONTEND_DEFAULT_SOUNDSET");
             g_navNext = now + (g_navHeld ? 70 : 350);
+            g_navHeld = 1;
+        }
+    } else if ((left || right) && items[f.sel].cycle) {   // "< value >" rows: left / right
+        if (!g_navHeld || now >= g_navNext) {
+            items[f.sel].cycle(right ? 1 : -1);
+            Sound("NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+            g_navNext = now + (g_navHeld ? 120 : 350);
             g_navHeld = 1;
         }
     } else g_navHeld = 0;
@@ -3589,43 +3935,7 @@ static void MenuTick() {
         return;
     }
 
-    // Draw (Online-style: blue header, dark rows, white selection)
-    const float x = 0.17f, w = 0.26f, rowH = 0.034f;
-    float y = 0.12f;
-    if (g_menuBanner && NB(N<int>(N_HAS_STREAMED_TEXTURE_DICT_LOADED, g_menuBanner))) {   // a shop's own header, like Online's
-        const float bh = 0.10f;
-        N(N_DRAW_SPRITE, g_menuBanner, g_menuBanner, x, y - 0.035f + bh / 2, w, bh, 0.f, 255, 255, 255, 255, 0, 0);
-        y += bh - 0.035f;
-    } else {
-        if (g_menuBanner) N(N_REQUEST_STREAMED_TEXTURE_DICT, g_menuBanner, 0);
-        Rect(x, y, w, 0.07f, 30, 110, 200, 235);
-        Text(title.size() > 26 ? title.substr(0, 26) : title, x, y - 0.022f, title.size() > 18 ? 0.55f : 0.7f, 1, 255, 255, 255, 255, 0);
-        y += 0.035f;
-    }
-    y += 0.016f;
-    Rect(x, y, w, 0.032f, 0, 0, 0, 230);
-    Text(sub, x - w / 2 + 0.006f, y - 0.012f, 0.32f, 0, 120, 190, 255, 255, 1);
-    Text(std::to_string(f.sel + 1) + " / " + std::to_string(items.size()), x, y - 0.012f, 0.32f, 0, 200, 200, 200, 255, 2, x + w / 2 - 0.006f);
-    y += 0.016f + rowH / 2;
-    const int visible = 12;
-    int first = f.sel - visible + 1; if (first < 0) first = 0;
-    for (int i = first; i < (int)items.size() && i < first + visible; ++i) {
-        bool s = i == f.sel;
-        Rect(x, y, w, rowH, s ? 245 : 0, s ? 245 : 0, s ? 245 : 0, s ? 240 : 170);
-        int c = s ? 0 : 245;
-        std::string label = items[i].label.size() > 34 ? items[i].label.substr(0, 33) + "." : items[i].label;
-        Text(label, x - w / 2 + 0.006f, y - 0.013f, 0.34f, 0, c, c, c, 255, 1);
-        if (!items[i].right.empty()) Text(items[i].right, x, y - 0.013f, 0.34f, 0, c, c, c, 255, 2, x + w / 2 - 0.006f);
-        y += rowH;
-    }
-    if (!items[f.sel].desc.empty()) {
-        y += 0.006f;
-        const std::string &d = items[f.sel].desc;
-        int lines = 1 + (int)d.size() / 52;
-        Rect(x, y + 0.008f + 0.013f * lines, w, 0.008f + 0.026f * lines, 0, 0, 0, 200);
-        N(N_SET_TEXT_WRAP, x - w / 2 + 0.006f, x + w / 2 - 0.006f);
-        Text(d, x - w / 2 + 0.006f, y + 0.004f, 0.3f, 0, 255, 255, 255, 255, 1);
-    }
+    MenuDraw(f, title, sub, items);
 }
 
 // ---------------------------------------------------------------- Living world + events
@@ -3712,7 +4022,7 @@ static void Events() {
             EndCrate();
         }
     }
-    if (!g_truck && !g_crate && !g_mActive && Now() > g_nextEvent && !Dead(me) && !IslandNear(mp, 800.f)) {
+    if (!g_truck && !g_crate && !g_mActive && !InActivity() && !CoronaActive() && Now() > g_nextEvent && !Dead(me) && !IslandNear(mp, 800.f)) {
         g_nextEvent = Now() + 600000 + Rand(480000);
         if (Rand(2)) StartTruck(); else StartCrate();
     }
@@ -4532,15 +4842,23 @@ static void ScriptMain() {
     RefreshPropertyBlips();
     N(N_SET_CREATE_RANDOM_COPS, 1);
     g_nextEvent = Now() + 120000;
+    ContactsInit();
     Notify("~g~Gori Online~s~ loaded. Press ~b~M~s~ (or hold ~b~Back~s~ on a controller) for the interaction menu.");
     for (;;) {
         if (mpMapAt && Now() > mpMapAt && !NB(N<int>(N_GET_IS_LOADING_SCREEN_ACTIVE))) { mpMapAt = 0; ApplyOnlineMap(false); }
         ProfileTick();
         if (!g_profileYou) TrackCharacter();
         LivingWorld();
+        if (YouActive()) N(N_DISABLE_CONTROL_ACTION, 0, 244, 1);   // INPUT_INTERACTION_MENU: story mode's own menu (Quick GPS / Director Mode) stays shut
+        PlayerInfoTick();
+        PassiveTick();
+        DoorsTick();
+        CoronaTick();
+        ContactInviteTick();
+        if (CoronaActive()) { g_wantMenu = false; g_backSince = 0x3fffffff; if (g_menuOpen) CloseMenu(); }   // the lobby has the screen
         // Controller: hold Back/Select like Online's interaction menu
         bool pad = !NB(N<int>(N_IS_USING_KEYBOARD_AND_MOUSE, 2));
-        if (pad && NB(N<int>(N_IS_CONTROL_PRESSED, 0, 0))) {
+        if (pad && !CoronaActive() && NB(N<int>(N_IS_CONTROL_PRESSED, 0, 0))) {
             if (g_backSince < 0) g_backSince = Now();
             else if (Now() - g_backSince > 500 && !g_menuOpen) { g_menuOpen = true; g_stack.clear(); Open(M_MAIN); g_backSince = 0x3fffffff; }
         } else g_backSince = -1;

@@ -825,9 +825,8 @@ static bool RacesMenu(const Frame &f, std::string &title, std::string &sub, std:
             items.push_back({"Vehicle Class", std::string("< ") + RACE_CLASSES[g_raceSelClass].name + " >", RACE_CLASSES[g_raceSelClass].desc,
                              [] { g_raceSelClass = (g_raceSelClass + 1) % NRACE_CLASSES; g_raceSelVeh = 0; }});
         items.push_back({transform ? "Start Vehicle" : "Vehicle", "< " + veh + " >", "Select to change.", [] { ++g_raceSelVeh; }});
-        if (CoopAvailable() && LO().jobOpenKind)
-            items.push_back({"Host Online Race", "", "Open a lobby: other players join from Jobs. Paid by position.", [file, laps, veh] { CloseMenu(); RaceHostOnline(file, laps, veh); }});
-        items.push_back({"Race Solo", "", "Race the clock.", [file, laps, veh] { CloseMenu(); RaceStartSolo(file, laps, veh); }});
+        int idx = f.param;
+        items.push_back({"Play", "", "The race's lobby: its settings, alone or with the other players.", [idx] { CloseMenu(); OpenRaceCorona(idx); }});
         items.push_back({"Set GPS to the start", "", "", [d] {
             Vec3 t = d.trigger.x != 0.f ? d.trigger : d.grid[0].first;
             N(N_SET_NEW_WAYPOINT, t.x, t.y); CloseMenu();

@@ -644,7 +644,12 @@ static bool ModShopMenu(const Frame &f, std::string &title, std::string &sub, st
 }
 
 // ---- each frame: the entry areas, and the shop while you are in it
+static int g_bennysBlip = 0;
 static void ModShopTick() {
+    // Benny's on the map like Online's (sprite 445, radar_bennys); story mode only shows the LS Customs blips
+    if (YouActive() && !g_bennysBlip) {
+        for (const MsShop &s : MS_SHOPS) if (s.kind == 1) { g_bennysBlip = CoordBlip(V3(s.ax, s.ay, s.az), 445, 0, "Benny's Original Motor Works", true); break; }
+    } else if (!YouActive() && g_bennysBlip) RemoveBlip(g_bennysBlip);
     if (MsActive()) {
         MsCameraTick();
         N(N_DISABLE_CONTROL_ACTION, 0, 75, 1);   // no getting out

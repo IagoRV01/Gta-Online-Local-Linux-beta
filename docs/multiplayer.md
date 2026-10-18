@@ -570,6 +570,68 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
 - **Verified in game 2026-10-18:** Hot Bomb (Apocalypse 1: 8 rounds, the holder blows up, $20,000), Here Come the Monsters (Sci-Fi 1: no wrecks, $16,000) and Games Masters (Consumer Wasteland 1: checkpoints and blip, 3 checkpoints with `arenacp`). The test rewards were reverted.
 - **Not done:** Online's other modes (Wreck It, Tag Team, Bomb Ball, Hunted...), the spectator box, the traps' own animations and Online's trap controls from the spectator box, Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 
+## Online UI, lobbies and sessions (protocol v11, Gori `Corona.inc` / `Coronas.inc`, 2026-10-18)
+
+- **Benny's on the map:** sprite 445 (`radar_bennys`) at Benny's Original Motor Works while YOU plays (story mode only
+  shows the LS Customs blips).
+- **The player list (Z / d-pad down):** Online's own card, the `mp_mm_card_freemode` scaleform:
+  `SET_TITLE(left, right, "2")`, then per player `SET_DATA_SLOT(slot, rank text, name, HUD colour, 65 (the rank badge),
+  overlay text, job points text, crew label, 0, headshot, headshot, " ")` (the layout the FiveM-Playerlist project uses;
+  freemode.ysc's own job-leaderboard layout showed "UNDEF"), then `DISPLAY_VIEW`, drawn where freemode.ysc draws it:
+  0.122, 0.3 (0.28 x 0.6). Ranks come from the v11
+  `PlayerInfo` messages; the headshots from `REGISTER_PEDHEADSHOT`; passive players show PASSIVE. Only the players
+  in your session are listed.
+- **The Interaction Menu** looks like Online's (am_pi_menu.ysc's menu library):
+  - a 0.225 wide column at the top left of the safe zone, under a `CommonMenu/Interaction_bgd` header with your name;
+  - the section name in blue with "n / N", `gradient_bgd` rows, `gradient_nav` on the selected row, and arrows around a
+    "< value >" (left / right change it);
+  - `shop_arrows_upanddown` when the list scrolls (7 rows, 10 in shops), the description box, and the Select / Back
+    instructional buttons.
+  - The options follow Online's order: Quick GPS (left / right: Ammu-Nation, Barber, Clothes Store, Tattoo Parlor,
+    LS Customs, Benny's, Convenience Store, Arena War, Your Property), Health and Ammo, Appearance (walk style, mood,
+    hat / glasses / mask), Manage Vehicles, Services, Highlight Player (the blip flashes for 10 s), Preferences,
+    Enable / Disable Passive Mode, Kill Yourself.
+  - Gori's own sections are grouped under **Activities** and **Properties**.
+  - While YOU plays, story mode's own interaction menu (`INPUT_INTERACTION_MENU`, 244) is disabled. Before, it opened
+    next to Gori's.
+- **Passive Mode:** the server refuses damage to and from a passive player, and Gori keeps your weapons down. It
+  switches off in an activity.
+- **Missions:**
+  - a dead enemy's blip goes away at once;
+  - every target (go to, pickup, plant / hold, drop-off on foot) snaps, once you are within 150 m, to a spot you can
+    reach: `GET_SAFE_COORD_FOR_PED` with flags 4 | 8 | 16 (not interior, not water, flat ground), never more than
+    15 m above the nearest road (otherwise: the pavement by that road). Each move is logged
+    (`mission: step N target ... -> ...`);
+  - Simeon's showroom (Premium Deluxe Motorsport) doors are unlocked while YOU plays.
+- **The job lobby (corona)**, for contact missions, heists, races, Survival, Deathmatch and Arena War:
+  - the title and description over an aerial, blurred view of where it happens;
+  - left column: the settings page (difficulty; a race's laps, class and vehicle; Arena War's mode, theme, map,
+    lighting, vehicle, bots, time and traps; a deathmatch's time and weapons), then the invite page (Lobby Type Closed /
+    Open, Invite All Players, Play);
+  - middle: the players with HOST / JOINED and their rank; right: your character (name, rank, skill bars).
+  - Closed plays alone. Open opens a server job: a mission's own (kind 0), or the activity's lobby job (race,
+    deathmatch, survival, Arena War). The other players join from Jobs and see the same lobby, waiting for the host.
+    When it starts, a mission's members are moved to the host.
+- **Contacts:** calling Gerald, Simeon, Lamar, Martin or Ron (or "Request Job" in their menu) works like Online. The
+  call connects, then a Job Invite arrives in the feed with the contact's picture, for one of their jobs at your rank.
+  Accepting it (E) opens the lobby.
+- **Verified in game 2026-10-18:** the Interaction Menu (header with the name, sections, "< None >" arrows, scroll
+  arrows, description, buttons), the player card (your headshot, name, rank badge), Request Job → Simeon's invite in
+  the feed → E → the lobby, the lobby's settings and invite pages, Play → the job's session (`session 0 -> 1`), the
+  Blow Up target moved out of the closed showroom (-45,-1100 → -62.7,-1091.9), the results board, and Passive Mode
+  reaching the server (`passive mode on/off`).
+- **Results:** a mission started from a lobby ends with the results board (position, kills, deaths, RP, cash),
+  "Continue (0:15)". The members get one too when the host's job ends.
+- **Sessions (protocol v11):**
+  - a player in a running job is in that job's session; a player in a solo activity (`InActivity()`: a mission, a solo
+    race, Arena War, Survival...) is in a private session; everyone else is in freemode (0);
+  - the server only sends snapshots, shots and damage within a session, and the clients hide the players of the
+    other sessions;
+  - freemode events (armored trucks, crate drops) wait while you are in an activity or a lobby.
+- **API v7** (LocalOnline.asi exports): `LocalOnline_SetPlayerInfo(rank, flags)`, `LocalOnline_GetPlayers` ("netId|
+  name|rank|flags|session|sameSession" lines), `LocalOnline_GetSession`, `LocalOnline_GetPlayerName`,
+  `LocalOnline_HighlightPlayer(netId, ms)`.
+
 ## Roadmap: GTA Online content (user request 2026-10-12)
 
 GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real network session, so they cannot run in story mode. They are recreated in Gori, multiplayer through the co-op jobs and races above.

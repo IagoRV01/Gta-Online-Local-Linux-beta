@@ -200,6 +200,12 @@ void Server::OnPacket(ENetPeer *peer, const uint8_t *data, size_t size, uint8_t 
             HandleAppearance(c, m);
             break;
         }
+        case MsgType::PlayerInfo: {
+            PlayerInfoMsg m;
+            if (!Get(r, m)) return malformed("PlayerInfo");
+            if (c.authed) HandlePlayerInfo(c, m);
+            break;
+        }
         case MsgType::Shot: {
             ShotMsg m;
             if (!Get(r, m)) return malformed("Shot");
@@ -303,9 +309,14 @@ void Server::BroadcastSnapshot() {
     }
     for (auto &kv : clients_) {
         if (!kv.second.authed) continue;
-        // each client gets everyone except itself (its own ped is local)
+        // each client gets everyone in its own session except itself (its own ped is local)
         std::vector<RemoteState> others;
-        for (auto &s : all) if (s.netId != kv.second.netId) others.push_back(s);
+        for (auto &s : all) {
+            if (s.netId == kv.second.netId) continue;
+            const Client *o = nullptr;
+            for (auto &kv2 : clients_) if (kv2.second.netId == s.netId) o = &kv2.second;
+            if (o && o->session == kv.second.session) others.push_back(s);
+        }
         wire::Writer w;
         PutSnapshot(w, tick_, (uint32_t)NowMs(), others);
         Send(kv.first, w, kChanState, false);
@@ -372,7 +383,51 @@ void Server::HandleAuth(Client &c, const AuthMsg &m) {
             Put(ap, PlayerAppearanceMsg{kv.second.netId, kv.second.appearanceJson});
             Send(c.peer, ap, kChanControl, true);
         }
+        RelayInfo(kv.second, c.peer);
     }
+    RelayInfo(c, nullptr);
+}
+
+// ---------------------------------------------------------------- player info and sessions (v11)
+void Server::RelayInfo(const Client &c, ENetPeer *only) {
+    wire::Writer w;
+    Put(w, PlayerInfoRelayMsg{c.netId, c.rank, c.infoFlags, c.session});
+    if (only) { Send(only, w, kChanControl, true); return; }
+    for (auto &kv : clients_)
+        if (kv.second.authed) Send(kv.first, w, kChanControl, true);
+}
+
+uint32_t Server::SessionOf(const Client &c) const {
+    for (auto &kv : jobs_) {   // a running job: its own session (the lobby is still freemode)
+        const Job &j = kv.second;
+        if (j.status != kJobRunning) continue;
+        if (j.host == c.netId || std::find(j.members.begin(), j.members.end(), c.netId) != j.members.end()) return j.id;
+    }
+    if (c.infoFlags & kInfoActivity) return kPrivateSession | c.netId;   // a solo activity: alone
+    return 0;
+}
+
+void Server::RefreshSessions() {
+    for (auto &kv : clients_) {
+        Client &c = kv.second;
+        if (!c.authed) continue;
+        uint32_t s = SessionOf(c);
+        if (s == c.session) continue;
+        LOGI("session", c.name.c_str(), "session %u -> %u", c.session, s);
+        c.session = s;
+        RelayInfo(c, nullptr);
+    }
+}
+
+void Server::HandlePlayerInfo(Client &c, const PlayerInfoMsg &m) {
+    if (m.rank == c.rank && m.flags == c.infoFlags) return;
+    bool passiveChanged = (m.flags ^ c.infoFlags) & kInfoPassive;
+    c.rank = m.rank; c.infoFlags = m.flags;
+    if (passiveChanged) LOGI("session", c.name.c_str(), "passive mode %s", (m.flags & kInfoPassive) ? "on" : "off");
+    uint32_t s = SessionOf(c);
+    if (s != c.session) LOGI("session", c.name.c_str(), "session %u -> %u", c.session, s);
+    c.session = s;
+    RelayInfo(c, nullptr);
 }
 
 void Server::HandleAppearance(Client &c, const AppearanceUpdateMsg &m) {
@@ -514,7 +569,7 @@ void Server::HandleShot(Client &c, const ShotMsg &m) {
     wire::Writer w;
     Put(w, ShotRelayMsg{c.netId, m.weapon, m.origin, m.target});
     for (auto &kv : clients_)
-        if (kv.first != c.peer && kv.second.authed) Send(kv.first, w, kChanEvents, true);
+        if (kv.first != c.peer && kv.second.authed && kv.second.session == c.session) Send(kv.first, w, kChanEvents, true);
 }
 
 void Server::HandleDamage(Client &c, const DamageMsg &m) {
@@ -524,6 +579,8 @@ void Server::HandleDamage(Client &c, const DamageMsg &m) {
     if (!v || v == &c) return;
     if (!c.haveState || !v->haveState) return;
     if ((c.state.flags & kFlagDead) || (v->state.flags & kFlagDead)) return;
+    if (v->session != c.session) { LOGD("combat", who, "hit on %s refused: another session", v->name.c_str()); return; }
+    if ((c.infoFlags | v->infoFlags) & kInfoPassive) { LOGD("combat", who, "hit on %s refused: passive mode", v->name.c_str()); return; }
     Vec3 a = (c.state.flags & kFlagInVehicle) ? c.state.veh.pos : c.state.pos;
     Vec3 b = (v->state.flags & kFlagInVehicle) ? v->state.veh.pos : v->state.pos;
     float d = Dist(a, b);
@@ -820,6 +877,7 @@ void Server::CloseJob(uint32_t id, const char *why) {
     LOGI("jobs", "-", "job %u \"%s\" closed (%s)", id, it->second.title.c_str(), why);
     jobs_.erase(it);
     SendJobList(nullptr);
+    RefreshSessions();
 }
 
 void Server::LeaveJobs(uint16_t netId) {
@@ -833,6 +891,7 @@ void Server::LeaveJobs(uint16_t netId) {
     }
     for (uint32_t id : hosted) CloseJob(id, "host left");
     if (changed && hosted.empty()) SendJobList(nullptr);
+    if (changed) RefreshSessions();
 }
 
 void Server::HandleJobOpen(Client &c, const JobOpenMsg &m) {
@@ -867,6 +926,7 @@ void Server::HandleJobJoin(Client &c, const JobJoinMsg &m) {
     LOGI("jobs", c.name.c_str(), "joined job %u \"%s\"", j.id, j.title.c_str());
     SendJobState(j);
     SendJobList(nullptr);
+    RefreshSessions();
 }
 
 void Server::PayJob(const Job &j) {
@@ -1006,5 +1066,5 @@ void Server::HandleJobUpdate(Client &c, const JobUpdateMsg &m) {
     } else if (m.status == kJobFailed) LOGI("jobs", c.name.c_str(), "job %u \"%s\" failed", j->id, j->title.c_str());
     SendJobState(*j);
     if (m.status >= kJobPassed) { CloseJob(j->id, m.status == kJobPassed ? "passed" : m.status == kJobFailed ? "failed" : "closed by host"); return; }
-    if (statusChanged) SendJobList(nullptr);
+    if (statusChanged) { SendJobList(nullptr); RefreshSessions(); }
 }

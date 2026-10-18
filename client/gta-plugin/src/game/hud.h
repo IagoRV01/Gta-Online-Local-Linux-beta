@@ -9,7 +9,7 @@
 
 namespace hud {
 
-struct PlayerRow { std::string name; bool self = false; int wanted = 0; };
+struct PlayerRow { std::string name; bool self = false; int wanted = 0; int rank = 0; bool passive = false; int ped = 0; };
 
 void Frame(int64_t wallet, int64_t bank, const std::vector<PlayerRow> &players, const std::string &status);
 void OnMoneyChange(int64_t dWallet, int64_t dBank);   // from economy (local or server-confirmed)
