@@ -3988,11 +3988,71 @@ static void CommandTick() {
         else if (a[0] == "sv" && a.size() > 1) SvHost(std::max(0, std::min(NSV_LOCS - 1, std::atoi(a[1].c_str()))), a.size() > 2 && a[2] == "solo");   // sv <place> [solo]
         else if (a[0] == "svstart") SvHostStart();
         else if (a[0] == "arena") {   // arena [theme map light vehicle bots minutes]: Arena War solo (test)
-            for (int k = 0; k < 6 && k + 1 < (int)a.size(); ++k) g_awSel[k] = std::atoi(a[k + 1].c_str());
+            for (int k = 0; k < 7 && k + 1 < (int)a.size(); ++k) g_awSel[k] = std::atoi(a[k + 1].c_str());   // ... minutes-index mode
             AwStart(false);
         }
         else if (a[0] == "arenaquit") { if (g_aw.phase != AWP_NONE) AwFinish(); }
-        else if (a[0] == "arenastat") Log("arena: phase %d kills %d deaths %d bots %d interior %d room 0x%08X", g_aw.phase, g_aw.kills, g_aw.deaths, (int)g_aw.botList.size(), g_aw.interior, (unsigned)N<int>(N_GET_ROOM_KEY_FROM_ENTITY, Me()));
+        else if (a[0] == "awfloors" && a.size() > 1 && g_aw.phase == AWP_NONE) {   // awfloors <theme>: load each map, log the floor heights at the centre and 25 m out
+            int th = std::max(0, std::min(2, std::atoi(a[1].c_str()))), me = Me();
+            Vec3 back = Pos(me); float bh = N<float>(N_GET_ENTITY_HEADING, me);
+            N(N_FREEZE_ENTITY_POSITION, me, 1);
+            for (int m = 0; m < AW_THEMES[th].maps; ++m) {
+                int id = AwLoadArena(th, m, 0);
+                N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y, 150.f, 0, 0, 0, 0);   // as AwBegin does
+                for (int i = 0; i < 40; ++i) { N(N_FORCE_ROOM_FOR_ENTITY, me, id, AW_ROOM); N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, id, AW_ROOM); N(N_REQUEST_COLLISION_AT_COORD, AW_CENTRE.x, AW_CENTRE.y, 120.f); Wait(50); }
+                float fz = AwFindFloor(); g_aw.floorZ = fz;
+                float h = 0.f; Vec3 sp = AwSpawnPoint(h);
+                Log("awfloors %s map %d: floor %.1f, a spawn at %.1f %.1f %.1f", AW_THEMES[th].name, m + 1, fz, sp.x, sp.y, sp.z);
+                g_aw = AwRun();
+            }
+            N(N_CLEAR_ROOM_FOR_ENTITY, me);
+            N(N_FREEZE_ENTITY_POSITION, me, 0);
+            Teleport(back.x, back.y, back.z, bh);
+        }
+        else if (a[0] == "awroom" && a.size() > 2 && g_aw.phase == AWP_NONE) {   // awroom <map> <z> [force 0/1]: stand at the centre at that height, log the room the game puts you in
+            static Vec3 s_back = V3(0, 0, 0); static float s_bh = 0.f;
+            int me = Me();
+            if (s_back.x == 0.f) { s_back = Pos(me); s_bh = N<float>(N_GET_ENTITY_HEADING, me); }
+            int id = AwLoadArena(0, std::atoi(a[1].c_str()), 0);
+            N(N_CLEAR_ROOM_FOR_ENTITY, me); N(N_CLEAR_ROOM_FOR_GAME_VIEWPORT);
+            N(N_FREEZE_ENTITY_POSITION, me, 1);
+            N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x + 20.f, AW_CENTRE.y, F(2), 0, 0, 0, 0);
+            bool force = a.size() > 3 && a[3] == "1";
+            for (int i = 0; i < 60; ++i) { if (force) { N(N_FORCE_ROOM_FOR_ENTITY, me, id, AW_ROOM); N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, id, AW_ROOM); } Wait(50); }
+            Log("awroom z %.1f: interior %d room 0x%08X (arena %d)", F(2), N<int>(N_GET_INTERIOR_FROM_ENTITY, me), (unsigned)N<int>(N_GET_ROOM_KEY_FROM_ENTITY, me), id);
+        }
+        else if (a[0] == "awview" && a.size() > 2 && g_aw.phase == AWP_NONE) {   // awview <theme> <map>: stand 3 m over the floor at the centre (then awroomend x y z h)
+            int me = Me(), th = std::max(0, std::min(2, std::atoi(a[1].c_str())));
+            int id = AwLoadArena(th, std::atoi(a[2].c_str()) % AW_THEMES[th].maps, 2);
+            N(N_FREEZE_ENTITY_POSITION, me, 1);
+            N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x - 30.f, AW_CENTRE.y, 120.f, 0, 0, 0, 0);
+            for (int i = 0; i < 40; ++i) { N(N_FORCE_ROOM_FOR_ENTITY, me, id, AW_ROOM); N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, id, AW_ROOM); Wait(50); }
+            float gz = GroundAt(AW_CENTRE.x - 30.f, AW_CENTRE.y, 140.f, 100.f);
+            N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x - 30.f, AW_CENTRE.y, gz + 3.f, 0, 0, 0, 0);
+            N(N_SET_ENTITY_HEADING, me, 270.f);
+            N(N_SET_GAMEPLAY_CAM_RELATIVE_HEADING, 0.f); N(N_SET_GAMEPLAY_CAM_RELATIVE_PITCH, -10.f, 1.f);
+            for (int i = 0; i < 40; ++i) { N(N_FORCE_ROOM_FOR_ENTITY, me, id, AW_ROOM); N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, id, AW_ROOM); Wait(50); }
+            Log("awview %s map %s: floor %.1f", AW_THEMES[th].name, a[2].c_str(), gz);
+        }
+        else if (a[0] == "awprobe" && a.size() > 2) {   // awprobe x y: the ground found from several start heights
+            std::string line;
+            for (float top : {200.f, 170.f, 160.f, 150.f, 145.f, 140.f, 130.f, 120.f}) { char b2[32]; std::snprintf(b2, sizeof b2, " %.0f:%.1f", top, GroundAt(F(1), F(2), top, -1.f)); line += b2; }
+            Log("awprobe %.1f %.1f:%s", F(1), F(2), line.c_str());
+        }
+        else if (a[0] == "awroomend") { int me = Me(); N(N_CLEAR_ROOM_FOR_ENTITY, me); N(N_CLEAR_ROOM_FOR_GAME_VIEWPORT); N(N_FREEZE_ENTITY_POSITION, me, 0); Teleport(F(1), F(2), F(3), F(4)); }
+        else if (a[0] == "arenaabort") { if (g_aw.phase != AWP_NONE) AwCleanup(); }   // out of the arena with no results or rewards
+        else if (a[0] == "arenacp") {   // Games Masters: drop your car on the current checkpoint
+            if (!g_aw.cps.empty() && Exists(g_aw.myVeh)) { Vec3 c = g_aw.cps[(size_t)g_aw.score % g_aw.cps.size()]; N(N_SET_ENTITY_COORDS, g_aw.myVeh, c.x, c.y, c.z + 0.5f, 0, 0, 0, 0); Log("arenacp: %.1f %.1f %.1f", c.x, c.y, c.z); }
+        }
+        else if (a[0] == "arenastat") {   // the event, then each bot: distance to you, speed, its car's health
+            Log("arena: mode %d phase %d kills %d deaths %d score %d bomb %d bots %d interior %d room 0x%08X car health %d", g_aw.mode, g_aw.phase, g_aw.kills, g_aw.deaths, g_aw.score, g_aw.bombHolder, (int)g_aw.botList.size(), g_aw.interior,
+                (unsigned)N<int>(N_GET_ROOM_KEY_FROM_ENTITY, Me()), Exists(g_aw.myVeh) ? N<int>(N_GET_ENTITY_HEALTH, g_aw.myVeh) : -1);
+            for (size_t i = 0; i < g_aw.botList.size(); ++i) {
+                const AwBot &b = g_aw.botList[i];
+                if (!Exists(b.veh)) { Log("  bot %d: respawning", (int)i); continue; }
+                Log("  bot %d: %.1f m, %.1f m/s, health %d", (int)i, Dist(Pos(b.veh), Pos(Me())), N<float>(N_GET_ENTITY_SPEED, b.veh), N<int>(N_GET_ENTITY_HEALTH, b.veh));
+            }
+        }
         else if (a[0] == "svquit") { if (g_sv.phase == SVP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_sv = SvRun(); } else if (g_sv.phase != SVP_NONE) { if (g_sv.host) SvHostEnd(); SvFinish(); } }
         else if (a[0] == "svstat") Log("survival: phase %d wave %d cleared %d kills %d enemies %d/%d alive %d", g_sv.phase, g_sv.wave, g_sv.cleared, g_sv.kills, g_sv.spawned, g_sv.total, (int)g_sv.peds.size());
         else if (a[0] == "lastdose") StartLastDose(std::max(0, std::min(4, std::atoi(rest.c_str()))));

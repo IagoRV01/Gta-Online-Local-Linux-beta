@@ -4,9 +4,11 @@
 // (Set_Dystopian_01-17, Set_Scifi_01-10, Set_Wasteland_01-10), the crowd (Set_Crowd_A-D), a lighting set and the
 // pit fence. Teleporting in does not put you in the interior's room, so the player, the car and the game camera are
 // forced into it every frame (else only the sea outside renders).
-// Carnage: vehicle combat in arena vehicles, against bots (solo) or the other players (a deathmatch job, kind 2,
-// text "A|theme|map|light|minutes|vehicle"); kills, deaths, Arena Points, cash and RP. Apocalypse, Future Shock and
-// Nightmare are the three variants of each arena vehicle.
+// Modes: Carnage (vehicle combat, against bots or online against the other players: a deathmatch job, kind 2, text
+// "A|theme|map|light|minutes|vehicle"), and against bots: Hot Bomb (a timed bomb passed by ramming; survive the
+// rounds), Here Come the Monsters (a small car against monster trucks) and Games Masters (checkpoints across the
+// arena while the bots hunt you). Kills, deaths, Arena Points, cash and RP. Apocalypse, Future Shock and Nightmare
+// are the three variants of each arena vehicle.
 enum { AW_MENU = 340 };
 struct AwTheme { const char *name, *scene, *prefix; int maps; const char *variant; };
 static const AwTheme AW_THEMES[] = {{"Apocalypse", "Set_Dystopian_Scene", "Set_Dystopian_", 17, "Apocalypse"},
@@ -16,6 +18,14 @@ static const struct { const char *name, *set; } AW_LIGHTS[] = {{"Night", "Set_Li
     {"Midday", "Set_Lights_midday"}, {"Morning", "Set_Lights_morning"}, {"Storm", "Set_Lights_storm"}, {"Sandstorm", "Set_Lights_sandstorm"},
     {"Toxic", "Set_Lights_toxic"}, {"Hell", "Set_Lights_hell"}, {"Atlantis", "Set_Lights_atlantis"}, {"Saccharine", "Set_Lights_saccharine"}};
 static const int NAW_LIGHTS = (int)(sizeof AW_LIGHTS / sizeof *AW_LIGHTS);
+// Apocalypse 11 and 13-16 are bare sets (only the base floor at 90.7: their layouts are props in Rockstar's jobs). Checked with awfloors / awview, 2026-10-18.
+static bool AwMapBare(int th, int m) { return th == 0 && (m == 10 || (m >= 12 && m <= 15)); }
+static int AwFixMap(int th, int m) {   // the next playable map from m on
+    int n = AW_THEMES[th].maps;
+    m = ((m % n) + n) % n;
+    for (int i = 0; i < n && AwMapBare(th, m); ++i) m = (m + 1) % n;
+    return m;
+}
 // each arena vehicle in its three variants (Apocalypse, Future Shock, Nightmare)
 static const char *AW_VEHS[][4] = {
     {"Imperator", "imperator", "imperator2", "imperator3"}, {"Dominator", "dominator4", "dominator5", "dominator6"}, {"Issi", "issi4", "issi5", "issi6"},
@@ -23,21 +33,31 @@ static const char *AW_VEHS[][4] = {
     {"Brutus", "brutus", "brutus2", "brutus3"}, {"Bruiser", "bruiser", "bruiser2", "bruiser3"}, {"Sasquatch", "monster3", "monster4", "monster5"},
     {"Cerberus", "cerberus", "cerberus2", "cerberus3"}, {"Deathbike", "deathbike", "deathbike2", "deathbike3"}, {"Scarab", "scarab", "scarab2", "scarab3"}};
 static const int NAW_VEHS = (int)(sizeof AW_VEHS / sizeof *AW_VEHS);
+enum { AWM_CARNAGE, AWM_HOTBOMB, AWM_MONSTERS, AWM_GAMESMASTERS, AWM_COUNT };
+static const struct { const char *name, *desc; } AW_MODES[AWM_COUNT] = {
+    {"Carnage", "Wreck the others: most kills wins. Online against the other players, solo against bots."},
+    {"Hot Bomb", "A bomb on a timer: ram someone to pass it on. Whoever holds it at zero goes up. Survive the rounds."},
+    {"Here Come the Monsters", "A small car against monster trucks. Stay in one piece until the time runs out."},
+    {"Games Masters", "Drive through the checkpoints across the arena while the bots hunt you."}};
 static const uint32_t AW_ROOM = 0x113B4A40;   // the arena's room (GET_ROOM_KEY_FROM_ENTITY once inside)
 static const Vec3 AW_CENTRE = V3(2800.f, -3800.f, 100.f);
 
 enum AwPhase { AWP_NONE, AWP_LOBBY, AWP_COUNTDOWN, AWP_PLAYING, AWP_RESULTS };
-struct AwBot { int veh = 0, ped = 0, blip = 0, respawnAt = 0, retaskAt = 0; };
+struct AwBot { int veh = 0, ped = 0, blip = 0, respawnAt = 0, retaskAt = 0, idleSince = 0; };
 struct AwRun {
     int phase = AWP_NONE, theme = 0, map = 0, light = 0, minutes = 5, veh = 0, bots = 4;
     bool host = false, solo = true, ended = false, wasDown = false;
-    int startAt = 0, endAt = 0, resultsUntil = 0, payout = 0, interior = 0, myVeh = 0, downAt = 0;
+    int startAt = 0, endAt = 0, resultsUntil = 0, payout = 0, interior = 0, myVeh = 0, downAt = 0, stuckSince = 0;
+    float floorZ = 104.f;                                     // this map's main floor (they go from about 100 to 140)
     int kills = 0, deaths = 0, countdownMovie = 0, lastCount = -1;
+    int mode = AWM_CARNAGE, score = 0;                          // score: Hot Bomb rounds survived / Games Masters checkpoints
+    int bombHolder = -2, bombEnds = 0, lastPass = 0;           // Hot Bomb: -1 you, >= 0 a bot, -2 nobody yet
+    std::vector<Vec3> cps; int cpHandle = 0, cpBlip = 0;      // Games Masters
     std::vector<AwBot> botList;
     Vec3 back{}; float backH = 0.f;
 };
 static AwRun g_aw;
-static int g_awSel[6] = {0, 0, 0, 0, 2, 0};   // menu choices: theme, map, light, vehicle, bots (x2), minutes index
+static int g_awSel[7] = {0, 0, 0, 0, 2, 0, 0};   // menu choices: theme, map, light, vehicle, bots (x2), minutes index, mode
 static const int AW_MINUTES[] = {5, 10, 15};
 
 static std::string AwModel(int theme, int veh) { return AW_VEHS[veh][1 + theme]; }
@@ -73,21 +93,54 @@ static void AwForceRoom() {   // every frame in the arena: player, car and camer
     N(N_SET_RADAR_AS_INTERIOR_THIS_FRAME, Joaat("xs_x18_int_01"), AW_CENTRE.x, AW_CENTRE.y, 0, 0);
     N(N_HIDE_MINIMAP_EXTERIOR_MAP_THIS_FRAME);
 }
-static Vec3 AwSpawnPoint(float &heading) {   // on the arena floor around the centre, level with it (not on a ramp), facing in
-    float base = GroundAt(AW_CENTRE.x, AW_CENTRE.y, 130.f, 103.1f);
-    for (int tries = 0; tries < 40; ++tries) {
-        float a = (float)Rand(6283) / 1000.f, r = 10.f + (float)Rand(tries < 25 ? 22 : 38);
+// Each map has its floor at its own height (about 100 to 140, over the bare base at 90.7) and bridges, roofs and
+// ramps on top: every surface down a column, and the map's floor is the height found most often across the arena.
+static std::vector<float> AwSurfaces(float x, float y) {
+    std::vector<float> out;
+    float top = 170.f;
+    for (float t : {170.f, 150.f, 145.f, 135.f}) if (GroundAt(x, y, t, -1000.f) > 92.f) { top = t; break; }   // some start heights find nothing
+    for (int i = 0; i < 6; ++i) {
+        float gz = GroundAt(x, y, top, -1000.f);
+        if (gz < 92.f) break;   // the bare base under every map
+        out.push_back(gz);
+        top = gz - 1.5f;
+    }
+    return out;
+}
+static float AwFindFloor() {
+    std::map<int, std::pair<int, float>> bins;   // 1 m bins: count, sum
+    for (float dx = -40.f; dx <= 40.f; dx += 8.f)
+        for (float dy = -40.f; dy <= 40.f; dy += 8.f)
+            for (float gz : AwSurfaces(AW_CENTRE.x + dx, AW_CENTRE.y + dy)) { auto &b = bins[(int)std::floor(gz)]; ++b.first; b.second += gz; }
+    int most = 0;
+    for (auto &[k, b] : bins) most = std::max(most, b.first);
+    float z = 104.f;   // the lowest big level (raised rings, decks and roofs can cover as much)
+    for (auto &[k, b] : bins) if (b.first * 10 >= most * 4) { z = b.second / b.first; break; }
+    std::string h;
+    for (auto &[k, b] : bins) if (b.first >= 4) h += " " + std::to_string(k) + ":" + std::to_string(b.first);
+    Log("arena floor %.1f (heights:%s)", z, h.c_str());
+    return z;
+}
+static float AwSurfaceNear(float x, float y, float z, float tol) {   // the surface in that column closest to z (within tol), or -1000
+    float best = -1000.f;
+    for (float gz : AwSurfaces(x, y)) if (std::fabs(gz - z) <= tol && std::fabs(gz - z) < std::fabs(best - z)) best = gz;
+    return best;
+}
+static Vec3 AwSpawnPoint(float &heading) {   // on the map's floor around the centre, level (not on a ramp), facing in
+    float fz = g_aw.floorZ;
+    for (int tries = 0; tries < 50; ++tries) {
+        float a = (float)Rand(6283) / 1000.f, r = 8.f + (float)Rand(tries < 30 ? 24 : 40);
         float x = AW_CENTRE.x + std::cos(a) * r, y = AW_CENTRE.y + std::sin(a) * r;
-        float gz = GroundAt(x, y, 130.f, -1000.f);
-        if (gz < 95.f || gz > 125.f || (tries < 30 && std::fabs(gz - base) > 0.8f)) continue;
+        float gz = AwSurfaceNear(x, y, fz, tries < 35 ? 0.8f : 3.f);
+        if (gz < -999.f) continue;
         bool clear = true;   // and not right on top of the slopes: the ground 3 m around is level too
-        for (int k = 0; k < 4 && clear; ++k) { float g2 = GroundAt(x + (k == 0 ? 3.f : k == 1 ? -3.f : 0.f), y + (k == 2 ? 3.f : k == 3 ? -3.f : 0.f), 130.f, -1000.f); clear = std::fabs(g2 - gz) < 0.8f; }
-        if (!clear && tries < 35) continue;
+        for (int k = 0; k < 4 && clear; ++k) clear = AwSurfaceNear(x + (k == 0 ? 3.f : k == 1 ? -3.f : 0.f), y + (k == 2 ? 3.f : k == 3 ? -3.f : 0.f), gz, 0.8f) > -999.f;
+        if (!clear && tries < 45) continue;
         heading = std::atan2(-(AW_CENTRE.x - x), AW_CENTRE.y - y) * 180.f / 3.14159265f;
         return V3(x, y, gz + 1.0f);
     }
     heading = 0.f;
-    return V3(AW_CENTRE.x, AW_CENTRE.y, 104.5f);
+    return V3(AW_CENTRE.x, AW_CENTRE.y, fz + 1.5f);
 }
 static int AwCar(const std::string &model, Vec3 p, float h) {
     uint32_t m = Joaat(model.c_str());
@@ -105,7 +158,7 @@ static void AwPlacePlayer() {   // a fresh car on the floor; your own arena vehi
     float h = 0.f;
     Vec3 p = AwSpawnPoint(h);
     if (Exists(g_aw.myVeh)) DeleteEntity(g_aw.myVeh);
-    std::string model = AwModel(g_aw.theme, g_aw.veh);
+    std::string model = g_aw.mode == AWM_MONSTERS ? AwModel(g_aw.theme, 2) : AwModel(g_aw.theme, g_aw.veh);   // the monsters' prey: an Issi
     g_aw.myVeh = AwCar(model, p, h);
     for (auto &g : g_garage) if (g.model == model && !g.data.empty() && Exists(g_aw.myVeh)) { ApplyVehicle(g_aw.myVeh, g.data); break; }
     N(N_SET_ENTITY_COORDS, Me(), p.x, p.y, p.z + 1.f, 0, 0, 0, 0);
@@ -120,7 +173,7 @@ static void AwSpawnBot(AwBot &b) {
     HostileGroup();
     float h = 0.f;
     Vec3 p = AwSpawnPoint(h);
-    b.veh = AwCar(AwModel(g_aw.theme, Rand(NAW_VEHS - 2)), p, h);   // no Deathbike / Scarab for bots
+    b.veh = AwCar(AwModel(g_aw.theme, g_aw.mode == AWM_MONSTERS ? 8 : Rand(NAW_VEHS - 2)), p, h);   // Sasquatches for the monsters; no Deathbike / Scarab
     if (!b.veh) return;
     uint32_t pm = Joaat("a_m_y_motox_01");
     if (!LoadModel(pm)) return;
@@ -158,9 +211,24 @@ static void AwBotsTick() {
             b.respawnAt = Now() + 4000;
             continue;
         }
-        if (Now() >= b.retaskAt) {   // after you, again and again
-            N(N_TASK_VEHICLE_MISSION_PED_TARGET, b.ped, b.veh, me, 6, 32.f, 786469, 3.f, 1.f, 1);
-            b.retaskAt = Now() + 5000;
+        if (NB(N<int>(N_IS_VEHICLE_STUCK_ON_ROOF, b.veh)) || NB(N<int>(N_IS_VEHICLE_STUCK_TIMER_UP, b.veh, 3, 5000))) {   // flipped or wedged: back in play
+            AwRemoveBot(b);
+            AwSpawnBot(b);
+            continue;
+        }
+        bool idle = N<float>(N_GET_ENTITY_SPEED, b.veh) < 1.f && Dist(Pos(b.veh), Pos(me)) > 25.f;   // parked far away (lost the path): back in play
+        if (!idle) b.idleSince = 0;
+        else if (!b.idleSince) b.idleSince = Now();
+        else if (Now() - b.idleSince > 8000) { AwRemoveBot(b); AwSpawnBot(b); continue; }
+        if (Now() >= b.retaskAt) {   // after you, again and again; in Hot Bomb the holder hunts and everybody else runs from it
+            int target = me, mission = 6;
+            if (g_aw.mode == AWM_HOTBOMB) {
+                int idx = (int)(&b - g_aw.botList.data());
+                if (g_aw.bombHolder >= 0 && g_aw.bombHolder != idx && Exists(g_aw.botList[g_aw.bombHolder].ped)) { target = g_aw.botList[g_aw.bombHolder].ped; mission = 8; }
+                else if (g_aw.bombHolder == -1) mission = 8;
+            }
+            N(N_TASK_VEHICLE_MISSION_PED_TARGET, b.ped, b.veh, target, mission, 32.f, 786469, mission == 8 ? 60.f : 3.f, 1.f, 1);
+            b.retaskAt = Now() + (g_aw.mode == AWM_HOTBOMB ? 1500 : 5000);
         }
     }
 }
@@ -174,11 +242,12 @@ static void AwBegin(int startsInMs) {
     g_aw.kills = g_aw.deaths = 0;
     N(N_DO_SCREEN_FADE_OUT, 500); Wait(550);
     if (InAnyVehicle()) N(N_SET_ENTITY_COORDS, Me(), g_aw.back.x, g_aw.back.y, g_aw.back.z + 1.f, 0, 0, 0, 0);
-    N(N_SET_ENTITY_COORDS, Me(), AW_CENTRE.x, AW_CENTRE.y, 110.f, 0, 0, 0, 0);
+    N(N_SET_ENTITY_COORDS, Me(), AW_CENTRE.x, AW_CENTRE.y, 150.f, 0, 0, 0, 0);
     N(N_FREEZE_ENTITY_POSITION, Me(), 1);
     g_aw.interior = AwLoadArena(g_aw.theme, g_aw.map, g_aw.light);
-    N(N_REQUEST_COLLISION_AT_COORD, AW_CENTRE.x, AW_CENTRE.y, 104.f);
+    N(N_REQUEST_COLLISION_AT_COORD, AW_CENTRE.x, AW_CENTRE.y, 120.f);
     for (int i = 0; i < 40; ++i) { AwForceRoom(); Wait(50); }
+    g_aw.floorZ = AwFindFloor();
     N(N_FREEZE_ENTITY_POSITION, Me(), 0);
     AwPlacePlayer();
     if (Exists(g_aw.myVeh)) N(N_FREEZE_ENTITY_POSITION, g_aw.myVeh, 1);
@@ -186,12 +255,28 @@ static void AwBegin(int startsInMs) {
     for (auto &b : g_aw.botList) { AwSpawnBot(b); if (Exists(b.veh)) N(N_FREEZE_ENTITY_POSITION, b.veh, 1); }
     g_aw.countdownMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "COUNTDOWN");
     g_aw.lastCount = -1;
+    if (g_aw.mode == AWM_GAMESMASTERS) {   // eight checkpoints across the floor, in a loop
+        g_aw.cps.clear();
+        for (int t = 0; t < 40 && g_aw.cps.size() < 8; ++t) {   // spread out: at least 20 m from the others
+            float h2 = 0.f; Vec3 c = AwSpawnPoint(h2);
+            bool tooNear = false;
+            for (const Vec3 &o : g_aw.cps) tooNear = tooNear || Dist(c, o) < 20.f;
+            if (!tooNear) g_aw.cps.push_back(c);
+        }
+        if (g_aw.cps.size() < 3) {   // no open floor found: a ring around the centre
+            g_aw.cps.clear();
+            float gz = g_aw.floorZ;
+            for (int i = 0; i < 6; ++i) { float a = i * 1.0472f; g_aw.cps.push_back(V3(AW_CENTRE.x + std::cos(a) * 28.f, AW_CENTRE.y + std::sin(a) * 28.f, gz + 1.f)); }
+        }
+    }
     N(N_DO_SCREEN_FADE_IN, 600);
-    Shard("~o~ARENA WAR", std::string("Carnage - ") + AW_THEMES[g_aw.theme].name);
-    Log("arena war: carnage, %s map %d, %s, %d min, %d bots, %s", AW_THEMES[g_aw.theme].name, g_aw.map + 1, AwModel(g_aw.theme, g_aw.veh).c_str(),
+    Shard("~o~ARENA WAR", std::string(AW_MODES[g_aw.mode].name) + " - " + AW_THEMES[g_aw.theme].name);
+    Log("arena war: %s, %s map %d (floor %.1f), %s, %d min, %d bots, %s", AW_MODES[g_aw.mode].name, AW_THEMES[g_aw.theme].name, g_aw.map + 1, g_aw.floorZ, AwModel(g_aw.theme, g_aw.veh).c_str(),
         g_aw.minutes, (int)g_aw.botList.size(), g_aw.solo ? "solo" : "online");
 }
+static void AwCpClear() { if (g_aw.cpHandle) { N(N_DELETE_CHECKPOINT, g_aw.cpHandle); g_aw.cpHandle = 0; } RemoveBlip(g_aw.cpBlip); }
 static void AwCleanup() {
+    AwCpClear();
     for (auto &b : g_aw.botList) AwRemoveBot(b);
     if (g_aw.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_aw.countdownMovie);
     N(N_DO_SCREEN_FADE_OUT, 500); Wait(550);
@@ -207,12 +292,20 @@ static int AwApGet() { return AcidGet("arena_ap"); }   // the Arena Points total
 static void AwFinish() {
     if (g_aw.phase == AWP_RESULTS) return;
     g_aw.phase = AWP_RESULTS; g_aw.resultsUntil = Now() + 12000;
-    int ap = 20 + 10 * g_aw.kills;
+    AwCpClear();
+    int ap = 20 + 10 * g_aw.kills, cash = std::min(60000, 5000 + 1500 * g_aw.kills);
+    std::string line = std::to_string(g_aw.kills) + " kills, " + std::to_string(g_aw.deaths) + " deaths";
+    if (g_aw.mode == AWM_HOTBOMB) { ap = 20 + 15 * g_aw.score; cash = std::min(60000, 4000 + 2000 * g_aw.score); line = std::to_string(g_aw.score) + " rounds survived"; }
+    if (g_aw.mode == AWM_MONSTERS) {
+        ap = g_aw.deaths == 0 ? 80 : std::max(20, 60 - 10 * g_aw.deaths); cash = g_aw.deaths == 0 ? 16000 : std::max(4000, 12000 - 2000 * g_aw.deaths);
+        line = g_aw.deaths == 0 ? "Survived in one piece!" : std::to_string(g_aw.deaths) + " times wrecked";
+    }
+    if (g_aw.mode == AWM_GAMESMASTERS) { ap = 20 + 10 * g_aw.score; cash = std::min(60000, 2000 + 1500 * g_aw.score); line = std::to_string(g_aw.score) + " checkpoints"; }
     AcidSet("arena_ap", AwApGet() + ap);
-    if (g_aw.solo) { int cash = std::min(60000, 5000 + 1500 * g_aw.kills); AddCash(cash); Notify("~g~" + Money(cash) + "~s~ for the show."); }
-    GiveRP(300 + 50 * g_aw.kills, "Arena War");
+    if (g_aw.solo) { AddCash(cash); Notify("~g~" + Money(cash) + "~s~ for the show."); }
+    GiveRP(300 + 50 * (g_aw.kills + g_aw.score), "Arena War");
     Save();
-    Shard("~o~ARENA WAR", std::to_string(g_aw.kills) + " kills, " + std::to_string(g_aw.deaths) + " deaths  +" + std::to_string(ap) + " AP");
+    Shard("~o~ARENA WAR", line + "  +" + std::to_string(ap) + " AP");
 }
 
 // ---- host / join (online: a deathmatch job, kind 2, text "A|...")
@@ -223,8 +316,10 @@ static std::string AwText() {
 static void AwStart(bool online) {
     if (g_mActive || g_race.phase != RP_NONE || g_dm.phase != DP_NONE || g_sv.phase != SVP_NONE || g_aw.phase != AWP_NONE) { Notify("~r~Finish your race, deathmatch or job first."); return; }
     g_aw = AwRun();
-    g_aw.theme = g_awSel[0]; g_aw.map = g_awSel[1] % AW_THEMES[g_aw.theme].maps; g_aw.light = g_awSel[2]; g_aw.veh = g_awSel[3];
-    g_aw.bots = g_awSel[4] * 2; g_aw.minutes = AW_MINUTES[g_awSel[5]]; g_aw.host = true;
+    g_aw.theme = g_awSel[0]; g_aw.map = AwFixMap(g_aw.theme, g_awSel[1]); g_aw.light = g_awSel[2]; g_aw.veh = g_awSel[3];
+    g_aw.bots = g_awSel[4] * 2; g_aw.minutes = AW_MINUTES[g_awSel[5]]; g_aw.host = true; g_aw.mode = g_awSel[6] % AWM_COUNT;
+    if (g_aw.mode == AWM_HOTBOMB || g_aw.mode == AWM_MONSTERS) g_aw.bots = std::max(g_aw.bots, 3);   // they need someone to play against
+    if (g_aw.mode != AWM_CARNAGE) online = false;
     if (!online || !LO().jobOpenKind || !CoopAvailable()) { g_aw.solo = true; AwBegin(4000); return; }
     g_aw.solo = false;
     g_aw.payout = 12000 * g_aw.minutes / 5;
@@ -252,7 +347,7 @@ static void AwFollowJob() {
     g_aw = AwRun();
     g_aw.host = host; g_aw.solo = false;
     g_aw.theme = std::max(0, std::min(2, std::atoi(f[1].c_str())));
-    g_aw.map = std::max(0, std::atoi(f[2].c_str())) % AW_THEMES[g_aw.theme].maps;
+    g_aw.map = AwFixMap(g_aw.theme, std::max(0, std::atoi(f[2].c_str())));
     g_aw.light = std::max(0, std::min(NAW_LIGHTS - 1, std::atoi(f[3].c_str())));
     g_aw.minutes = std::max(1, std::atoi(f[4].c_str()));
     g_aw.veh = host ? std::max(0, std::min(NAW_VEHS - 1, std::atoi(f[5].c_str()))) : g_awSel[3];   // members drive their own pick
@@ -260,19 +355,82 @@ static void AwFollowJob() {
     AwBegin((int)g_coop.startsIn);
 }
 
+// ---- the bot modes' rules
+static int AwHolderVeh() { return g_aw.bombHolder == -1 ? g_aw.myVeh : g_aw.bombHolder >= 0 && g_aw.bombHolder < (int)g_aw.botList.size() ? g_aw.botList[g_aw.bombHolder].veh : 0; }
+static void AwGiveBomb(int who) {
+    g_aw.bombHolder = who; g_aw.lastPass = Now();
+    if (who == -1) { Notify("~r~You have the bomb!~s~ Ram someone to pass it on."); Sound("Out_Of_Area", "DLC_Lowrider_Relay_Race_Sounds"); }
+    else Sound("Bomb_Passed", "DLC_AW_Hot_Bomb_Sounds");
+    for (auto &b : g_aw.botList) b.retaskAt = 0;   // the bots change their plan at once
+}
+static void AwModeTick() {
+    int me = Me();
+    if (g_aw.mode == AWM_HOTBOMB) {
+        auto alive = [](int v) { return Exists(v) && !Dead(v) && NB(N<int>(N_IS_VEHICLE_DRIVEABLE, v, 0)); };
+        if (g_aw.bombHolder == -2 && Now() < g_aw.bombEnds) return;   // a breather between rounds
+        if (g_aw.bombHolder == -2 || !alive(AwHolderVeh())) {   // a new round (or the holder got wrecked): the bomb goes to someone at random
+            int n = (int)g_aw.botList.size(), pick = Rand(n + 1) - 1;
+            if (pick >= 0 && !alive(g_aw.botList[pick].veh)) pick = -1;
+            if (pick == -1 && !alive(g_aw.myVeh)) return;
+            g_aw.bombEnds = Now() + 25000;
+            AwGiveBomb(pick);
+        }
+        int hv = AwHolderVeh();
+        if (Exists(hv)) {   // the marker over the holder
+            Vec3 p = Pos(hv);
+            N(N_DRAW_MARKER, 0, p.x, p.y, p.z + 2.6f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.2f, 1.2f, 1.2f, 255, 40, 20, 220, 1, 0, 2, 1, 0, 0, 0);
+            if (Now() - g_aw.lastPass > 1500) {   // passing: touch another car
+                if (g_aw.bombHolder != -1 && Exists(g_aw.myVeh) && NB(N<int>(N_IS_ENTITY_TOUCHING_ENTITY, hv, g_aw.myVeh))) AwGiveBomb(-1);
+                else for (int i = 0; i < (int)g_aw.botList.size(); ++i)
+                    if (i != g_aw.bombHolder && Exists(g_aw.botList[i].veh) && NB(N<int>(N_IS_ENTITY_TOUCHING_ENTITY, hv, g_aw.botList[i].veh))) { AwGiveBomb(i); break; }
+            }
+        }
+        if (Now() >= g_aw.bombEnds) {   // boom: whoever holds it goes up, everybody else survived the round
+            int h2 = AwHolderVeh();
+            if (Exists(h2)) N(N_EXPLODE_VEHICLE, h2, 1, 0);
+            if (g_aw.bombHolder == -1) Shard("~r~BOOM", "You were holding the bomb.");
+            else { ++g_aw.score; Shard("~g~ROUND SURVIVED", std::to_string(g_aw.score) + " so far"); }
+            g_aw.bombHolder = -2; g_aw.bombEnds = Now() + 4000;
+        }
+        return;
+    }
+    if (g_aw.mode == AWM_GAMESMASTERS && !g_aw.cps.empty()) {
+        Vec3 c = g_aw.cps[(size_t)g_aw.score % g_aw.cps.size()], nx = g_aw.cps[(size_t)(g_aw.score + 1) % g_aw.cps.size()];
+        if (!g_aw.cpHandle) {
+            g_aw.cpHandle = N<int>(N_CREATE_CHECKPOINT, 1, c.x, c.y, c.z - 1.f, nx.x, nx.y, nx.z, 10.f, 255, 140, 0, 170, 0);
+            N(N_SET_CHECKPOINT_CYLINDER_HEIGHT, g_aw.cpHandle, 8.f, 8.f, 10.f);
+            g_aw.cpBlip = CoordBlip(c, 1, 47, "Checkpoint", false);
+        }
+        Vec3 mp = Pos(me);
+        if (std::hypot(mp.x - c.x, mp.y - c.y) < 10.f && std::fabs(mp.z - c.z) < 8.f) {
+            ++g_aw.score;
+            AwCpClear();
+            Sound("CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET");
+        }
+    }
+}
+
 // ---- HUD, results, each frame
 static void AwHud() {
     int row = 0;
     RaceBar(row++, "TIME LEFT", RaceTime(std::max(0, g_aw.endAt - Now())).substr(0, 5));
-    RaceBar(row++, "DEATHS", std::to_string(g_aw.deaths));
-    RaceBar(row++, "KILLS", std::to_string(g_aw.kills), true);
+    if (g_aw.mode == AWM_HOTBOMB) {
+        RaceBar(row++, "BOMB", g_aw.bombHolder == -1 ? "YOU" : g_aw.bombHolder >= 0 ? "BOT" : "-");
+        RaceBar(row++, "FUSE", RaceTime(std::max(0, g_aw.bombEnds - Now())).substr(0, 5));
+        RaceBar(row++, "ROUNDS", std::to_string(g_aw.score), true);
+        return;
+    }
+    RaceBar(row++, g_aw.mode == AWM_MONSTERS ? "WRECKED" : "DEATHS", std::to_string(g_aw.deaths));
+    if (g_aw.mode == AWM_GAMESMASTERS) RaceBar(row++, "CHECKPOINTS", std::to_string(g_aw.score), true);
+    else if (g_aw.mode == AWM_CARNAGE) RaceBar(row++, "KILLS", std::to_string(g_aw.kills), true);
 }
 static void AwResults() {
     float x = 0.5f, y = 0.3f, w = 0.4f;
     Rect(x, y, w, 0.05f, 255, 120, 0, 230);
-    Text(std::string("Arena War: ") + AW_THEMES[g_aw.theme].name, x, y - 0.018f, 0.5f, 1, 255, 255, 255, 255, 0);
-    const char *rows[] = {"Kills", "Deaths", "Arena Points", "Arena Points total"};
-    int vals[] = {g_aw.kills, g_aw.deaths, 20 + 10 * g_aw.kills, AwApGet()};
+    Text(std::string(AW_MODES[g_aw.mode].name) + ": " + AW_THEMES[g_aw.theme].name, x, y - 0.018f, 0.5f, 1, 255, 255, 255, 255, 0);
+    const char *rows[] = {g_aw.mode == AWM_HOTBOMB ? "Rounds survived" : g_aw.mode == AWM_GAMESMASTERS ? "Checkpoints" : "Kills",
+                          g_aw.mode == AWM_MONSTERS ? "Times wrecked" : "Deaths", "Bots", "Arena Points total"};
+    int vals[] = {g_aw.mode == AWM_HOTBOMB || g_aw.mode == AWM_GAMESMASTERS ? g_aw.score : g_aw.kills, g_aw.deaths, (int)g_aw.botList.size(), AwApGet()};
     for (int i = 0; i < 4; ++i) {
         float ry = y + 0.05f + 0.038f * i;
         Rect(x, ry, w, 0.036f, 0, 0, 0, 190);
@@ -318,12 +476,28 @@ static void ArenaWarTick() {
         if (g_aw.wasDown && !Dead(me) && Now() - g_aw.downAt > 2500) {
             g_aw.wasDown = false;
             N(N_DO_SCREEN_FADE_OUT, 300); Wait(350);
-            N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y, 110.f, 0, 0, 0, 0);
+            N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y, g_aw.floorZ + 6.f, 0, 0, 0, 0);
             for (int i = 0; i < 10; ++i) { AwForceRoom(); Wait(30); }
             AwPlacePlayer();
             N(N_DO_SCREEN_FADE_IN, 400);
         }
+        // on its roof or stuck: a fresh car after 3 s, like Online's arena (not a death)
+        if (!down && Exists(g_aw.myVeh)) {
+            bool stuck = NB(N<int>(N_IS_VEHICLE_STUCK_ON_ROOF, g_aw.myVeh)) || NB(N<int>(N_IS_VEHICLE_STUCK_TIMER_UP, g_aw.myVeh, 1, 4000)) ||
+                         NB(N<int>(N_IS_VEHICLE_STUCK_TIMER_UP, g_aw.myVeh, 3, 4000));
+            if (stuck) {
+                if (!g_aw.stuckSince) g_aw.stuckSince = Now();
+                Text("Stuck: a new car in " + std::to_string(std::max(0, 3 - (Now() - g_aw.stuckSince) / 1000)), 0.5f, 0.85f, 0.45f, 4, 255, 200, 80, 255, 0, 1.f, true);
+                if (Now() - g_aw.stuckSince > 3000) {
+                    g_aw.stuckSince = 0;
+                    N(N_DO_SCREEN_FADE_OUT, 250); Wait(300);
+                    AwPlacePlayer();
+                    N(N_DO_SCREEN_FADE_IN, 300);
+                }
+            } else g_aw.stuckSince = 0;
+        }
         if (g_aw.solo) AwBotsTick();
+        AwModeTick();
         AwHud();
         if (Now() >= g_aw.endAt) {
             if (!g_aw.solo && g_aw.host && LO().jobUpdate && !g_aw.ended) { g_aw.ended = true; LO().jobUpdate(COOP_PASSED, 0, -376.f, -1862.f, 20.f, ""); }
@@ -340,7 +514,7 @@ static void ArenaWarTick() {
 // ---- the Arena War menu (Interaction Menu, or E at the Maze Bank Arena)
 static bool ArenaWarMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     if ((int)f.id != AW_MENU) return false;
-    title = "Arena War"; sub = "CARNAGE";
+    title = "Arena War"; sub = "EVENTS";
     if (g_aw.host && g_aw.phase == AWP_LOBBY) {
         int n = g_coop.members.empty() ? 1 : 2;
         for (char c : g_coop.members) if (c == ',') ++n;
@@ -348,19 +522,24 @@ static bool ArenaWarMenu(const Frame &f, std::string &title, std::string &sub, s
         items.push_back({"Cancel", "", "", [] { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_aw = AwRun(); CloseMenu(); }});
         return true;
     }
-    if (g_aw.phase != AWP_NONE) { items.push_back({"Leave the Arena", "", "", [] { CloseMenu(); if (!g_aw.solo && !g_aw.host && LO().jobJoin) LO().jobJoin(0); AwFinish(); }}); return true; }
-    int th = g_awSel[0];
-    g_awSel[1] %= AW_THEMES[th].maps;
+    if (g_aw.phase != AWP_NONE) { items.push_back({"Leave the Arena", "", "", [] { CloseMenu(); if (!g_aw.solo && !g_aw.host && LO().jobJoin) LO().jobJoin(0);
+        if (g_aw.phase != AWP_RESULTS) Notify("You left the event: no rewards.");   // like Online: quitters get nothing
+        AwCleanup(); }}); return true; }
+    int th = g_awSel[0], mode = g_awSel[6] % AWM_COUNT;
+    g_awSel[1] = AwFixMap(th, g_awSel[1]);
+    int playable = 0, pos = 0;
+    for (int m = 0; m < AW_THEMES[th].maps; ++m) if (!AwMapBare(th, m)) { ++playable; if (m == g_awSel[1]) pos = playable; }
+    items.push_back({"Mode", std::string("< ") + AW_MODES[mode].name + " >", AW_MODES[mode].desc, [] { g_awSel[6] = (g_awSel[6] + 1) % AWM_COUNT; }});
     items.push_back({"Theme", std::string("< ") + AW_THEMES[th].name + " >", std::string("Arena vehicles in their ") + AW_THEMES[th].variant + " versions.",
                      [] { g_awSel[0] = (g_awSel[0] + 1) % 3; g_awSel[1] = 0; }});
-    items.push_back({"Map", "< " + std::to_string(g_awSel[1] + 1) + " / " + std::to_string(AW_THEMES[th].maps) + " >", "The arena's layout.", [] { ++g_awSel[1]; }});
+    items.push_back({"Map", "< " + std::to_string(pos) + " / " + std::to_string(playable) + " >", "The arena's layout.", [] { g_awSel[1] = AwFixMap(g_awSel[0], g_awSel[1] + 1); }});
     items.push_back({"Lighting", std::string("< ") + AW_LIGHTS[g_awSel[2]].name + " >", "", [] { g_awSel[2] = (g_awSel[2] + 1) % NAW_LIGHTS; }});
     std::string vname = std::string(AW_VEHS[g_awSel[3]][0]) + " (" + AW_THEMES[th].variant + ")";
     items.push_back({"Vehicle", "< " + vname + " >", "If you own this model, its upgrades come with it.", [] { g_awSel[3] = (g_awSel[3] + 1) % NAW_VEHS; }});
     items.push_back({"Bots (solo)", "< " + std::to_string(g_awSel[4] * 2) + " >", "AI drivers that come for you.", [] { g_awSel[4] = (g_awSel[4] + 1) % 5; }});
     items.push_back({"Time", "< " + std::to_string(AW_MINUTES[g_awSel[5]]) + " min >", "", [] { g_awSel[5] = (g_awSel[5] + 1) % 3; }});
-    items.push_back({"Play Solo", "", "Carnage against the bots.", [] { CloseMenu(); AwStart(false); }});
-    if (CoopAvailable() && LO().jobOpenKind)
+    items.push_back({"Play Solo", "", std::string(AW_MODES[mode].name) + " against the bots.", [] { CloseMenu(); AwStart(false); }});
+    if (mode == AWM_CARNAGE && CoopAvailable() && LO().jobOpenKind)
         items.push_back({"Host Online", Money(12000 * AW_MINUTES[g_awSel[5]] / 5) + " to the winner", "Open a lobby: other players join from Jobs. Paid by position.",
                          [] { CloseMenu(); AwStart(true); }});
     items.push_back({"Arena Points", std::to_string(AwApGet()), "Earned in every Arena War event.", nullptr});

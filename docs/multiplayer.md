@@ -257,7 +257,7 @@ While YOU plays, the story phone becomes GTA Online's. Verified in game.
   - Gori sets two per-owner flags for 15 Online contacts: f_12 (in the phone book) and f_24 (name known).
   - Without f_24, appContacts lists only the bare number.
   - The contacts: Lester, Simeon, Lamar, Ron, Martin, Gerald, Agent 14, Brucie, Mechanic, Pegasus, Mors Mutual, Merryweather, Assistant, Tony and Ms. Baker.
-  - Pictures: the charsheet's f_7 is a text label (CELL_311 → CHAR_LESTER), and Gori streams that dictionary. Still open (2026-10-12): Lester stays a silhouette even with CHAR_LESTER loaded, while the other contacts with the same charsheet flags show their picture.
+  - Pictures: the charsheet's f_7 is a text label (CELL_311 → CHAR_LESTER), and Gori streams that dictionary. Lester's silhouette is vanilla: the CHAR_LESTER texture itself is a silhouette (checked 2026-10-14), so there is nothing to fix.
   - Since the 2026-10-11 fix (the home-screen redraw only runs below state 6), Contacts opens again (verified 2026-10-12).
 - **Calls.** A call lasts 1.8 s while the phone state `Global_21649.f_1` is 10 (calling `Global_8817`). Then Gori:
   1. closes appContacts;
@@ -431,11 +431,11 @@ GTA Online-style races, solo or online, with GTA Online's look: countdown, check
   - Unlocked by rank, $5k-$18k, co-op jobs.
   - Interaction Menu → Contact Missions, or call the contact (the phone now opens his missions instead of the heists). Test: `cm <contact> <mission>`.
 - **Ammu-Nation clerk.** `s_m_y_ammucity_01` / `s_m_m_ammucountry` behind each counter; he turns to face you. Verified at Pillbox Hill.
-- **Lester's phone picture.** CHAR_LESTER renders as a 64x64 texture, yet the phone still showed a silhouette. While YOU plays, his charsheet picture label is switched to `CELL_E_311` (CHAR_LESTER_DEATHWISH, Online's picture of him) and restored afterwards. Not verified yet.
+- **Lester's phone picture.** The phone shows a silhouette for him because the CHAR_LESTER texture is one: that is the game's own picture. An earlier label swap to `CELL_E_311` was removed (2026-10-14).
 - **Deployed 2026-10-13 21:55** (Gori + LocalOnline with kind 2). In game: The Last Dose starts as a co-op job with Dax's text, objective and timer.
   - **Bug found and fixed:** Checking In / BDKD teleported to the MLO origins from DurtyFree's mlo.json (495,-2560,-49 / 520,-2625,-49), which are not floors: the player fell out of the clinic and died. Now `xm3_lab` = 528.25,-2637.73 (fm_content scripts) and `xm3_clinic` = 495,-2566 (floor -50.04, found with the new `intscan <interior> [half-size]` command). Verified in game 2026-10-13: Checking In enters the white clinic and moves on to "Copy the research"; the dark lab has a floor.
   - Contact mission start verified (`cm 0 0`, Gerald's Pier Pressure).
-  - Lester: the label swap is applied (`phonechars`: contact 12 → CELL_E_311), but Contacts still shows a silhouette. Still open.
+  - Lester: his silhouette is the vanilla CHAR_LESTER picture (the label swap was removed 2026-10-14).
 
 ## Survival (job kind 3, Gori `Survival.inc`, 2026-10-13)
 
@@ -536,7 +536,15 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - a theme's scene set (`Set_Dystopian_Scene` / `Set_Scifi_Scene` / `Set_Wasteland_Scene`) and one of its maps (`Set_Dystopian_01-17`, `Set_Scifi_01-10`, `Set_Wasteland_01-10`);
   - the crowd (`Set_Crowd_A-D`, tinted by theme), a lighting set (`Set_Lights_night`, `_evening`, `_midday`, `_morning`, `_storm`, `_sandstorm`, `_toxic`, `_hell`, `_atlantis`, `_saccharine`) and `Set_Pit_Fence_Closed`.
   - The set names come from fm_mission_controller (IS_INTERIOR_ENTITY_SET_ACTIVE says yes to any name, so it cannot check them).
+  - **Every map has its floor at its own height**, from about z 100 to 140, over a bare base floor at 90.7, with bridges, roofs and ramps above it. Probing the ground from z 130 fell through the higher maps to the bare base, so they looked empty (the "blue void", 2026-10-18). Now `AwFindFloor` lists every surface down each column of a 9x9 grid (from z 170) and takes the height found most often. Spawns, respawns and checkpoints go on that floor. Test commands: `awfloors <theme>` (floor and a spawn for each map), `awview <theme> <map>` (stand over the floor to look) and `awroomend x y z h`.
 - **Rendering:** teleporting in does not put you in the interior's room, so only the sea renders. The player, the cars and the game viewport are forced into room 0x113B4A40 every frame (FORCE_ROOM_FOR_ENTITY / FORCE_ROOM_FOR_GAME_VIEWPORT). The radar shows the arena (SET_RADAR_AS_INTERIOR_THIS_FRAME).
+- **Modes** (2026-10-18). The menu has a Mode option; Carnage can also be hosted online, the other three are against bots.
+  - **Hot Bomb:** a 25 s bomb goes to someone at random (a red marker over the holder). Touching another car passes it on (1.5 s cooldown). At zero the holder's car explodes; everyone else survives the round, and a new round starts 4 s later. The bot holding the bomb hunts you, and the others run from it; when you hold it, they all run from you. Pays $4,000 + $2,000 a round survived (max $60,000) and 20 + 15 AP a round.
+  - **Here Come the Monsters:** you drive an Issi in the theme's variant against Sasquatch monster trucks (at least 3) until time runs out. Pays $16,000 and 80 AP for no wrecks, then less for each wreck (at least $4,000 / 20 AP).
+  - **Games Masters:** 8 checkpoints spread at least 20 m apart over the floor, in a loop (an orange cylinder plus a blip), while the bots hunt you. Pays $2,000 + $1,500 a checkpoint and 20 + 10 AP a checkpoint. Test: `arenacp` drops your car on the current checkpoint.
+  - Leaving early ("Leave the Arena") pays nothing, as in Online. `arenaabort` does the same from the command file.
+  - Test: `arena theme map light vehicle bots/2 minutes-index mode` (mode 0-3), `arenastat`, `arenaquit` (ends with results), `arenaabort`.
+- **Bots:** a bot whose car is stuck on its roof or jammed respawns after 5 s. One that has been parked over 25 m away for 8 s (it lost its path) also respawns.
 - **Carnage:** vehicle combat. It opens from Interaction Menu → Arena War, or with E at the Arena War blip at the Maze Bank Arena (-376,-1862).
   - Options: theme (Apocalypse, Sci-Fi, Consumer Wasteland), map, lighting, vehicle, bots (solo) and 5/10/15 minutes.
   - Vehicles: 12 arena vehicles, in the theme's variant (Apocalypse / Future Shock / Nightmare). If you own the model, its garage mods come with it.
@@ -550,7 +558,8 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - Solo Carnage: Apocalypse map 1, night, Imperator, 4 bots. The arena, the crowd, the bots on the radar, the HUD, the results and the cleanup all work.
   - The Arena Workshop: test purchase, drive in, banner and Armor Plating.
   - The test rewards and the purchase were reverted.
-- **Not done:** Online's other Arena War modes (Flag War, Hot Bomb, Wreck It, Games Masters...), the spectator box, the traps, and Arena career rewards beyond the AP total.
+- **Verified in game 2026-10-18:** Hot Bomb (Apocalypse 1: 8 rounds, the holder blows up, $20,000), Here Come the Monsters (Sci-Fi 1: no wrecks, $16,000) and Games Masters (Consumer Wasteland 1: checkpoints and blip, 3 checkpoints with `arenacp`). The test rewards were reverted.
+- **Not done:** Online's other modes (Flag War, Wreck It, Tag Team, Bomb Ball, Hunted...), the spectator box, the traps, Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 
 ## Roadmap: GTA Online content (user request 2026-10-12)
 

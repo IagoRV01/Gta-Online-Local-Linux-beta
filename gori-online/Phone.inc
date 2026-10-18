@@ -92,7 +92,8 @@ static const int PH_CHARS = 2350, PH_CHAR_STRIDE = 29, PH_OWNER = 21649, PH_STAT
 struct PhoneContact { int id; MenuId menu; const char *says; };
 static std::vector<PhoneContact> &PhoneContacts();
 static std::map<int, std::pair<uint64_t, uint64_t>> g_phoneKnownSaved;   // contact -> its story values
-static char g_lesterPic[16] = {};   // Lester's story picture label, while YOU plays
+// Lester's picture is a silhouette on purpose: Rockstar's CHAR_LESTER (and the Lester + Franklin / Michael conference
+// pictures) show him in shadow, in the story and in Online alike (checked 2026-10-18 by drawing the textures)
 static void PhoneContactsOnline(bool on) {
     for (const PhoneContact &c : PhoneContacts()) {
         uint64_t *e = GlobalPtr(PH_CHARS + c.id * PH_CHAR_STRIDE);
@@ -104,10 +105,6 @@ static void PhoneContactsOnline(bool on) {
         if (on) {
             if (!g_phoneKnownSaved.count(c.id)) {
                 g_phoneKnownSaved[c.id] = {known, named};
-                if (c.id == 12) {   // Lester: CHAR_LESTER stays a silhouette in this phone; Online's own picture of him does not
-                    std::memcpy(g_lesterPic, e + 7, 16);
-                    char pic[16] = "CELL_E_311"; std::memcpy(e + 7, pic, 16);
-                }
                 // the picture (f_7) is a text label (CELL_311) naming the texture dictionary: stream that,
                 // the story only loads its own cast's
                 char lab[17] = {}; std::memcpy(lab, e + 7, 16);
@@ -118,7 +115,6 @@ static void PhoneContactsOnline(bool on) {
             known = 1; named = 1;
         } else if (g_phoneKnownSaved.count(c.id)) {
             known = g_phoneKnownSaved[c.id].first; named = g_phoneKnownSaved[c.id].second;
-            if (c.id == 12 && g_lesterPic[0]) std::memcpy(e + 7, g_lesterPic, 16);
         }
     }
     if (!on) g_phoneKnownSaved.clear();
