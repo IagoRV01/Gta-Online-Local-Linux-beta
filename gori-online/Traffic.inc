@@ -28,6 +28,14 @@ static void TrafficInit() {
         if (!NB(N<int>(N_IS_MODEL_IN_CDIMAGE, h)) || !NB(N<int>(N_IS_MODEL_A_VEHICLE, h))) continue;
         g_tPool.push_back({h, W[r.cls]});
     }
+    static const float WA[] = {3.f, 2.f, 2.f, 2.f, 2.f, 1.f, 1.6f, 0.8f, 1.2f};   // the add-on vehicles too (the Knoway drives itself: Knoway.inc)
+    for (const AddonRow &r : ADDON_ROWS) {
+        uint32_t h = Joaat(r.model);
+        if (!std::strcmp(r.model, "knowayest") || r.cls > 8) continue;
+        if (!NB(N<int>(N_IS_MODEL_IN_CDIMAGE, h)) || !NB(N<int>(N_IS_MODEL_A_VEHICLE, h))) continue;
+        bool dup = false; for (auto &p : g_tPool) dup = dup || p.first == h;
+        if (!dup) g_tPool.push_back({h, WA[r.cls] * 1.5f});
+    }
     Log("traffic: %d models can join the traffic", (int)g_tPool.size());
 }
 static uint32_t TrafficPick() {

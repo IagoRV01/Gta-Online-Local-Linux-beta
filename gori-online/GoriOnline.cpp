@@ -932,7 +932,25 @@ static const char *CLASS_NAMES[] = {"Compacts", "Sedans", "SUVs", "Coupes", "Mus
     "Industrial", "Utility", "Vans", "Cycles", "Boats", "Helicopters", "Planes", "Service", "Emergency", "Military", "Commercial", "Trains", "Open Wheel"};
 enum Site { SITE_LEGENDARY, SITE_SSASA, SITE_WARSTOCK, SITE_ELITAS, SITE_DOCKTEASE, SITE_COUNT };
 static const char *SITE_NAMES[SITE_COUNT] = {"Legendary Motorsport", "Southern S.A. Super Autos", "Warstock Cache & Carry", "Elitas Travel", "Docktease"};
+// Add-on vehicles installed in mods/update/x64/dlcpacks (2026-10-18, from gta5-mods.com): price and website by the
+// nearest vanilla Online car. They are not in the game's DLC vehicle list (no shop data), so they are listed here.
+struct AddonRow { const char *model; int cls, price, site; };
+static const AddonRow ADDON_ROWS[] = {
+    {"knowayest", 17, 925000, SITE_SSASA},       // Knoway Ocelot E-Stride (self-driving taxi; Knoway.inc)
+    {"warrenerc", 1, 1190000, SITE_SSASA},       // Vulcar Warrener Custom (Warrener HKR $1,260,000)
+    {"batic", 8, 330000, SITE_SSASA},            // Pegassi Bati 801 Custom
+    {"sxkim38", 6, 1450000, SITE_LEGENDARY},     // Kimera EVO38 (Tropos Rallye)
+    {"cometmans", 6, 1950000, SITE_LEGENDARY},   // Pfister Comet EVO Monarch (Comet S2 $1,878,000)
+    {"ventoux", 7, 2850000, SITE_LEGENDARY},     // Truffade Ventoux (Thrax $2,325,000)
+    {"schaft", 6, 135000, SITE_SSASA},           // Benefactor Schafter Restyling (Schafter V12 $116,000)
+    {"lexicorn", 6, 1650000, SITE_LEGENDARY},    // Coil Lexicorn (Coil Raiden $1,375,000)
+    {"kuruma10", 6, 95000, SITE_SSASA},          // Karin Kuruma 2010 base model (Kuruma $126,350)
+    {"tiberius", 7, 2450000, SITE_LEGENDARY},    // Truffade Tiberius (Nero / Thrax)
+};
+static std::map<uint32_t, int> g_siteOverride;
 static int SiteOf(const CatCar &c) {
+    auto ov = g_siteOverride.find(c.hash);
+    if (ov != g_siteOverride.end()) return ov->second;
     if (c.cls == 14) return SITE_DOCKTEASE;
     if (c.cls == 15 || c.cls == 16) return SITE_ELITAS;
     if (c.weapon || c.cls == 18 || c.cls == 19) return SITE_WARSTOCK;
@@ -961,6 +979,13 @@ static void BuildCatalog() {
         g_cat.push_back(c);
     };
     for (const VehRow &r : VEH_ROWS) add(r.model, Joaat(r.model), r.cls, r.price, r.weapon != 0);
+    int addons = 0;
+    for (const AddonRow &r : ADDON_ROWS) {
+        uint32_t h = Joaat(r.model);
+        if (!g_catByHash.count(h)) { add(r.model, h, r.cls, r.price, false); if (g_catByHash.count(h)) ++addons; }
+        g_siteOverride[h] = r.site;
+    }
+    Log("catalogue: %d add-on vehicles", addons);
     int n = N<int>(N_GET_NUM_DLC_VEHICLES), extra = 0;
     for (int i = 0; i < n; ++i) {
         uint32_t h = (uint32_t)N<int>(N_GET_DLC_VEHICLE_MODEL, i);
@@ -4093,6 +4118,7 @@ static void Progress() {
 }
 
 #include "Traffic.inc"
+#include "Knoway.inc"
 
 // ---------------------------------------------------------------- Isla Neon on the map (radar + pause map): area blips
 static std::vector<int> g_mapBlips;
@@ -4646,6 +4672,22 @@ static void CommandTick() {
         else if (a[0] == "chips") { g_chips = (int)F(1); Save(); }
         else if (a[0] == "wheelreset") { g_wheelNext = 0; Save(); }
         else if (a[0] == "water") { float h = 0.f; int r = N<int>(N_GET_WATER_HEIGHT, F(1), F(2), F(3), &h); Log("water at %.1f %.1f: %d height %.2f", F(1), F(2), r, h); }
+        else if (a[0] == "knoway") {   // knoway [go | wp x y]: the robotaxi fleet; go = stand next to the nearest one, wp = set a waypoint (testing)
+            if (a.size() > 3 && a[1] == "wp") N(N_SET_NEW_WAYPOINT, (float)F(2), (float)F(3));
+            Vec3 me = Pos(Me()); int best = -1; float bd = 1e9f;
+            for (int i = 0; i < (int)g_kw.size(); ++i) {
+                float d = Dist(Pos(g_kw[i].veh), me);
+                Log("knoway %d: %.0f m, speed %.1f, hired %d", i, d, N<float>(N_GET_ENTITY_SPEED, g_kw[i].veh), g_kw[i].hired ? 1 : 0);
+                if (d < bd) { bd = d; best = i; }
+            }
+            Log("knoway: %d cars, ride %d, available %d", (int)g_kw.size(), g_kwRide, KnowayAvailable() ? 1 : 0);
+            if (a.size() > 1 && a[1] == "go" && best >= 0) {
+                int v = g_kw[best].veh;
+                N(N_TASK_VEHICLE_TEMP_ACTION, g_kw[best].driver, v, 6, 8000);
+                Vec3 p = Pos(v); float h = N<float>(N_GET_ENTITY_HEADING, v) * 3.14159265f / 180.f;
+                TeleportExact(p.x + std::cos(h) * 3.f, p.y + std::sin(h) * 3.f, p.z, 0.f);
+            }
+        }
         else if (a[0] == "traffic") Log("traffic: %d swaps, %d models streamed, %d seen", g_tSwapped, (int)g_tActive.size(), (int)g_tSeen.size());
         else if (a[0] == "realweb") { RealWebOpen(a.size() > 1 ? a[1] : "WWW_EYEFIND_INFO"); }
         else if (a[0] == "webclose") RWClose();
@@ -4897,6 +4939,7 @@ static void ScriptMain() {
         SfDebugTick();
         BizAppTick();
         TrafficTick();
+        KnowayTick();
         Events();
         SellCars();
         Progress();

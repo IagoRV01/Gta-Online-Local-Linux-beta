@@ -63,3 +63,11 @@ Two causes, both seen live with the `hudstate` diagnostics:
    rebuilds the ped with YOU's model and the plugin re-applies look and weapons.
 Test commands: `hudstate` (player, switch, cutscene, minimap, script camera state), `try.nopause`,
 `try.stateofplay`, `try.playing`.
+
+## Add-on vehicle packs close the game while loading (2026-10-18)
+Add-on cars (gta5-mods `dlcpacks/<name>/dlc.rpf` + a `dlclist.xml` entry) load through RageOpenV from the `mods` folder. On build 3889 two things crash the load; Rockstar's crash dump (`CrashLogs/*.dmp` in the Proton prefix) tells them apart:
+- `GTA5.exe+0x6057E1`: the pack's own **carcols.meta** (mod kits, lights, sirens). Drop its entries from the pack's `content.xml` and point `carvariations.meta` at the vanilla ones: `<kits><Item>0_default_modkit</Item></kits>`, `lightSettings 0`, `sirenSettings 0`. The car keeps the standard upgrades (engine, brakes, armour...) but loses its custom body parts.
+- `GTA5.exe+0x6041A1` (a register holds the joaat of a tuning part such as `batic_seat2`): the **FragmentStore** pool is full (the crash log shows `FragmentStore, 42000, 4199x`). Raise it in the `gameconfig.xml` inside `mods/update/update.rpf`, together with its neighbours: FragmentStore 52000, DrawableStore 100000, TxdStore 98000, DwdStore 24000, `MaxExtraVehicleModelInfos` 800 (the game already has 621 DLC vehicles).
+- Do **not** raise `fwArchetypePooledMap` or `IplStore`: the game crashes at startup (`GTA5.exe+0x10F5473`).
+
+Gori Online lists the packs it knows in `ADDON_ROWS` (GoriOnline.cpp: class, price, website) and adds them to traffic; the Knoway Ocelot E-Stride (`knowayest`) works as a driverless robotaxi (Knoway.inc: walk up, press E, set a waypoint, pay on arrival).
