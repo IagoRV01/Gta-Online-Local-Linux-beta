@@ -3988,7 +3988,7 @@ static void CommandTick() {
         else if (a[0] == "sv" && a.size() > 1) SvHost(std::max(0, std::min(NSV_LOCS - 1, std::atoi(a[1].c_str()))), a.size() > 2 && a[2] == "solo");   // sv <place> [solo]
         else if (a[0] == "svstart") SvHostStart();
         else if (a[0] == "arena") {   // arena [theme map light vehicle bots minutes]: Arena War solo (test)
-            for (int k = 0; k < 7 && k + 1 < (int)a.size(); ++k) g_awSel[k] = std::atoi(a[k + 1].c_str());   // ... minutes-index mode
+            for (int k = 0; k < 8 && k + 1 < (int)a.size(); ++k) g_awSel[k] = std::atoi(a[k + 1].c_str());   // ... minutes-index mode traps
             AwStart(false);
         }
         else if (a[0] == "arenaquit") { if (g_aw.phase != AWP_NONE) AwFinish(); }
@@ -4040,6 +4040,28 @@ static void CommandTick() {
             Log("awprobe %.1f %.1f:%s", F(1), F(2), line.c_str());
         }
         else if (a[0] == "awroomend") { int me = Me(); N(N_CLEAR_ROOM_FOR_ENTITY, me); N(N_CLEAR_ROOM_FOR_GAME_VIEWPORT); N(N_FREEZE_ENTITY_POSITION, me, 0); Teleport(F(1), F(2), F(3), F(4)); }
+        else if (a[0] == "awtraps") {   // where the traps are, and how far from you
+            for (auto &t : g_aw.trapList) Log("  trap %d at %.1f %.1f %.1f, %.1f m, %s", t.kind, t.p.x, t.p.y, t.p.z, Dist(Pos(Me()), t.p), Exists(t.obj) ? "up" : "down");
+            if (g_aw.mode == AWM_FLAGWAR) Log("  flag carrier %d at %.1f %.1f %.1f, score %d - %d, bases %.1f %.1f / bots %.1f %.1f", g_aw.flagCarrier, g_aw.flag.x, g_aw.flag.y, g_aw.flag.z, g_aw.score, g_aw.botScore,
+                                              g_aw.myBase.x, g_aw.myBase.y, g_aw.botBase.x, g_aw.botBase.y);
+        }
+        else if (a[0] == "awgoto" && a.size() > 1 && Exists(g_aw.myVeh)) {   // awgoto trap <i> | flag | base: drop your car there (testing)
+            Vec3 p = Pos(g_aw.myVeh);
+            if (a[1] == "trap" && a.size() > 2 && std::atoi(a[2].c_str()) < (int)g_aw.trapList.size()) p = g_aw.trapList[std::atoi(a[2].c_str())].p;
+            else if (a[1] == "flag") p = g_aw.flag;
+            else if (a[1] == "base") p = g_aw.myBase;
+            N(N_SET_ENTITY_COORDS, g_aw.myVeh, p.x, p.y, p.z + 1.f, 0, 0, 0, 0);
+            Log("awgoto %s: %.1f %.1f %.1f", a[1].c_str(), p.x, p.y, p.z);
+        }
+        else if (a[0] == "awlaunch" && Exists(g_aw.myVeh)) {   // awlaunch [vz]: throw your car up and log its height for 1.5 s (testing the flippers)
+            int v = g_aw.myVeh; float vz = a.size() > 1 ? F(1) : 13.f;
+            Vec3 vel = N<Vec3>(N_GET_ENTITY_VELOCITY, v);
+            if (a.size() > 2 && a[2] == "1") N(N_APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS, v, 1, 0.f, 0.f, vz, 0, 0, 1, 1);   // an impulse relative to the mass
+            else N(N_SET_ENTITY_VELOCITY, v, vel.x, vel.y, vz);
+            std::string line;
+            for (int i = 0; i < 15; ++i) { Wait(100); char b2[24]; std::snprintf(b2, sizeof b2, " %.1f/%.1f", Pos(v).z, N<Vec3>(N_GET_ENTITY_VELOCITY, v).z); line += b2; }
+            Log("awlaunch %.0f: z/vz%s", vz, line.c_str());
+        }
         else if (a[0] == "arenaabort") { if (g_aw.phase != AWP_NONE) AwCleanup(); }   // out of the arena with no results or rewards
         else if (a[0] == "arenacp") {   // Games Masters: drop your car on the current checkpoint
             if (!g_aw.cps.empty() && Exists(g_aw.myVeh)) { Vec3 c = g_aw.cps[(size_t)g_aw.score % g_aw.cps.size()]; N(N_SET_ENTITY_COORDS, g_aw.myVeh, c.x, c.y, c.z + 0.5f, 0, 0, 0, 0); Log("arenacp: %.1f %.1f %.1f", c.x, c.y, c.z); }
