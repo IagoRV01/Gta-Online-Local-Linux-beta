@@ -145,8 +145,21 @@ static void Subtitle(const std::string &text, int ms) {
     N(N_END_TEXT_COMMAND_PRINT, ms, 1);
 }
 static void Help(const char *text) {
-    N(N_BEGIN_TEXT_COMMAND_DISPLAY_HELP, "STRING");
-    N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, text);
+    // a text component holds 99 characters: longer help goes in up to three, cut between the ~tokens~
+    std::string s(text);
+    std::vector<std::string> parts;
+    for (size_t at = 0; at < s.size() && parts.size() < 3;) {
+        size_t n = std::min<size_t>(90, s.size() - at);
+        if (at + n < s.size()) {
+            int tildes = 0;
+            for (size_t i = at; i < at + n; ++i) tildes += s[i] == '~';
+            if (tildes % 2) n = s.rfind('~', at + n - 1) - at;
+        }
+        parts.push_back(s.substr(at, n));
+        at += n;
+    }
+    N(N_BEGIN_TEXT_COMMAND_DISPLAY_HELP, parts.size() == 3 ? "THREESTRINGS" : parts.size() == 2 ? "TWOSTRINGS" : "STRING");
+    for (auto &p : parts) N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, p.c_str());
     N(N_END_TEXT_COMMAND_DISPLAY_HELP, 0, 0, 0, -1);
 }
 static void Help(const std::string &text) { Help(text.c_str()); }
@@ -525,6 +538,7 @@ static bool g_profileYou = false;
 static bool YouActive();
 static bool YouSetData(const std::string &text);
 static bool YouGetData(std::string &text);
+static std::string g_outfit[6];   // the wardrobe's saved outfits (AptActs.inc)
 static std::string Serialize() {
     std::string out;
     char b[512];
@@ -540,6 +554,7 @@ static std::string Serialize() {
     for (auto &p : g_props) out += "prop=" + p + "\n";
     for (auto &z : g_biz) { std::snprintf(b, sizeof b, "biz=%s|%.2f|%.2f|%d\n", z.prop.c_str(), z.supplies, z.stock, z.safe); out += b; }
     for (auto &c : g_garage) out += "veh=" + c.prop + "|" + c.model + "|" + c.plate + "|" + c.data + "\n";
+    for (int i = 0; i < 6; ++i) if (!g_outfit[i].empty()) out += "outfit=" + std::to_string(i) + "|" + g_outfit[i] + "\n";
     return out;
 }
 static void Save() {
@@ -587,6 +602,7 @@ static void LoadText(const std::string &text) {
         }
         else if (k == "wheelnext") g_wheelNext = std::atoll(v.c_str());
         else if (k == "yachtname") g_yachtName = v;
+        else if (k == "outfit") { size_t b = v.find('|'); int i = std::atoi(v.c_str()); if (b != std::string::npos && i >= 0 && i < 6) g_outfit[i] = v.substr(b + 1); }
         else if (k == "heist") { auto p = Split(v, '|'); int i = std::atoi(p[0].c_str()); if (i >= 0 && i < NHEISTS && p.size() > 1) g_heistStage[i] = std::atoi(p[1].c_str()); }
         else if (k == "prop") { std::string n = Renamed(v); if (FindProp(n) >= 0 && !Owns(n)) g_props.push_back(n); }
         else if (k == "biz") {
@@ -630,6 +646,7 @@ static void ResetState() {
     g_rp = 0; g_snacks[0] = 5; g_snacks[1] = 2; g_snacks[2] = 1; g_playMin = 0; g_heistReadyAt = 0; g_starter = false;
     for (int i = 0; i < NHEISTS; ++i) g_heistStage[i] = 0;
     g_bestTrial = 0; g_chips = 0; g_wheelNext = 0;
+    for (auto &o : g_outfit) o.clear();
 }
 
 // Cash of the current story character (Michael/Franklin/Trevor), like the SP HUD shows
@@ -668,6 +685,7 @@ struct LocalOnlineApi {
     unsigned (*getSession)() = nullptr;
     int (*getPlayerName)(char *, int) = nullptr;
     void (*highlightPlayer)(unsigned, int) = nullptr;
+    bool (*adoptOutfit)() = nullptr;                               // API v8: the outfit worn now becomes the character's (AptActs.inc wardrobe)
     bool tried = false;
 };
 static LocalOnlineApi &LO() {
@@ -705,6 +723,7 @@ static LocalOnlineApi &LO() {
             api.getSession = (unsigned (*)())GetProcAddress(h, "LocalOnline_GetSession");
             api.getPlayerName = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_GetPlayerName");
             api.highlightPlayer = (void (*)(unsigned, int))GetProcAddress(h, "LocalOnline_HighlightPlayer");
+            api.adoptOutfit = (bool (*)())GetProcAddress(h, "LocalOnline_AdoptOutfit");
         }
     }
     return api;
@@ -1726,14 +1745,18 @@ static void OpenSecuroServ(int pi);
 static bool SecuroServTick(int pi, const Vec3 &mp, bool onFoot);
 static bool DataTerminalTick(int pi, const Vec3 &mp, bool onFoot);
 static void NaptResolveTick(Vec3 mp);
+static void AptActsFrame();
+static bool AptActsTick(Vec3 mp, bool onFoot);
 static void PropertiesTick() {
     int me = Me(); Vec3 mp = Pos(me);
     NaptResolveTick(mp);
+    AptActsFrame();
     bool onFoot = !InAnyVehicle();
     if (g_inside >= 0) {
         const InteriorDef *d = PropInterior(g_inside);
         Vec3 ex = V3(d->x, d->y, d->z);
         if (Dist(mp, ex) > 250.f) { g_inside = -1; return; }   // left by fast travel, death...
+        if (AptActsTick(mp, onFoot)) return;                     // the apartment's activities (AptActs.inc)
         Vec3 da; float dh;
         if (OnlinePoint(g_inside, 1, da, dh)) {   // GTA Online: walk to the front door to leave
             if (onFoot && !g_menuOpen && InOnlineExitArea(g_inside, me)) {
@@ -3487,6 +3510,8 @@ static void ToggleAccessory(int k) {
     else N(N_SET_PED_PROP_INDEX, me, k, g_accSaved[k][0], g_accSaved[k][1], 1, 0);
 }
 
+#include "AptActs.inc"   // GTA Online's apartment activities in our own interiors
+
 static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     items.clear();
     switch (f.id) {
@@ -3823,7 +3848,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
         items.push_back({"Isla Neon Life", g_optIsland ? "ON" : "OFF", "Traffic, people and parked vehicles on the island.", [] { g_optIsland = !g_optIsland; Save(); }});
         break;
     default:
-        if (!CasinoMenu((int)f.id, title, sub, items) && !SpvMenu(f, title, sub, items) && !ShopsMenu(f, title, sub, items) && !ModShopMenu(f, title, sub, items) && !RacesMenu(f, title, sub, items) && !AcidMenu(f, title, sub, items) && !DmMenu(f, title, sub, items) && !ContactMenu(f, title, sub, items) && !SvMenu(f, title, sub, items) && !ArenaWarMenu(f, title, sub, items) && !YachtMenu(f, title, sub, items)) GarageMenu((int)f.id, title, sub, items);
+        if (!CasinoMenu((int)f.id, title, sub, items) && !SpvMenu(f, title, sub, items) && !ShopsMenu(f, title, sub, items) && !ModShopMenu(f, title, sub, items) && !RacesMenu(f, title, sub, items) && !AcidMenu(f, title, sub, items) && !DmMenu(f, title, sub, items) && !ContactMenu(f, title, sub, items) && !SvMenu(f, title, sub, items) && !ArenaWarMenu(f, title, sub, items) && !YachtMenu(f, title, sub, items) && !AptMenu(f, title, sub, items)) GarageMenu((int)f.id, title, sub, items);
         break;
     }
 }
@@ -4615,6 +4640,10 @@ static void CommandTick() {
             } else Log("door: not inside a GTA Online interior");
         }
         else if (a[0] == "leave") { if (g_inside >= 0) ExitProperty(); }
+        else if (a[0] == "aptact" && a.size() > 1) AptActCommand(a[1]);   // aptact <T|C|B|W|S|D|P>: the apartment activity (test)
+        else if (a[0] == "outfitclear" && a.size() > 1) { int i = std::atoi(a[1].c_str()) - 1; if (i >= 0 && i < 6) { g_outfit[i].clear(); Save(); } }   // a wardrobe slot (1-6) back to empty (tests)
+        else if (a[0] == "seatpose" && a.size() > 2) { g_seatFwd = (float)std::atof(a[1].c_str()); g_seatUp = (float)std::atof(a[2].c_str()); if (a.size() > 3) g_seatScen = a[3]; }
+        else if (a[0] == "bedpose" && a.size() > 3) { g_bedAlong = (float)std::atof(a[1].c_str()); g_bedUp = (float)std::atof(a[2].c_str()); g_bedTurn = (float)std::atof(a[3].c_str()); }
         else if (a[0] == "garexit") { if (g_garProp >= 0) LeaveGarageOnFoot(false); }
         else if (a[0] == "meta") {   // meta <map> <from> [to]: GTA Online interior template points (metadata)
             int map = std::atoi(a[1].c_str()), from = std::atoi(a[2].c_str()), to = a.size() > 3 ? std::atoi(a[3].c_str()) : from;

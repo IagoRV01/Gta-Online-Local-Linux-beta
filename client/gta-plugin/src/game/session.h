@@ -42,6 +42,7 @@ bool ChangeAccount(int account, long long delta, const char *reason);
 // (copies up to cap-1 bytes + NUL), -1 when absent or YOU is not active.
 int GetData(const char *key, char *buf, int cap);
 bool SetData(const char *key, const char *value);   // 0 wallet, 1 bank, 2 deposit (<0 withdraw)
+bool AdoptOutfit();                  // the clothes worn now become YOU's (saved); false when YOU is not active
 bool HandleCommand(const std::string &line);   // remote test commands; false if unknown
 
 }  // namespace session

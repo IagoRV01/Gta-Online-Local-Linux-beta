@@ -40,6 +40,7 @@ struct NaptDoor { const char *id; float wx, wy, wz, wh, gx, gy, gz, gh; };
 static const NaptDoor NAPT_DOORS[] = {
     {"dt10", -213.53f, -728.02f, 32.55f, 250.f, -239.0f, -750.0f, 32.37f, 250.f},   // the lobby's glass doors in the colonnade; Peaceful St
     {"pb_village", 33.6f, 6597.4f, 31.47f, 100.f, 34.0f, 6611.0f, 31.47f, 180.f},       // in front of the porch steps (the front door faces east); the paved yard by the gate
+    {"pb_coast", -127.4f, 6553.9f, 28.62f, 45.f, -117.5f, 6559.5f, 28.48f, 45.f},       // the middle of the road-side facade (the ray search finds none); the paving at the north-east end
     {"pb_main", 0, 0, 0, 0, -342.4f, 6212.1f, 30.50f, 40.f},                            // the driveway to the detached garage
 };
 static void NaptApplyDoors(int k) {
@@ -65,6 +66,16 @@ static void NaptApplyDoors(int k) {
         }
     }
 }
+// the doors are known: the Dynasty 8 / map position follows the walk-in door
+static void NaptPlaced(int k, const char *how) {
+    const OEntrance &we = g_naptBld[k].e[0], &ge = g_naptBld[k].e[1];
+    g_naptResolved[k] = true;
+    int pi = g_naptProp[k];
+    PROPS[pi].x = we.mx; PROPS[pi].y = we.my; PROPS[pi].z = we.mz;
+    auto bl = g_propBlip.find(pi);
+    if (bl != g_propBlip.end()) N(N_SET_BLIP_COORDS, bl->second, we.mx, we.my, we.mz);
+    Log("napt %s: %s door %.2f %.2f %.2f h %.0f | garage %.2f %.2f %.2f", NEW_APTS[k].id, how, we.mx, we.my, we.mz, we.mh, ge.mx, ge.my, ge.mz);
+}
 static void NaptResolve(int k) {
     const NewAptPlace *pp = NaptPlaceOf(k);
     if (!pp || k >= (int)g_naptBld.size()) return;
@@ -77,7 +88,18 @@ static void NaptResolve(int k) {
         float sc = rd;
         if (sc < bScore) { bScore = sc; bf = f; bWall = wall; bOut = out; bGround = g; }
     }
-    if (bf < 0) { Log("napt %s: no facade found", p.id); return; }
+    if (bf < 0) {   // no facade seen from the streets: only doors placed by hand
+        for (const NaptDoor &d : NAPT_DOORS)
+            if (!std::strcmp(d.id, p.id) && d.wx != 0.f && d.gx != 0.f) {
+                OBuilding &b = g_naptBld[k];
+                b.e[0].kind = 1; b.e[0].w = 2.f; b.e[1].kind = 2;
+                NaptApplyDoors(k);
+                NaptPlaced(k, "by hand:");
+                return;
+            }
+        Log("napt %s: no facade found", p.id);
+        return;
+    }
     OBuilding &b = g_naptBld[k];
     Vec3 door = V3(bWall.x + bOut.x * 1.2f, bWall.y + bOut.y * 1.2f, bWall.z);
     float ground = bGround;
@@ -112,12 +134,9 @@ static void NaptResolve(int k) {
     ge.sx = gm.x; ge.sy = gm.y; ge.sz = gz;
     b.vx = gWall.x + gOut.x * 10.f; b.vy = gWall.y + gOut.y * 10.f; b.vz = gz + 0.5f; b.vh = outH;
     NaptApplyDoors(k);
-    g_naptResolved[k] = true;
-    int pi = g_naptProp[k];
-    PROPS[pi].x = we.mx; PROPS[pi].y = we.my; PROPS[pi].z = we.mz;
-    auto bl = g_propBlip.find(pi);
-    if (bl != g_propBlip.end()) N(N_SET_BLIP_COORDS, bl->second, we.mx, we.my, we.mz);
-    Log("napt %s: face %d door %.2f %.2f %.2f h %.0f | garage %.2f %.2f %.2f (road %.0f m / %.0f m)", p.id, bf, we.mx, we.my, we.mz, we.mh, ge.mx, ge.my, ge.mz, bScore, gScore);
+    char how[48];
+    std::snprintf(how, sizeof how, "face %d (road %.0f m / %.0f m)", bf, bScore, gScore);
+    NaptPlaced(k, how);
 }
 // one building per tick, when you are near enough for the street around it to be loaded
 static void NaptResolveTick(Vec3 mp) {

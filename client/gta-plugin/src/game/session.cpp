@@ -830,6 +830,28 @@ bool SetData(const char *key, const char *value) {
     return true;
 }
 
+// The clothes the player is wearing now become YOU's (Gori Online's apartment wardrobe): every component but the
+// face and the hair (those belong to the creator and the barber), and the props; saved and sent to the others.
+bool AdoptOutfit() {
+    if (g_mode != Mode::You || !g_haveChar || !gta::Exists(g_you) || gta::Dead(g_you)) return false;
+    int me = g_you;
+    for (int i = 0; i < character::kNumComponents; ++i) {
+        if (i == 0 || i == 2) continue;
+        auto &v = g_char.components[i];
+        v.drawable = N<int>(N_GET_PED_DRAWABLE_VARIATION, me, i);
+        v.texture = N<int>(N_GET_PED_TEXTURE_VARIATION, me, i);
+        v.palette = N<int>(N_GET_PED_PALETTE_VARIATION, me, i);
+    }
+    for (int a = 0; a < character::kNumProps; ++a) {
+        auto &p = g_char.props[a];
+        p.drawable = N<int>(N_GET_PED_PROP_INDEX, me, a, 0);
+        p.texture = p.drawable < 0 ? 0 : N<int>(N_GET_PED_PROP_TEXTURE_INDEX, me, a);
+    }
+    SaveNow("outfit");
+    g_appearanceSent = false;   // other players get the new look next frame
+    return true;
+}
+
 bool Spend(long long amount, const char *reason, bool preferBank) {
     if (g_mode != Mode::You || !g_haveChar || amount < 0) return false;
     if (!economy::Spend(amount, reason ? reason : "purchase", preferBank)) return false;

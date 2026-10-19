@@ -113,7 +113,7 @@ extern "C" __declspec(dllexport) void LocalOnline_RaceProgress(int checkpoints, 
     jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs > 0 ? (uint32_t)finishMs : 0);
 }
 extern "C" __declspec(dllexport) int LocalOnline_GetRaceStandings(char *buf, int cap) { return CopyOut(jobs::StandingsText(), buf, cap); }
-extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 7; }
+extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 8; }
 // API v7: Gori's rank and flags (passive mode, in a solo activity) for the player lists and the sessions,
 // and every known player for Gori's menus ("netId|name|rank|flags|session|sameSession" lines).
 extern "C" __declspec(dllexport) void LocalOnline_SetPlayerInfo(int rank, int flags) { remote::SetMyInfo(rank, flags); }
@@ -130,6 +130,8 @@ extern "C" __declspec(dllexport) bool LocalOnline_Spend(long long amount, const 
 extern "C" __declspec(dllexport) int LocalOnline_GetData(const char *key, char *buf, int cap) { return session::GetData(key, buf, cap); }
 extern "C" __declspec(dllexport) bool LocalOnline_SetData(const char *key, const char *value) { return session::SetData(key, value); }
 extern "C" __declspec(dllexport) bool LocalOnline_ChangeAccount(int account, long long delta, const char *reason) { return session::ChangeAccount(account, delta, reason); }
+// API v8: the outfit worn now becomes the character's (Gori's apartment wardrobe)
+extern "C" __declspec(dllexport) bool LocalOnline_AdoptOutfit() { return session::AdoptOutfit(); }
 extern "C" __declspec(dllexport) void LocalOnline_RequestLedger() { if (session::InYou()) economy::RequestLedger(); }
 extern "C" __declspec(dllexport) int LocalOnline_LedgerRevision() { return economy::LedgerRevision(); }
 extern "C" __declspec(dllexport) int LocalOnline_GetLedger(char *buf, int cap) {
