@@ -4682,6 +4682,28 @@ static void CommandTick() {
         else if (a[0] == "chips") { g_chips = (int)F(1); Save(); }
         else if (a[0] == "wheelreset") { g_wheelNext = 0; Save(); }
         else if (a[0] == "water") { float h = 0.f; int r = N<int>(N_GET_WATER_HEIGHT, F(1), F(2), F(3), &h); Log("water at %.1f %.1f: %d height %.2f", F(1), F(2), r, h); }
+        else if (a[0] == "naptphoto" && a.size() > 1) {   // naptphoto <id>: a camera on the street looking at a new apartment's building (Dynasty 8 pictures)
+            for (int k = 0; k < (int)g_naptProp.size(); ++k) if (a[1] == NEW_APTS[k].id) {
+                const NewAptPlace *p = NaptPlaceOf(k);
+                if (!g_naptResolved[k]) { Teleport(p->fx, p->fy - p->hy - 8.f, p->z, 0.f); Wait(3000); NaptResolve(k); }
+                const OEntrance &e = g_naptBld[k].e[0];
+                float dx = e.mx - p->fx, dy = e.my - p->fy, len = std::max(1.f, std::hypot(dx, dy));
+                bool tower = p->kind[0] == 'e' || p->kind[0] == 'h';
+                float back = tower ? 75.f : 16.f + std::max(p->hx, p->hy), up = tower ? 22.f : 4.f, aim = tower ? 55.f : 2.5f;
+                Vec3 c = V3(e.mx + dx / len * back, e.my + dy / len * back, e.mz + up);
+                Vec3 at = V3(p->fx, p->fy, e.mz + aim);
+                static int cam = 0;
+                if (!cam || !NB(N<int>(N_DOES_CAM_EXIST, cam))) cam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
+                N(N_SET_CAM_COORD, cam, c.x, c.y, c.z);
+                N(N_POINT_CAM_AT_COORD, cam, at.x, at.y, at.z);
+                N(N_SET_CAM_FOV, cam, tower ? 55.f : 50.f);
+                N(N_SET_CAM_ACTIVE, cam, 1);
+                N(N_RENDER_SCRIPT_CAMS, 1, 0, 0, 1, 0, 0);
+                N(N_SET_FOCUS_POS_AND_VEL, c.x, c.y, c.z, 0.f, 0.f, 0.f);
+                Log("naptphoto %s: camera %.1f %.1f %.1f", a[1].c_str(), c.x, c.y, c.z);
+                break;
+            }
+        }
         else if (a[0] == "napt" && a.size() > 1) {   // napt <id> [in]: go to a new apartment's door (in: inside, at GTA Online's entry spot)
             for (int k = 0; k < (int)g_naptProp.size(); ++k) if (a[1] == NEW_APTS[k].id) {
                 if (a.size() > 2 && a[2] == "in") { EnterProperty(g_naptProp[k]); break; }

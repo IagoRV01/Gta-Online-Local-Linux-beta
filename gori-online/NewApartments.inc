@@ -7,38 +7,38 @@
 // Included from GoriOnline.cpp right after online_props.h (data); NaptResolveTick runs with the properties.
 #include "apartments_data.h"
 
-struct NewAptInfo { const char *id, *name, *desc; uint8_t type; int price, cars, dynSize, dynArea, pic; };
+struct NewAptInfo { const char *id, *name, *desc; uint8_t type; int price, cars, dynSize, dynArea, pic; };   // pic: dyn_mp_<pic>, our photo (scaleform_generic.rpf in mods/update)
 static const NewAptInfo NEW_APTS[] = {
     {"dt10", "Pillbox Hill Tower, Apt 52",
      "A two-storey executive apartment 150 m above Pillbox Hill, in one of the tallest towers in Downtown Los Santos. Floor-to-ceiling windows over the financial district, a 10-car garage and room for a heist planning board.",
-     T_APT, 1150000, 10, 6, 6, 83},
+     T_APT, 1150000, 10, 6, 6, 901},
     {"dt12", "Vespucci Blvd Tower, Apt 31",
      "Executive living on the 31st floor of a glass tower at the southern edge of Downtown, with the whole city at your feet. Two storeys, a 10-car garage and a private elevator.",
-     T_APT, 1050000, 10, 6, 6, 83},
+     T_APT, 1050000, 10, 6, 6, 902},
     {"dt09", "Alta Street Tower, Apt 24",
      "A two-storey executive apartment in the heart of Downtown, minutes from the banks you are planning to visit. Panoramic windows, a 10-car garage and heist planning room.",
-     T_APT, 990000, 10, 6, 6, 83},
+     T_APT, 990000, 10, 6, 6, 903},
     {"sm12", "Del Perro Beach Residences, Penthouse",
      "A high-end penthouse a short walk from Del Perro Pier: ocean views from the living room, a 10-car garage and everything you need to plan your next big score.",
-     T_APT, 545000, 10, 6, 6, 62},
+     T_APT, 545000, 10, 6, 6, 904},
     {"sm18", "Vespucci Canals Tower, Penthouse",
      "Wake up above the canals and the beach in this high-end penthouse in Vespucci. Ocean views, a 10-car garage and a planning room for your crew.",
-     T_APT, 510000, 10, 6, 6, 62},
+     T_APT, 510000, 10, 6, 6, 905},
     {"sm01", "Pacific Bluffs Tower, Penthouse",
      "The quiet side of the coast: a high-end penthouse at the top of a Pacific Bluffs tower, looking over the ocean and the Great Ocean Highway. 10-car garage.",
-     T_APT, 520000, 10, 6, 6, 62},
+     T_APT, 520000, 10, 6, 6, 906},
     {"pb_coast", "1 Procopio Promenade",
      "A modern two-storey home on the Paleto Bay coast, far from the noise of Los Santos. Sea views from every floor, a 10-car garage and a planning room for heists up north.",
-     T_HOUSE, 695000, 10, 6, 0, 77},
+     T_HOUSE, 695000, 10, 6, 0, 907},
     {"pb_hill", "3022 Cascabel Ave",
      "A comfortable house on the hill above Paleto Bay, with views over the bay and the forest. 6-car garage.",
-     T_HOUSE, 168000, 6, 5, 0, 69},
+     T_HOUSE, 168000, 6, 5, 0, 908},
     {"pb_village", "0216 Duluoz Ave",
      "A small, affordable home in the middle of Paleto Bay village: close to the bank, the diner and the sheriff's office. 2-car garage.",
-     T_HOUSE, 98000, 2, 4, 0, 70},
+     T_HOUSE, 98000, 2, 4, 0, 909},
     {"pb_main", "2471 Pyrite Ave",
      "A quiet family house on the west side of Paleto Bay, a block from the main street. 6-car garage.",
-     T_HOUSE, 158000, 6, 5, 0, 68},
+     T_HOUSE, 158000, 6, 5, 0, 910},
 };
 static const int NNEW_APTS = (int)(sizeof NEW_APTS / sizeof *NEW_APTS);
 
@@ -51,6 +51,8 @@ struct AptTemplate {
 };
 static const AptTemplate APT_TEMPLATES[] = {
     {"exec01", 4, -787.7805f, 334.9232f, 186.1134f, 90.f, -787.781f, 334.923f, 186.113f, 90.f, 3.50f, false},     // Eclipse Towers penthouses
+    {"exec04", 4, -787.7805f, 334.9232f, 186.1134f, 90.f, -787.781f, 334.923f, 186.113f, 90.f, 3.50f, false},     // the same, other looks
+    {"exec07", 4, -787.7805f, 334.9232f, 186.1134f, 90.f, -787.781f, 334.923f, 186.113f, 90.f, 3.50f, false},
     {"high", 0, -794.9184f, 339.6266f, 200.4135f, 180.f, -791.294f, 338.071f, 200.414f, 180.f, 3.50f, false},     // Eclipse Towers, Apt 31
     {"stilts", 3, 120.0541f, 553.7930f, 181.0943f, 6.f, 122.535f, 542.508f, 182.897f, 6.f, 3.50f, false},         // 3677 Whispymound Drive
     {"mid", -1, 342.8157f, -997.4288f, -100.f, 0.f, 342.8157f, -997.4288f, -100.f, 0.f, 2.50f, true,
