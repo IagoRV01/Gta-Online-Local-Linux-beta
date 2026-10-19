@@ -34,6 +34,37 @@ static bool NaptFacade(const NewAptPlace &p, int f, float t, Vec3 &wall, Vec3 &o
     }
     return false;
 }
+// entrances placed by hand where the street search can't see the real door (a lobby behind a colonnade, a house whose
+// front is a garden): walk-in corona and heading, garage corona and the heading cars drive in; 0 = found automatically
+struct NaptDoor { const char *id; float wx, wy, wz, wh, gx, gy, gz, gh; };
+static const NaptDoor NAPT_DOORS[] = {
+    {"dt10", -213.53f, -728.02f, 32.55f, 250.f, -239.0f, -750.0f, 32.37f, 250.f},   // the lobby's glass doors in the colonnade; Peaceful St
+    {"pb_village", 33.6f, 6597.4f, 31.47f, 100.f, 34.0f, 6611.0f, 31.47f, 180.f},       // in front of the porch steps (the front door faces east); the paved yard by the gate
+    {"pb_main", 0, 0, 0, 0, -342.4f, 6212.1f, 30.50f, 40.f},                            // the driveway to the detached garage
+};
+static void NaptApplyDoors(int k) {
+    for (const NaptDoor &d : NAPT_DOORS) {
+        if (std::strcmp(d.id, NEW_APTS[k].id)) continue;
+        OBuilding &b = g_naptBld[k];
+        if (d.wx != 0.f) {
+            OEntrance &e = b.e[0];
+            e.mx = e.sx = e.ax = e.bx = d.wx; e.my = e.sy = e.ay = e.by = d.wy; e.mz = e.sz = d.wz; e.az = d.wz - 1.f; e.bz = d.wz + 3.f; e.mh = d.wh;
+            Vec3 door = Ahead(V3(d.wx, d.wy, d.wz), d.wh, 1.2f);
+            e.dx = door.x; e.dy = door.y; e.dz = d.wz + 1.4f;
+            Vec3 out = Ahead(V3(d.wx, d.wy, d.wz), d.wh + 180.f, 1.5f);
+            b.fx = out.x; b.fy = out.y; b.fz = d.wz + 1.f; b.fh = std::fmod(d.wh + 180.f, 360.f);
+        }
+        if (d.gx != 0.f) {
+            OEntrance &e = b.e[1];
+            Vec3 g = V3(d.gx, d.gy, d.gz), in = Ahead(g, d.gh, 4.f), back = Ahead(g, d.gh + 180.f, 5.f);
+            e.mx = e.sx = d.gx; e.my = e.sy = d.gy; e.mz = e.sz = d.gz; e.mh = d.gh;
+            e.ax = in.x; e.ay = in.y; e.az = d.gz - 1.f; e.bx = back.x; e.by = back.y; e.bz = d.gz + 3.f; e.w = 6.f;
+            e.dx = in.x; e.dy = in.y; e.dz = d.gz + 1.f;
+            Vec3 vx = Ahead(g, d.gh + 180.f, 10.f);
+            b.vx = vx.x; b.vy = vx.y; b.vz = d.gz + 0.5f; b.vh = std::fmod(d.gh + 180.f, 360.f);
+        }
+    }
+}
 static void NaptResolve(int k) {
     const NewAptPlace *pp = NaptPlaceOf(k);
     if (!pp || k >= (int)g_naptBld.size()) return;
@@ -80,6 +111,7 @@ static void NaptResolve(int k) {
     ge.dx = gWall.x; ge.dy = gWall.y; ge.dz = gz + 1.f;
     ge.sx = gm.x; ge.sy = gm.y; ge.sz = gz;
     b.vx = gWall.x + gOut.x * 10.f; b.vy = gWall.y + gOut.y * 10.f; b.vz = gz + 0.5f; b.vh = outH;
+    NaptApplyDoors(k);
     g_naptResolved[k] = true;
     int pi = g_naptProp[k];
     PROPS[pi].x = we.mx; PROPS[pi].y = we.my; PROPS[pi].z = we.mz;

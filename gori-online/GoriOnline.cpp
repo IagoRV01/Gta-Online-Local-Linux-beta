@@ -4682,6 +4682,12 @@ static void CommandTick() {
         else if (a[0] == "chips") { g_chips = (int)F(1); Save(); }
         else if (a[0] == "wheelreset") { g_wheelNext = 0; Save(); }
         else if (a[0] == "water") { float h = 0.f; int r = N<int>(N_GET_WATER_HEIGHT, F(1), F(2), F(3), &h); Log("water at %.1f %.1f: %d height %.2f", F(1), F(2), r, h); }
+        else if (a[0] == "ray" && a.size() > 6) {   // ray x1 y1 z1 x2 y2 z2: the first thing in the way (placing doors)
+            int r = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, F(1), F(2), F(3), F(4), F(5), F(6), 1 | 16, Me(), 7);
+            int hit = 0; Vec3 end{}, nrm{}; int ent = 0;
+            if (r) N<int>(N_GET_SHAPE_TEST_RESULT, r, &hit, &end, &nrm, &ent);
+            Log("ray: hit %d at %.2f %.2f %.2f normal %.2f %.2f %.2f ground %.2f", hit, end.x, end.y, end.z, nrm.x, nrm.y, nrm.z, GroundAt(end.x, end.y, end.z + 1.f, 0.f));
+        }
         else if (a[0] == "naptphoto" && a.size() > 1) {   // naptphoto <id>: a camera on the street looking at a new apartment's building (Dynasty 8 pictures)
             for (int k = 0; k < (int)g_naptProp.size(); ++k) if (a[1] == NEW_APTS[k].id) {
                 const NewAptPlace *p = NaptPlaceOf(k);

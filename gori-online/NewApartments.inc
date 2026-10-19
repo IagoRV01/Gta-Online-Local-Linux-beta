@@ -92,13 +92,15 @@ static void NaptAddProps(std::vector<PropDef> &props) {
     for (int k = 0; k < NNEW_APTS; ++k) {
         const NewAptInfo &a = NEW_APTS[k];
         const NewAptPlace *p = NaptPlace(a.id);
-        const AptTemplate *t = p ? NaptTemplate(p->kind) : nullptr;
+        static const AptTemplate OWN = {"own", -1, 0, 0, 0, 0, 0, 0, 0, 0, 2.5f, true};
+        const AptTemplate *t = p ? (p->own ? &OWN : NaptTemplate(p->kind)) : nullptr;
         if (!p || !t) continue;   // not in this build of the island DLC
         // the interior: our IPL, the MLO origin (GTA Online's entry spot is used when the template has one)
         g_naptStr.push_back(std::string("napt_") + a.id);
         const char *iid = g_naptStr.back().c_str();
         g_naptStr.push_back(p->ipl);
-        g_naptInt.push_back({iid, p->x, p->y, p->z + 1.0f, p->h, g_naptStr.back().c_str(), ""});
+        if (p->own) g_naptInt.push_back({iid, p->spx, p->spy, p->spz + 1.0f, p->sph, g_naptStr.back().c_str(), ""});   // our own interior: its entry spot
+        else g_naptInt.push_back({iid, p->x, p->y, p->z + 1.0f, p->h, g_naptStr.back().c_str(), ""});
         // a provisional building: the doors are found on the street when you first come near (NaptResolveTick)
         OBuilding b{};
         b.id = 1000 + k; b.type = 0; b.ne = 2;
@@ -114,7 +116,10 @@ static void NaptAddProps(std::vector<PropDef> &props) {
         o.pid = 0; o.map = t->map; o.tx = t->tx; o.ty = t->ty; o.tz = t->tz; o.trot = t->trot; o.w = t->w; o.lit = t->lit;
         NaptMove(*p, *t, t->tx, t->ty, t->tz, o.ox, o.oy, o.oz);
         o.orot = t->trot + (p->h - t->myaw);
-        if (t->lit) {
+        if (p->own) {   // our own interior (IslandBuilder CustomApts.cs): its entry spot and the exit area at its front door
+            o.ax = p->ax; o.ay = p->ay; o.az = p->az; o.bx = p->bx; o.by = p->by; o.bz = p->bz; o.w = p->w;
+            o.spx = p->spx; o.spy = p->spy; o.spz = p->spz; o.sph = p->sph;
+        } else if (t->lit) {
             NaptMove(*p, *t, t->ax, t->ay, t->az, o.ax, o.ay, o.az);
             NaptMove(*p, *t, t->bx, t->by, t->bz, o.bx, o.by, o.bz);
             NaptMove(*p, *t, t->spx, t->spy, t->spz, o.spx, o.spy, o.spz);
