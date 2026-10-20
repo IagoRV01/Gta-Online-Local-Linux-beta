@@ -36,6 +36,7 @@
 #include "mhc_hide.h"
 #include "dc_data.h"
 #include "plaza_data.h"
+#include "hawick_data.h"   // Hawick Gardens (IslandBuilder Hawick.cs)
 
 // ---------------------------------------------------------------- ScriptHookV bindings
 typedef void (*KeyboardHandler)(DWORD, WORD, BYTE, BOOL, BOOL, BOOL, BOOL);
@@ -3288,6 +3289,7 @@ static void PlazaTick() {
     else N(N_TASK_START_SCENARIO_IN_PLACE, ped, IDLE[Rand((int)(sizeof IDLE / sizeof *IDLE))], 0, 1);
     g_plazaPeds.push_back(ped);
 }
+#include "Gardens.inc"   // Hawick Gardens' residents
 // buy the data center at its door, like walking into a Maze Bank listing
 static void DcDoorTick() {
     static int pi = -2;
@@ -4717,14 +4719,30 @@ static void CommandTick() {
             if (r) N<int>(N_GET_SHAPE_TEST_RESULT, r, &hit, &end, &nrm, &ent);
             Log("ray: hit %d at %.2f %.2f %.2f normal %.2f %.2f %.2f ground %.2f", hit, end.x, end.y, end.z, nrm.x, nrm.y, nrm.z, GroundAt(end.x, end.y, end.z + 1.f, 0.f));
         }
+        else if (a[0] == "hgrid" && a.size() > 6) {   // hgrid x0 y0 x1 y1 step ztop: the map's height and surface material on a grid (site surveys) -> hgrid.txt
+            float x0 = F(1), y0 = F(2), x1 = F(3), y1 = F(4), st = std::max(0.5f, F(5)), zt = F(6);
+            FILE *hf = std::fopen((g_dir + "hgrid.txt").c_str(), "w");
+            int n = 0;
+            for (float y = y0; y <= y1 && hf; y += st)
+                for (float x = x0; x <= x1; x += st) {
+                    int r = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, x, y, zt, x, y, zt - 120.f, 1, 0, 7);
+                    int hit = 0, ent = 0; uint32_t mat = 0; Vec3 end{}, nrm{};
+                    if (r) N<int>(N_GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL, r, &hit, &end, &nrm, &mat, &ent);
+                    std::fprintf(hf, "%.1f %.1f %.2f %08X %.2f\n", x, y, hit ? end.z : -999.f, mat, nrm.z);
+                    if (++n % 400 == 0) Wait(0);
+                }
+            if (hf) std::fclose(hf);
+            Log("hgrid: %d points", n);
+        }
         else if (a[0] == "naptphoto" && a.size() > 1) {   // naptphoto <id>: a camera on the street looking at a new apartment's building (Dynasty 8 pictures)
             for (int k = 0; k < (int)g_naptProp.size(); ++k) if (a[1] == NEW_APTS[k].id) {
                 const NewAptPlace *p = NaptPlaceOf(k);
                 if (!g_naptResolved[k]) { Teleport(p->fx, p->fy - p->hy - 8.f, p->z, 0.f); Wait(3000); NaptResolve(k); }
                 const OEntrance &e = g_naptBld[k].e[0];
                 float dx = e.mx - p->fx, dy = e.my - p->fy, len = std::max(1.f, std::hypot(dx, dy));
-                bool tower = p->kind[0] == 'e' || p->kind[0] == 'h';
-                float back = tower ? 75.f : 16.f + std::max(p->hx, p->hy), up = tower ? 22.f : 4.f, aim = tower ? 55.f : 2.5f;
+                bool tower = !std::strncmp(p->kind, "loft", 4) || !std::strncmp(p->kind, "ocean", 5) || p->kind[0] == 'e' || p->kind[0] == 'h';
+                // towers: from across the street, aimed half way up to the apartment's floor
+                float back = tower ? 70.f : 16.f + std::max(p->hx, p->hy), up = tower ? 6.f : 4.f, aim = tower ? std::max(15.f, (p->z - e.mz) * 0.55f) : 2.5f;
                 Vec3 c = V3(e.mx + dx / len * back, e.my + dy / len * back, e.mz + up);
                 Vec3 at = V3(p->fx, p->fy, e.mz + aim);
                 static int cam = 0;
@@ -5000,6 +5018,8 @@ static void ScriptMain() {
         PropertiesTick();
         DcDoorTick();
         PlazaTick();
+        GardensTick();
+        GardensValetTick();
         BusinessTick();
         IslandLifeTick();
         GarageTick();

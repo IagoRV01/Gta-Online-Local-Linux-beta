@@ -41,7 +41,10 @@ static const NaptDoor NAPT_DOORS[] = {
     {"dt10", -213.53f, -728.02f, 32.55f, 250.f, -239.0f, -750.0f, 32.37f, 250.f},   // the lobby's glass doors in the colonnade; Peaceful St
     {"pb_village", 33.6f, 6597.4f, 31.47f, 100.f, 34.0f, 6611.0f, 31.47f, 180.f},       // in front of the porch steps (the front door faces east); the paved yard by the gate
     {"pb_coast", -127.4f, 6553.9f, 28.62f, 45.f, -117.5f, 6559.5f, 28.48f, 45.f},       // the middle of the road-side facade (the ray search finds none); the paving at the north-east end
-    {"pb_main", 0, 0, 0, 0, -342.4f, 6212.1f, 30.50f, 40.f},                            // the driveway to the detached garage
+    {"pb_main", 0, 0, 0, 0, -342.4f, 6212.1f, 30.50f, 40.f},
+    // Hawick Gardens: the towers' lobby doors and garage entrances (IslandBuilder Hawick.cs, hawick_data.h)
+    {"hg_sky", HG_DOOR_A_WALK[0], HG_DOOR_A_WALK[1], HG_DOOR_A_WALK[2], HG_DOOR_A_WALK[3], HG_DOOR_A_GARAGE[0], HG_DOOR_A_GARAGE[1], HG_DOOR_A_GARAGE[2], HG_DOOR_A_GARAGE[3]},
+    {"hg_garden", HG_DOOR_B_WALK[0], HG_DOOR_B_WALK[1], HG_DOOR_B_WALK[2], HG_DOOR_B_WALK[3], HG_DOOR_B_GARAGE[0], HG_DOOR_B_GARAGE[1], HG_DOOR_B_GARAGE[2], HG_DOOR_B_GARAGE[3]},                            // the driveway to the detached garage
 };
 static void NaptApplyDoors(int k) {
     for (const NaptDoor &d : NAPT_DOORS) {
