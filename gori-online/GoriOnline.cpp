@@ -5020,6 +5020,7 @@ static void ScriptMain() {
         PlazaTick();
         GardensTick();
         GardensValetTick();
+        NaptHideTick();
         BusinessTick();
         IslandLifeTick();
         GarageTick();

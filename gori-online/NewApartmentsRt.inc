@@ -188,3 +188,44 @@ static void NaptFeedDynasty8(std::vector<int> &slots) {
         N(N_END_SCALEFORM_MOVIE_METHOD);
     }
 }
+
+// some of our tower flats stand just inside a facade whose lit-window panels are drawn on
+// both sides: from inside they float right outside the glass. While you are in such a flat those models are hidden (you
+// can't see your own tower's facade from inside it anyway); IslandBuilder aptclash lists them (two-sided faces at the glass)
+struct NaptHide { const char *id; const char *models[2]; };
+static const NaptHide NAPT_HIDE[] = {
+    {"dt10", {"dt1_10_dt1_emissive_dt1_10b", nullptr}},
+    {"dt12", {"dt1_12_dt1_emissive_dt1_12b", "dt1_12_dt1_emissive_dt1_12c"}},
+    {"sm12", {"sm_13_emissive_emb", nullptr}},
+    {"sm18", {"kt1_05_kt1_emissive_kt1_05", nullptr}},
+    {"sm01", {"sm_15_emissive", nullptr}},
+};
+static const NaptHide *g_naptHid = nullptr;
+static void NaptHideApply(const NaptHide *h, bool on) {
+    const NewAptPlace *p = NaptPlace(h->id);
+    if (!p) return;
+    for (const char *m : h->models)
+        if (m) {
+            if (on) N(N_CREATE_MODEL_HIDE, p->x, p->y, p->z, 250.f, Joaat(m), 1);
+            else N(N_REMOVE_MODEL_HIDE, p->x, p->y, p->z, 250.f, Joaat(m), 0);
+        }
+    Log("napt %s: facade panels %s", h->id, on ? "hidden" : "back");
+}
+static void NaptHideTick() {
+    static int next = 0;
+    if (Now() < next) return;
+    next = Now() + 500;
+    Vec3 mp = Pos(Me());
+    const NaptHide *in = nullptr;
+    for (const NaptHide &h : NAPT_HIDE) {
+        const NewAptPlace *p = NaptPlace(h.id);
+        if (!p) continue;
+        float c = std::cos(-p->h * 0.0174533f), s = std::sin(-p->h * 0.0174533f), dx = mp.x - p->x, dy = mp.y - p->y;
+        float lx = dx * c - dy * s, ly = dx * s + dy * c;   // in the flat's frame
+        if (lx > -15.f && lx < 15.f && ly > -7.f && ly < 19.f && mp.z > p->z - 1.f && mp.z < p->z + 6.f) { in = &h; break; }
+    }
+    if (in == g_naptHid) return;
+    if (g_naptHid) NaptHideApply(g_naptHid, false);
+    if (in) NaptHideApply(in, true);
+    g_naptHid = in;
+}

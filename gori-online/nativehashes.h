@@ -294,6 +294,7 @@ constexpr uint64_t N_REGISTER_NAMED_RENDERTARGET = 0x57D9C12635E25CE3; // BOOL R
 constexpr uint64_t N_RELEASE_NAMED_RENDERTARGET = 0xE9F6FFE837354DD4; // BOOL RELEASE_NAMED_RENDERTARGET(const char* name)
 constexpr uint64_t N_REMOVE_BLIP = 0x86A652570E5F25DD; // void REMOVE_BLIP(Blip* blip)
 constexpr uint64_t N_REMOVE_IPL = 0xEE6C5AD3ECE0A82D; // void REMOVE_IPL(const char* iplName)
+constexpr uint64_t N_REMOVE_MODEL_HIDE = 0xD9E3006FB3CBD765; // void REMOVE_MODEL_HIDE(float x, float y, float z, float radius, Hash modelHash, BOOL p5)
 constexpr uint64_t N_REMOVE_MODEL_SWAP = 0x033C0F9A64E229AE; // void REMOVE_MODEL_SWAP(float x, float y, float z, float radius, Hash originalModel, Hash newModel, BOOL p6)
 constexpr uint64_t N_REMOVE_PED_FROM_GROUP = 0xED74007FFB146BC2; // void REMOVE_PED_FROM_GROUP(Ped ped)
 constexpr uint64_t N_REMOVE_SCRIPT_FIRE = 0x7FF548385680673F; // void REMOVE_SCRIPT_FIRE(FireId fireHandle)
