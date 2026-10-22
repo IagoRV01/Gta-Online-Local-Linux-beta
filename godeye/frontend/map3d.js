@@ -354,8 +354,13 @@ export async function start() {
     build();
     bindInput();
     new ResizeObserver(resize3d).observe(canvas);
+  }
+  if (!index) {   // again after a refusal: the visitor may have logged in since
+    document.getElementById("nomap3d").hidden = true;
     try {
-      index = await (await fetch(BASE + "index.json", { cache: "no-cache" })).json();
+      const r = await fetch(BASE + "index.json", { cache: "no-cache" });
+      if (r.status === 401) { document.getElementById("nomap3d").textContent = "Log in to see the 3D map."; throw new Error("login"); }
+      index = await r.json();
       for (const info of index.tiles) tiles.set(info.x + "," + info.y, { info, far: null, near: null, loading: 0, nearWanted: false });
       addWater();
       addBackdrop();

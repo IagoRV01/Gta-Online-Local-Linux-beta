@@ -16,6 +16,7 @@
 #include "game/net_client.h"
 #include "game/session.h"
 #include "ui/startup.h"
+#include "game/camera_client.h"
 
 #define LOCALONLINE_VERSION "0.1.0"
 
@@ -60,6 +61,14 @@ static void ScriptMain() {
     });
 
     while (!gta::PlayerPlaying()) gta::Wait(500);
+    if (cfg.Bool("camera.enabled", false)) {   // Phase 12: this game is a GodEye camera, not a player
+        camera_client::Settings cs;
+        cs.host = g_cfg.server.host;
+        cs.port = g_cfg.server.port;
+        cs.name = cfg.Str("camera.name", "Camera 1");
+        cs.tokenFile = g_dir + "camera.token";
+        camera_client::Run(cs);
+    }
     session::Init(g_cfg);
     LOGI("client", "-", "player ready");
     if (cfg.Bool("client.startup_menu", true)) {
@@ -147,6 +156,7 @@ extern "C" __declspec(dllexport) int LocalOnline_GetLedger(char *buf, int cap) {
 
 static void OnKey(DWORD key, WORD, BYTE, BOOL, BOOL, BOOL wasDownBefore, BOOL isUpNow) {
     if (isUpNow || wasDownBefore) return;
+    if (camera_client::Active()) return;   // a camera has no menus
     session::OnKey(key);
 }
 

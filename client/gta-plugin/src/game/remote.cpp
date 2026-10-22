@@ -8,6 +8,7 @@
 #include "common/json.h"
 #include "common/log.h"
 #include "game/godeye.h"
+#include "game/camera_client.h"
 #include "engine/gta.h"
 #include "engine/shv.h"
 #include "game/appearance.h"
@@ -74,6 +75,7 @@ uint16_t g_self = 0;
 uint16_t Self() { return g_self ? g_self : net::SelfNetId(); }   // SetSelf is optional: the connection knows our netId
 int g_myRank = 0, g_myFlags = 0;
 uint32_t g_mySession = 0;
+bool g_allSessions = false;          // a camera client sees the players of every session
 uint16_t g_infoSentAs = 0;           // the netId our info was last sent under (0 = send again)
 uint32_t g_infoSentLogin = 0;        // ...and the login: after a quick server restart the netId can be the same
 int g_infoSentRank = -1, g_infoSentFlags = -1;
@@ -252,6 +254,11 @@ void OnMessage(MsgType type, wire::Reader &r) {
         case MsgType::WorldState: {
             WorldStateMsg m;
             if (Get(r, m)) world_sync::OnWorldState(m);
+            break;
+        }
+        case MsgType::CameraSet: {
+            CameraSetMsg m;
+            if (Get(r, m)) camera_client::OnCameraSet(m);
             break;
         }
         case MsgType::GodEyeAction: {
@@ -557,6 +564,16 @@ int VehicleOfDriver(uint16_t driverNetId) {
     return it != g_players.end() && gta::Exists(it->second.veh) ? it->second.veh : 0;
 }
 
+int PedOfNetId(uint16_t netId) {
+    auto it = g_players.find(netId);
+    return it != g_players.end() && gta::Exists(it->second.ped) ? it->second.ped : 0;
+}
+int VehOfNetId(uint16_t netId) {
+    auto it = g_players.find(netId);
+    return it != g_players.end() && gta::Exists(it->second.veh) ? it->second.veh : 0;
+}
+void SeeAllSessions(bool on) { g_allSessions = on; }
+
 int PedOf(const std::string &prefix) {
     for (auto &kv : g_players)
         if (gta::Exists(kv.second.ped) && kv.second.name.compare(0, prefix.size(), prefix) == 0) return kv.second.ped;
@@ -642,7 +659,7 @@ void Frame() {
     double renderT = g_clock.ServerNow(LocalSeconds()) - kDelay;
     for (auto &kv : g_players) {
         Player &p = kv.second;
-        if (p.session != g_mySession) {   // another session (a job, a solo activity): not here
+        if (p.session != g_mySession && !g_allSessions) {   // another session (a job, a solo activity): not here
             if (p.ped || p.veh) { LOGI("remote", p.name.c_str(), "in another session: hidden"); DeletePuppet(p); }
             p.buf.Clear();
             continue;

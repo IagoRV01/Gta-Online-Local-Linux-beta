@@ -11,6 +11,7 @@ test("roles", () => {
   assert.ok(allowed("HACKER", "traffic") && allowed("HACKER", "blackout"));
   assert.ok(!allowed("HACKER", "roadblock"));
   assert.ok(allowed("OPERATOR", "weather") && !allowed("OPERATOR", "wanted"));
+  assert.ok(allowed("OPERATOR", "camera") && allowed("HACKER", "camera") && !allowed("DISPATCH", "camera"));
   assert.ok(allowed("ADMIN", "roadblock") && allowed("ADMIN", "traffic"));
   assert.ok(!allowed("ADMIN", "shutdown"));
 });
@@ -31,6 +32,14 @@ test("commands are built only from checked values", () => {
   assert.equal(toCommand({ action: "notify", target: "all", text: "hello\nwanted 1 5" }, playing).line, "notify all hello wanted 1 5");
   assert.equal(toCommand({ action: "alert", target: 1 }, playing).line, "alert 1 Dispatch has your description.");
   assert.equal(cleanText("a\u0000b\r\nc"), "a b c");
+});
+
+test("camera commands", () => {
+  assert.equal(toCommand({ action: "camera", camera: "all", value: "cctv", text: "CAM_002" }, playing).line, "camera all cctv CAM_002");
+  assert.equal(toCommand({ action: "camera", camera: 5, value: "heli", target: 1 }, playing).line, "camera 5 heli 1");
+  assert.ok(toCommand({ action: "camera", camera: "all", value: "cctv", text: "CAM 1; time 0 0" }, playing).error);
+  assert.ok(toCommand({ action: "camera", camera: "all", value: "orbit", target: 1 }, playing).error);
+  assert.ok(toCommand({ action: "camera", camera: "all", value: "follow", target: 2 }, playing).error);   // not in the world
 });
 
 test("cooldowns and the per-minute cap", () => {

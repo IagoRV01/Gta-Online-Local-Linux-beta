@@ -120,8 +120,15 @@ void Server::OnDisconnect(ENetPeer *peer) {
         PutHeader(w, MsgType::PlayerLeft);
         w.U16(c.netId);
         w.U8(0);
-        for (auto &kv : clients_)
-            if (kv.first != peer && kv.second.authed) Send(kv.first, w, kChanControl, true);
+        if (!c.camera)
+            for (auto &kv : clients_) {
+                if (kv.first == peer || !kv.second.authed) continue;
+                Send(kv.first, w, kChanControl, true);
+                if (kv.second.camera && kv.second.cam.target == c.netId && kv.second.cam.mode != kCamCctv) {
+                    kv.second.cam = DefaultCamera();
+                    SendCamera(kv.second);
+                }
+            }
     }
     clients_.erase(it);
 }
@@ -318,7 +325,7 @@ void Server::BroadcastSnapshot() {
             if (s.netId == kv.second.netId) continue;
             const Client *o = nullptr;
             for (auto &kv2 : clients_) if (kv2.second.netId == s.netId) o = &kv2.second;
-            if (o && o->session == kv.second.session) others.push_back(s);
+            if (o && (kv.second.camera || o->session == kv.second.session)) others.push_back(s);
         }
         wire::Writer w;
         PutSnapshot(w, tick_, (uint32_t)NowMs(), others);
@@ -334,9 +341,9 @@ void Server::HandleAuth(Client &c, const AuthMsg &m) {
     if (!character::ValidName(m.name)) return Reject(c, RejectCode::BadAuth, "invalid player name");
     for (auto &kv : clients_)
         if (kv.second.authed && kv.second.name == m.name) return Reject(c, RejectCode::AlreadyConnected, m.name + " is already connected");
-    int authed = 0;
-    for (auto &kv : clients_) authed += kv.second.authed;
-    if (authed >= cfg_.maxPlayers) return Reject(c, RejectCode::ServerFull, "server full");
+    int authed = 0, cameras = 0;
+    for (auto &kv : clients_) { authed += kv.second.authed && !kv.second.camera; cameras += kv.second.authed && kv.second.camera; }
+    if (m.role == kRoleCamera ? cameras >= cfg_.maxCameras : authed >= cfg_.maxPlayers) return Reject(c, RejectCode::ServerFull, "server full");
 
     AuthResultMsg res;
     auto player = db_->FindPlayer(m.name);
@@ -359,6 +366,7 @@ void Server::HandleAuth(Client &c, const AuthMsg &m) {
         player = p;
     }
     c.authed = true;
+    c.camera = m.role == kRoleCamera;
     c.name = m.name;
     c.playerUuid = player->uuid;
     c.netId = nextNetId_++;
@@ -371,16 +379,21 @@ void Server::HandleAuth(Client &c, const AuthMsg &m) {
     wire::Writer w;
     Put(w, res);
     Send(c.peer, w, kChanControl, true);
-    LOGI("session", c.name.c_str(), "authenticated as netId %u from %s", c.netId, c.address.c_str());
+    LOGI("session", c.name.c_str(), "authenticated as %s %u from %s", c.camera ? "camera client" : "netId", c.netId, c.address.c_str());
     SendWorld(c.peer);
     if (trafficMode_ != kTrafficNormal) SendTraffic(c.peer);   // a GodEye traffic hack still running
     SendJobList(c.peer);   // the open co-op jobs
-    for (auto &kv : clients_) {   // tell everyone (both ways) who is here
+    for (auto &kv : clients_) {   // tell everyone (both ways) who is here; camera clients see the players, never the reverse
         if (kv.first == c.peer || !kv.second.authed) continue;
-        wire::Writer a, b;
-        Put(a, PlayerJoinedMsg{c.netId, c.name});
+        if (kv.second.camera && c.camera) continue;
+        if (!c.camera) {
+            wire::Writer a;
+            Put(a, PlayerJoinedMsg{c.netId, c.name});
+            Send(kv.first, a, kChanControl, true);
+        }
+        if (kv.second.camera) continue;
+        wire::Writer b;
         Put(b, PlayerJoinedMsg{kv.second.netId, kv.second.name});
-        Send(kv.first, a, kChanControl, true);
         Send(c.peer, b, kChanControl, true);
         if (!kv.second.appearanceJson.empty()) {
             wire::Writer ap;
@@ -389,7 +402,8 @@ void Server::HandleAuth(Client &c, const AuthMsg &m) {
         }
         RelayInfo(kv.second, c.peer);
     }
-    RelayInfo(c, nullptr);
+    if (c.camera) { c.cam = DefaultCamera(); SendCamera(c); }
+    else RelayInfo(c, nullptr);
 }
 
 // ---------------------------------------------------------------- player info and sessions (v11)
@@ -765,6 +779,60 @@ bool Server::GodEyeCommand(const std::string &v, const std::string &line) {
     return true;
 }
 
+// ---------------------------------------------------------------- camera clients (Phase 12)
+
+CameraSetMsg Server::DefaultCamera() const {
+    CameraSetMsg m;
+    if (!cfg_.cctv.empty()) {
+        const auto &k = cfg_.cctv.front();
+        m.mode = kCamCctv; m.cameraId = k.id; m.pos = k.pos; m.rot = k.rot; m.fov = k.fov; m.label = k.id + " " + k.name;
+    } else {
+        m.mode = kCamFree; m.pos = {200, -900, 400}; m.rot = {-60, 0, 0}; m.fov = 60; m.label = "LOS SANTOS";
+    }
+    return m;
+}
+
+void Server::SendCamera(Client &c) {
+    wire::Writer w;
+    Put(w, c.cam);
+    Send(c.peer, w, kChanControl, true);
+}
+
+// "camera <camera netId|all> cctv CAM_001" | "camera <id|all> follow|heli|drone|cinematic|third|chase <player netId>"
+bool Server::CameraCommand(const std::string &line) {
+    char who[16] = {0}, mode[16] = {0}, arg[32] = {0};
+    if (std::sscanf(line.c_str(), "%*s %15s %15s %31s", who, mode, arg) < 3) return false;
+    CameraSetMsg m;
+    std::string md = mode;
+    int mi = -1;
+    for (int i = 0; i < 7; ++i) if (md == kCameraModeNames[i]) mi = i;
+    if (mi < 0) return false;
+    m.mode = (uint8_t)mi;
+    if (m.mode == kCamCctv) {
+        const ServerConfig::Cctv *k = nullptr;
+        for (const auto &x : cfg_.cctv) if (x.id == arg) k = &x;
+        if (!k) return false;
+        m.cameraId = k->id; m.pos = k->pos; m.rot = k->rot; m.fov = k->fov; m.label = k->id + " " + k->name;
+    } else {
+        Client *t = ByNetId((uint16_t)std::atoi(arg));
+        if (!t || t->camera || !t->haveState) return false;   // a player in the world
+        m.target = t->netId;
+        m.fov = m.mode == kCamHeli ? 40.f : m.mode == kCamCinematic ? 35.f : 55.f;
+        std::string up = md;
+        for (auto &ch : up) ch = (char)toupper((unsigned char)ch);
+        m.label = up + " " + t->name;
+    }
+    bool all = std::string(who) == "all", any = false;
+    for (auto &kv : clients_) {
+        Client &c = kv.second;
+        if (!c.authed || !c.camera || (!all && c.netId != (uint16_t)std::atoi(who))) continue;
+        c.cam = m;
+        SendCamera(c);
+        any = true;
+    }
+    return any;
+}
+
 // Admin commands (server.cmd and the GodEye admin API). Every change is logged and stored, and pushed to the
 // clients immediately.
 bool Server::AdminCommand(const std::string &line) {
@@ -772,6 +840,11 @@ bool Server::AdminCommand(const std::string &line) {
     int a = 0, b = 0;
     std::sscanf(line.c_str(), "%31s %63s", verb, arg);
     std::string v = verb, x = arg;
+    if (v == "camera") {
+        bool ok = CameraCommand(line);
+        LOGI("admin", "-", "%s: %s", line.c_str(), ok ? "ok" : "rejected");
+        return ok;
+    }
     if (v == "wanted" || v == "alert" || v == "roadblock" || v == "notify" || v == "traffic") {
         bool ok = GodEyeCommand(v, line);
         LOGI("admin", "-", "%s: %s", line.c_str(), ok ? "ok" : "rejected");

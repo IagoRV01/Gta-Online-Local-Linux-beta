@@ -89,6 +89,19 @@
           <button data-act="time" data-value="night">Night</button>
         </div>
       </div>
+      <div class="ctl" data-need="camera">
+        <h4>Cameras <select id="camPick" aria-label="Which camera"><option value="all">All cameras</option></select></h4>
+        <div id="camState" class="camstate">No camera client is connected.</div>
+        <div class="btns" id="cctvBtns"></div>
+        <div class="btns">
+          <button data-cam="follow">Follow</button>
+          <button data-cam="third">Third person</button>
+          <button data-cam="chase">Chase</button>
+          <button data-cam="heli">Helicopter</button>
+          <button data-cam="drone">Drone</button>
+          <button data-cam="cinematic">Cinematic</button>
+        </div>
+      </div>
       <div class="ctl" data-need="notify">
         <h4>Message</h4>
         <form id="msgForm" class="msg"><input id="msgText" maxlength="100" placeholder="To the selected player, or everyone" aria-label="Message"><button type="submit">Send</button></form>

@@ -54,3 +54,5 @@ godeye/backend/godeye.json
 bin/
 obj/
 godeye/backend/users.json
+godeye/cloudflare/wrangler.toml
+.wrangler/

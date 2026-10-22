@@ -64,6 +64,10 @@ int main(int argc, char **argv) {
     // enemy every 4 s and clears a wave every 8 s, the joiner every 6 / 12 s; the host passes it 62 s after the start
     // (host 7 waves -> 28000, joiner 4 waves -> 16000)
     bool svHost = vehModel == "svhost", svJoin = vehModel == "svjoin";
+    // camera mode (v13): log in as a camera client, send no state, print what the server tells it (CameraSet,
+    // the players it sees)
+    bool cameraMode = vehModel == "camera";
+    if (cameraMode) vehModel.clear();
     if (svHost) dmHost = true;
     if (svJoin) dmJoin = true;
     if (dmHost) raceHost = true;
@@ -132,7 +136,7 @@ int main(int argc, char **argv) {
                     std::string token;
                     std::ifstream(tokenFile) >> token;   // empty on first run: the server registers us
                     wire::Writer a;
-                    Put(a, AuthMsg{name, token});
+                    Put(a, AuthMsg{name, token, cameraMode ? kRoleCamera : kRolePlayer});
                     send(a, kChanControl, true);
                 } else if (h.type == MsgType::AuthResult) {
                     AuthResultMsg ar;
@@ -293,6 +297,9 @@ int main(int argc, char **argv) {
                 } else if (h.type == MsgType::ShotRelay) {
                     ShotRelayMsg sr;
                     if (Get(r, sr)) { static int n = 0; if (++n % 5 == 1) std::printf("t=%.1fs shot from netId %u (weapon 0x%08X), %d so far\n", (Ms() - start) / 1000.0, sr.shooter, sr.weapon, n); }
+                } else if (h.type == MsgType::CameraSet) {
+                    CameraSetMsg cm;
+                    if (Get(r, cm)) std::printf("t=%.1fs camera: %s target %u '%s' fov %.0f\n", (Ms() - start) / 1000.0, kCameraModeNames[cm.mode], cm.target, cm.label.c_str(), cm.fov);
                 } else if (h.type == MsgType::PlayerLeft) {
                     std::printf("player left: netId %u\n", r.U16());
                 } else if (h.type == MsgType::Snapshot) {
@@ -385,7 +392,7 @@ int main(int argc, char **argv) {
             std::printf("t=%.1fs race passed\n", (now - start) / 1000.0);
         }
         if (jobJoin && !joined && haveProfile && now - start > 3000 && now - start < 3100) { wire::Writer jw; Put(jw, JobJoinMsg{0}); send(jw, kChanEvents, true); }
-        if (authed && now >= nextState) {   // walk in a 20 m circle at LSIA, 20 Hz
+        if (authed && !cameraMode && now >= nextState) {   // walk in a 20 m circle at LSIA, 20 Hz
             nextState += 50;
             float t = (float)(now - start) / 1000.f;
             PlayerStateMsg s;

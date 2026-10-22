@@ -24,7 +24,8 @@
 | 9 GodEye Basic (2D map: players, position, heading, vehicle, speed, health, wanted, zone) | **done, verified with netprobe** (2026-10-22) | admin API on the server (loopback, secret), Node backend, web map; `docs/godeye.md` |
 | 10 GodEye Control (wanted, weather, police alerts, roadblocks, traffic hacks; roles, cooldowns, audit) | **done, verified in game** (2026-10-23) | protocol v12 `GodEyeAction`; `docs/godeye.md` |
 | 11 3D map (the real map from the player's own files, Cayo Perico, Isla Neón, Wuhu) | **done** (2026-10-23) | `tools/godeye-map map3d`, `godeye/frontend/map3d.js` |
-| 12–14 (Camera Client, WebRTC, web game) | not started | roles and cooldowns from Phase 10 are the base for the web game's credits |
+| 12 Camera Client (a second GTA on the server PC as a GodEye camera; CCTV + follow/heli/drone/cinematic/third/chase) | **built** (2026-10-23) | protocol v13 camera role + CameraSet; `docs/godeye.md` |
+| 13–14 (WebRTC, web game) | not started | the camera client's 1280×720 window on the 8 GB card is what Phase 13 encodes (NVENC) |
 
 ### Story-mode protection: what was found and fixed (2026-10-07/08)
 

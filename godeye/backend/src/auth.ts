@@ -72,9 +72,10 @@ export class Sessions {
 
   end(s: Session): void { this.byId.delete(s.id); }
 
-  cookie(s: Session | null): string {
-    return s ? `ge_session=${s.id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}`
-             : "ge_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
+  // `secure`: on the public (https) address the cookie is never sent over plain http
+  cookie(s: Session | null, secure = false): string {
+    const flags = "HttpOnly; SameSite=Strict; Path=/" + (secure ? "; Secure" : "");
+    return s ? `ge_session=${s.id}; ${flags}; Max-Age=${SESSION_MS / 1000}` : `ge_session=; ${flags}; Max-Age=0`;
   }
 }
 

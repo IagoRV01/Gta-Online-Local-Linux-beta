@@ -1,0 +1,14 @@
+# GodEye's public address through a Cloudflare Tunnel (see godeye/README.md, "Public address").
+# Copy to wrangler.toml, fill in your hostname and VPC service id, then: npx wrangler deploy
+name = "godeye-gate"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+routes = [{ pattern = "godeye.example.com", custom_domain = true }]
+
+# The private route to the GodEye backend (127.0.0.1:8080 on the server PC) through your tunnel:
+#   npx wrangler tunnel create godeye
+#   npx wrangler vpc service create godeye --type http --tunnel-id <tunnel id> --ipv4 127.0.0.1 --http-port 8080
+[[vpc_services]]
+binding = "GODEYE"
+service_id = "<vpc service id>"

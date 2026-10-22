@@ -6,7 +6,11 @@ Built so far (running it: [../godeye/README.md](../godeye/README.md)):
   weather, time, blackout, messages.
 - **Phase 11, 3D map:** the real map, Cayo Perico and our own islands, streamed from the player's own game files.
 
-Phases 12–14 (Camera Client, WebRTC, web game) follow the design below.
+- **Phase 12, Camera Client:** a second GTA on the server PC, logged in as a camera, showing what GodEye picks.
+- **GodEye.exe** (open and close from the desktop, on one chosen GPU) and an optional **public address**
+  (Cloudflare Tunnel): [../godeye/README.md](../godeye/README.md).
+
+Phases 13–14 (WebRTC, web game) follow the design below.
 
 ## Placement
 
@@ -142,6 +146,40 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
 - **Verified 2026-10-23:**
   - Overview of Los Santos: 44 far tiles, 5.8 M triangles, 3,400 draw calls.
   - Close to Alex at Hawick: 6 near tiles swapped in, 3 M triangles, 767 calls, buildings and trees textured.
+
+## Phase 12: the Camera Client
+
+- **Protocol v13.** `Auth` carries a role (0 player, 1 camera). `CameraSet` (42, server → camera) carries:
+  `{u8 mode, u16 target, str cameraId, vec3 pos, vec3 rot, f32 fov, str label}`.
+  - Modes: cctv, follow, heli, drone, cinematic, third, chase, free.
+- **Server**
+  - A camera client never appears to the players: no PlayerJoined/Left, no info relay, no snapshot entry.
+  - It gets every player, in every session.
+  - At most `godeye.max_cameras` (4) at a time; they do not count against `max_players`.
+  - CCTV presets come from `cameras.json` (`godeye.cameras_file`), else four defaults.
+  - `camera <id|all> cctv <CAM_ID>` | `camera <id|all> <mode> <player netId>`.
+  - A camera on a player who leaves goes back to the first CCTV camera.
+  - Telemetry: `cameras: [{id, name, mode, target, cctv, label}]` when it changes; the hello lists the CCTV presets.
+- **Client** (`client/gta-plugin/src/game/camera_client.cpp`, `[camera] enabled = true` in client.toml):
+  - No start screen and no character. The story ped is hidden, frozen, invincible and ignored by everyone, and wanted
+    level is off.
+  - HUD and controls off.
+  - Puppets of every player, the server's clock and weather.
+  - A script camera per mode: follow, third, chase (deeper when in a vehicle), heli (70 m orbit, 55 m up), drone
+    (18 m orbit), cinematic (a cut every 8 s: low front, side dolly, high orbit, low behind).
+  - The world streams round the camera: SET_FOCUS_POS_AND_VEL, and the hidden ped is moved along.
+  - A REC label with the camera name and the game clock.
+- **GodEye**
+  - The `camera` action is for OPERATOR and HACKER (as in the brief), with a 2 s cooldown.
+  - The Cameras panel shows the camera clients and what each shows. It has the CCTV buttons from the server, and
+    modes for the selected player.
+- **On the user's PC**
+  - GTA's AdapterIndex is 1, the RTX 5060 Ti 8 GB as DXGI numbers it (the 16 GB card appears three times).
+  - 1280×720 window. `camera_client.py` launches it through Steam with `-scOffline` and keeps it on virtual desktop 2.
+- **Verified 2026-10-23** on an isolated server, with a netprobe camera and a netprobe player:
+  - the camera got CAM_001 by default and saw the player;
+  - it followed FOLLOW / HELI / CAM_003 on command; an unknown target was refused;
+  - the player saw 0 other players.
 
 ## Security baseline
 

@@ -44,6 +44,10 @@ struct ServerConfig {
     int adminApiPort = 4500;                // 0 = off
     std::string adminSecret;                // required; main.cpp creates one in admin_secret_file if empty
     int telemetryHz = 10;
+    // camera clients (Phase 12): the CCTV cameras GodEye can switch them to (cameras.json)
+    struct Cctv { std::string id, name, zone; proto::Vec3 pos, rot; float fov = 50.f; };
+    std::vector<Cctv> cctv;
+    int maxCameras = 4;
 };
 
 class Server {
@@ -69,6 +73,8 @@ private:
         std::string characterUuid;        // known after ProfileRequest/ProfileSave
         long long incomeWindowMs = 0, incomeInWindow = 0;
         uint32_t lastSeq = 0;
+        bool camera = false;              // v13: a camera client (no character, unseen by the players)
+        proto::CameraSetMsg cam;          // what it shows now
         bool haveState = false;
         proto::PlayerStateMsg state;
         int windowStartMs = 0, windowPackets = 0, dropped = 0, malformed = 0;
@@ -130,6 +136,10 @@ private:
     void SendWorld(_ENetPeer *only);   // nullptr = everyone authed
     bool AdminCommand(const std::string &line);
     bool GodEyeCommand(const std::string &verb, const std::string &line);
+    bool CameraCommand(const std::string &line);
+    void SendCamera(Client &c);
+    proto::CameraSetMsg DefaultCamera() const;
+    std::string CamerasTelemetry() const;
     void SendGodEye(Client &c, const proto::GodEyeActionMsg &m);
     void SendTraffic(_ENetPeer *only);   // nullptr = everyone authed
     uint8_t trafficMode_ = 0;            // proto::TrafficMode, set by GodEye
@@ -141,7 +151,7 @@ private:
         long long openedMs = 0;
         std::string in, out;
         std::map<uint16_t, std::string> sent;   // last telemetry line per player: only changes are pushed
-        std::string sentWorld;
+        std::string sentWorld, sentCameras;
     };
     bool AdminApiStart();
     void AdminApiPoll(long long now);

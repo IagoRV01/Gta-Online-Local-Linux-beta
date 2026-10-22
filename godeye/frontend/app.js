@@ -322,10 +322,12 @@ function connect() {
       renderWorld(m.world);
       listDirty = false;
       renderList();
+      if (typeof onCameras === "function") onCameras(m.cameras || [], m.cctv || []);
     } else if (m.t === "tel") {
       for (const p of m.players) upsert(p, now);
       for (const id of m.gone) { players.delete(id); if (selected === id) selected = follow = null; }
       if (m.world) renderWorld(m.world);
+      if (m.cameras && typeof onCameras === "function") onCameras(m.cameras, null);
       if (m.players.length || m.gone.length) listDirty = true;
     } else if (m.t === "event" && typeof onGodEyeEvent === "function") onGodEyeEvent(m.entry);
   };
@@ -422,8 +424,17 @@ async function setView(three) {
     baseDirty = true;
   }
 }
-$("v2d").onclick = () => setView(false);
-$("v3d").onclick = () => setView(true);
+$("v2d").onclick = () => { setView(false); try { localStorage.setItem("godeye.view", "2d"); } catch { /* private mode */ } };
+$("v3d").onclick = () => {
+  // on the public address the 3D map (the game's own models) needs a GodEye login
+  if (typeof auth !== "undefined" && auth.map3d === false) { toast("Log in to see the 3D map.", true); document.getElementById("loginBtn")?.click(); return; }
+  setView(true); try { localStorage.setItem("godeye.view", "3d"); } catch { /* private mode */ } };
+// the last view comes back (or ?view=3d / ?view=2d)
+{
+  let v = new URLSearchParams(location.search).get("view");
+  try { v = v || localStorage.getItem("godeye.view"); } catch { /* private mode */ }
+  if (v === "3d") setView(true);
+}
 
 // the map's box can start at 0x0 (a hidden tab or pane): fit the view the first time it gets a size
 let fitted = false;

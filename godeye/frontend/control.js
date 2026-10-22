@@ -101,6 +101,28 @@ function updateCooldowns() {
 }
 setInterval(updateCooldowns, 500);
 
+// ---- cameras (Phase 12): which camera client, then a CCTV camera or a way to frame the selected player
+let camList = [], cctvList = [];
+function onCameras(cams, cctv) {
+  camList = cams;
+  if (cctv) {
+    cctvList = cctv;
+    $("cctvBtns").innerHTML = cctv.map((c) => `<button data-cctv="${esc(c.id)}" title="${esc(c.zone)}">${esc(c.id.replace("CAM_", ""))} ${esc(c.name)}</button>`).join("");
+    for (const b of document.querySelectorAll("[data-cctv]")) b.onclick = () => act({ action: "camera", camera: camTarget(), value: "cctv", text: b.dataset.cctv });
+  }
+  const pick = $("camPick"), keep = pick.value;
+  pick.innerHTML = `<option value="all">All cameras</option>` + cams.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  pick.value = [...pick.options].some((o) => o.value === keep) ? keep : "all";
+  $("camState").innerHTML = cams.length ? cams.map((c) => `<span><b>${esc(c.name)}</b> · ${esc(c.label)}</span>`).join("") : "No camera client is connected.";
+}
+const camTarget = () => ($("camPick").value === "all" ? "all" : Number($("camPick").value));
+for (const b of document.querySelectorAll("[data-cam]")) {
+  b.addEventListener("click", () => {
+    if (selected == null || !players.get(selected)?.info.playing) { toast("Pick a player who is in the world first.", true); return; }
+    act({ action: "camera", camera: camTarget(), value: b.dataset.cam, target: selected });
+  });
+}
+
 // ---- the event feed (every viewer sees what GodEye did)
 const events = [];
 function onGodEyeEvent(e) {
@@ -124,6 +146,7 @@ function describe(e) {
     case "weather": return a === "auto" ? "let the weather run on its own" : `changed the weather to ${a}`;
     case "time": return `set the time to ${a} ${rest.join(":")}`;
     case "notify": return `sent a message to ${a === "all" ? "everyone" : name(a)}`;
+    case "camera": return rest[0] === "cctv" ? `switched ${a === "all" ? "the cameras" : "a camera"} to ${rest[1]}` : `put ${a === "all" ? "the cameras" : "a camera"} on ${name(rest[1])} (${rest[0]})`;
   }
   return e.line;
 }
@@ -139,5 +162,6 @@ async function loadAudit() {
   const r = await api("api/me");
   auth = r.data || { user: null };
   renderAuth();
+  if (auth.map3d === false && is3d) setView(false);   // a remembered 3D view on the public address, before logging in
   if (auth.user) loadAudit();
 })();

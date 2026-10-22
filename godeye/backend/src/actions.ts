@@ -2,7 +2,7 @@
 // Every input is checked here and again by the game server; the browser only picks from these.
 import type { Role } from "./auth.ts";
 
-export interface ActionRequest { action: string; target?: number | "all"; value?: string; text?: string; seconds?: number }
+export interface ActionRequest { action: string; target?: number | "all"; value?: string; text?: string; seconds?: number; camera?: number | "all" }
 export interface ActionDef { roles: Role[]; cooldownS: number; label: string; player: boolean }
 
 export const ACTIONS: Record<string, ActionDef> = {
@@ -14,11 +14,13 @@ export const ACTIONS: Record<string, ActionDef> = {
   weather:   { roles: ["OPERATOR"], cooldownS: 15, label: "Weather", player: false },
   time:      { roles: ["OPERATOR"], cooldownS: 10, label: "Time of day", player: false },
   notify:    { roles: ["OPERATOR"], cooldownS: 5, label: "Message", player: false },
+  camera:    { roles: ["OPERATOR", "HACKER"], cooldownS: 2, label: "Camera", player: false },
 };
 
 export const WEATHERS = ["CLEAR", "EXTRASUNNY", "CLOUDS", "OVERCAST", "RAIN", "CLEARING", "THUNDER", "SMOG", "FOGGY", "XMAS", "SNOW", "SNOWLIGHT", "BLIZZARD", "HALLOWEEN", "NEUTRAL", "auto"];
 const TIMES: Record<string, string> = { dawn: "6 30", day: "12 0", dusk: "19 30", night: "0 0" };
 const TRAFFIC = ["red", "green", "random", "normal"];
+export const CAMERA_MODES = ["cctv", "follow", "heli", "drone", "cinematic", "third", "chase"];
 
 export function allowed(role: Role, action: string): boolean {
   const a = ACTIONS[action];
@@ -66,6 +68,19 @@ export function toCommand(r: ActionRequest, playing: (id: number) => boolean): {
     case "time": {
       const t = TIMES[String(r.value ?? "")];
       return t ? { line: `time ${t}` } : { error: "time: dawn, day, dusk or night" };
+    }
+    case "camera": {   // value = mode; cctv: text = the CCTV id; the others: target = the player
+      const cam = r.camera === "all" ? "all" : Number(r.camera);
+      if (cam !== "all" && (!Number.isInteger(cam) || cam < 1 || cam > 65535)) return { error: "camera: a camera client or all" };
+      const mode = String(r.value ?? "");
+      if (!CAMERA_MODES.includes(mode)) return { error: "camera: unknown mode" };
+      if (mode === "cctv") {
+        const id = String(r.text ?? "");
+        return /^[A-Za-z0-9_]{1,15}$/.test(id) ? { line: `camera ${cam} cctv ${id}` } : { error: "camera: unknown CCTV camera" };
+      }
+      const id = Number(r.target);
+      if (!Number.isInteger(id) || !playing(id)) return { error: "that player is not in the world" };
+      return { line: `camera ${cam} ${mode} ${id}` };
     }
     case "notify": {
       const text = cleanText(r.text);

@@ -1,0 +1,8 @@
+{
+  "cameras": [
+    {"id": "CAM_001", "name": "Legion Square", "zone": "LEGSQU", "pos": [172, -950, 48], "rot": [-25, 0, 323], "fov": 55},
+    {"id": "CAM_002", "name": "Airport", "zone": "AIRP", "pos": [-1030, -2700, 35], "rot": [-12, 0, 126], "fov": 60},
+    {"id": "CAM_003", "name": "Vinewood", "zone": "VINE", "pos": [365, 152, 118], "rot": [-14, 0, 85], "fov": 55},
+    {"id": "CAM_004", "name": "Vespucci", "zone": "BEACH", "pos": [-1290, -1180, 25], "rot": [-18, 0, 137], "fov": 60}
+  ]
+}

@@ -67,6 +67,19 @@ void Server::AdminApiStop() {
     adminListen_ = ~(uintptr_t)0;
 }
 
+// the camera clients and what each one shows
+std::string Server::CamerasTelemetry() const {
+    std::string s = "[";
+    for (const auto &kv : clients_) {
+        const Client &c = kv.second;
+        if (!c.authed || !c.camera) continue;
+        char b[128];
+        std::snprintf(b, sizeof b, "{\"id\":%u,\"mode\":\"%s\",\"target\":%u,", c.netId, kCameraModeNames[c.cam.mode <= kCamFree ? c.cam.mode : 0], c.cam.target);
+        s += (s.size() > 1 ? "," : "") + std::string(b) + "\"name\":\"" + Esc(c.name) + "\",\"cctv\":\"" + Esc(c.cam.cameraId) + "\",\"label\":\"" + Esc(c.cam.label) + "\"}";
+    }
+    return s + "]";
+}
+
 std::string Server::WorldTelemetry() const {
     char b[256];
     std::snprintf(b, sizeof b, "{\"hour\":%d,\"minute\":%d,\"frozen\":%s,\"weather\":\"%s\",\"next\":\"%s\",\"auto\":%s,\"blackout\":%s}",
@@ -99,12 +112,12 @@ std::string Server::PlayerTelemetry(const Client &c) const {
 }
 
 void Server::AdminTelemetry(AdminConn &a, bool full) {
-    if (full) { a.sent.clear(); a.sentWorld.clear(); }
+    if (full) { a.sent.clear(); a.sentWorld.clear(); a.sentCameras.clear(); }
     std::string players, gone;
     std::map<uint16_t, std::string> now;
     for (auto &kv : clients_) {
         const Client &c = kv.second;
-        if (!c.authed) continue;
+        if (!c.authed || c.camera) continue;   // camera clients are listed apart (CamerasTelemetry)
         std::string t = PlayerTelemetry(c);
         auto it = a.sent.find(c.netId);
         if (it == a.sent.end() || it->second != t) players += (players.empty() ? "" : ",") + t;
@@ -112,13 +125,15 @@ void Server::AdminTelemetry(AdminConn &a, bool full) {
     }
     for (auto &kv : a.sent)
         if (!now.count(kv.first)) gone += (gone.empty() ? "" : ",") + std::to_string(kv.first);
-    std::string world = WorldTelemetry();
-    bool worldChanged = world != a.sentWorld;
-    if (!full && players.empty() && gone.empty() && !worldChanged) return;   // nothing changed: nothing sent
+    std::string world = WorldTelemetry(), cams = CamerasTelemetry();
+    bool worldChanged = world != a.sentWorld, camsChanged = cams != a.sentCameras;
+    if (!full && players.empty() && gone.empty() && !worldChanged && !camsChanged) return;   // nothing changed: nothing sent
     a.sent = std::move(now);
     a.sentWorld = world;
+    a.sentCameras = cams;
     a.out += "{\"t\":\"tel\",\"ms\":" + std::to_string(NowMs()) + (full ? ",\"full\":true" : "") +
-             (worldChanged ? ",\"world\":" + world : "") + ",\"players\":[" + players + "],\"gone\":[" + gone + "]}\n";
+             (worldChanged ? ",\"world\":" + world : "") + (camsChanged ? ",\"cameras\":" + cams : "") +
+             ",\"players\":[" + players + "],\"gone\":[" + gone + "]}\n";
 }
 
 void Server::AdminApiLine(AdminConn &a, const std::string &line) {
@@ -133,7 +148,11 @@ void Server::AdminApiLine(AdminConn &a, const std::string &line) {
         if (t == "auth" && SameSecret(v.Str("secret", ""), cfg_.adminSecret)) {
             a.authed = true;
             a.out += "{\"t\":\"hello\",\"server\":\"" + Esc(cfg_.name) + "\",\"protocol\":" + std::to_string(kProtocolVersion) +
-                     ",\"tick\":" + std::to_string(cfg_.tickRate) + ",\"telemetry\":" + std::to_string(cfg_.telemetryHz) + "}\n";
+                     ",\"tick\":" + std::to_string(cfg_.tickRate) + ",\"telemetry\":" + std::to_string(cfg_.telemetryHz) + ",\"cctv\":[";
+            for (size_t i = 0; i < cfg_.cctv.size(); ++i)
+                a.out += (i ? "," : "") + std::string("{\"id\":\"") + Esc(cfg_.cctv[i].id) + "\",\"name\":\"" + Esc(cfg_.cctv[i].name) +
+                         "\",\"zone\":\"" + Esc(cfg_.cctv[i].zone) + "\"}";
+            a.out += "]}\n";
             LOGI("godeye", "-", "GodEye backend connected");
             AdminTelemetry(a, true);
         } else {

@@ -507,6 +507,27 @@ static void TestWorld() {
         wire::Reader rd(wd.Bytes().data(), wd.Size());
         CHECK(GetHeader(rd, h) && !Get(rd, b));
     }
+    // camera clients (v13)
+    {
+        CameraSetMsg c;
+        c.mode = kCamCctv; c.cameraId = "CAM_001"; c.pos = {195, -930, 50}; c.rot = {-20, 0, 180}; c.fov = 55; c.label = "CAM_001 Legion Square";
+        wire::Writer wc;
+        Put(wc, c);
+        wire::Reader rc(wc.Bytes().data(), wc.Size());
+        CameraSetMsg d;
+        CHECK(GetHeader(rc, h) && h.type == MsgType::CameraSet && Get(rc, d) && d.cameraId == "CAM_001" && d.pos.y == -930 && d.fov == 55 && d.label == c.label);
+        c.mode = 9;
+        wire::Writer wd;
+        Put(wd, c);
+        wire::Reader rd(wd.Bytes().data(), wd.Size());
+        CHECK(GetHeader(rd, h) && !Get(rd, d));
+        AuthMsg a{"Camera 1", "tok", kRoleCamera};
+        wire::Writer wa;
+        Put(wa, a);
+        wire::Reader ra(wa.Bytes().data(), wa.Size());
+        AuthMsg b;
+        CHECK(GetHeader(ra, h) && Get(ra, b) && b.role == kRoleCamera && b.name == "Camera 1");
+    }
     // Maze Bank transaction log
     {   // co-op jobs (v9)
         wire::Writer jw;

@@ -27,6 +27,7 @@ interface Config {
   map3dDir: string;
   logFile: string;
   usersFile: string;
+  publicMap3d: "login" | "open";   // the 3D map on the public address: login (default) or open
   allowNetworks: string[];
 }
 const cfgPath = resolve(process.argv[2] ?? join(ROOT, "godeye.json"));
@@ -37,6 +38,7 @@ const defaults: Config = {
   map3dDir: "../data/map3d",
   logFile: "D:/GTALocalOnline/logs/godeye.log",
   usersFile: "users.json",
+  publicMap3d: "login",
   allowNetworks: ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
 };
 let cfg: Config = defaults;
@@ -62,6 +64,16 @@ const nets = cfg.allowNetworks.map((n) => {
   const mask = Number(bits) === 0 ? 0 : (~0 << (32 - Number(bits))) >>> 0;
   return { base: (ipv4(a) ?? 0) & mask, mask };
 });
+// The public address (godeye/cloudflare): the Worker marks every request it forwards through the tunnel. Viewing is open
+// there; the 3D map (made of the game's own models and textures) and the controls need a GodEye login.
+function isPublic(req: IncomingMessage): boolean { return req.headers["x-godeye-public"] === "1"; }
+function clientAddr(req: IncomingMessage): string {
+  return isPublic(req) ? String(req.headers["cf-connecting-ip"] ?? "public") : req.socket.remoteAddress ?? "";
+}
+function hostOf(req: IncomingMessage): string {
+  return isPublic(req) ? String(req.headers["x-forwarded-host"] ?? "") : String(req.headers["host"] ?? "");
+}
+
 function lanAllowed(addr: string | undefined): boolean {
   if (!addr) return false;
   if (addr === "::1") return true;
@@ -87,6 +99,8 @@ interface World { hour: number; minute: number; frozen: boolean; weather: string
 const players = new Map<number, any>();
 let world: World | null = null;
 let serverInfo: any = null;
+let cameras: any[] = [];   // the camera clients (Phase 12) and what each shows
+let cctv: any[] = [];      // the CCTV cameras they can show
 
 function enrich(p: any): any {
   const out: any = { ...p };
@@ -105,13 +119,14 @@ function broadcast(msg: object): void {
   for (const b of browsers) b.send(text);
 }
 function fullState(): object {
-  return { t: "full", online: admin.connected, server: serverInfo, world, players: [...players.values()] };
+  return { t: "full", online: admin.connected, server: serverInfo, world, players: [...players.values()], cameras, cctv };
 }
 
 const admin = new AdminLink(cfg.admin);
 admin.on("log", (m: string) => log("WARN", m));
 admin.on("up", (hello: any) => {
   serverInfo = { name: hello.server, protocol: hello.protocol, telemetry: hello.telemetry };
+  cctv = Array.isArray(hello.cctv) ? hello.cctv : [];
   log("INFO", `connected to the game server "${hello.server}" (protocol v${hello.protocol}, telemetry ${hello.telemetry} Hz)`);
 });
 admin.on("down", () => {
@@ -123,11 +138,12 @@ admin.on("msg", (m: any) => {
   if (m.t !== "tel") return;
   if (m.full) players.clear();
   if (m.world) world = m.world;
+  if (m.cameras) cameras = m.cameras;
   const changed: any[] = [];
   for (const p of m.players ?? []) { const e = enrich(p); players.set(p.id, e); changed.push(e); }
   for (const id of m.gone ?? []) players.delete(id);
   if (m.full) broadcast(fullState());
-  else broadcast({ t: "tel", ms: m.ms, world: m.world, players: changed, gone: m.gone ?? [] });
+  else broadcast({ t: "tel", ms: m.ms, world: m.world, cameras: m.cameras, players: changed, gone: m.gone ?? [] });
 });
 admin.start();
 
@@ -153,19 +169,20 @@ function readBody(req: IncomingMessage): Promise<any> {
 function sameOrigin(req: IncomingMessage): boolean {
   const origin = req.headers["origin"];
   if (!origin) return false;
-  try { return new URL(String(origin)).host === req.headers["host"]; } catch { return false; }
+  try { return new URL(String(origin)).host === hostOf(req); } catch { return false; }
 }
 
-function me(s: ReturnType<Sessions["get"]>): object {
-  if (!s) return { user: null, control: users.count > 0 };
+function me(s: ReturnType<Sessions["get"]>, pub = false): object {
+  const map3d = !pub || cfg.publicMap3d === "open" || !!s;
+  if (!s) return { user: null, control: users.count > 0, public: pub, map3d };
   const can = Object.keys(ACTIONS).filter((a) => allowed(s.role, a));
-  return { user: s.user, role: s.role, csrf: s.csrf, can, cooldowns: limits.cooldowns(s.user) };
+  return { user: s.user, role: s.role, csrf: s.csrf, can, cooldowns: limits.cooldowns(s.user), public: pub, map3d };
 }
 
 async function handlePost(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
   const json = (code: number, body: object, extra: Record<string, string> = {}) => send(res, code, "application/json", JSON.stringify(body), extra);
   if (!sameOrigin(req)) { json(403, { error: "cross-site request refused" }); return; }
-  const addr = req.socket.remoteAddress ?? "";
+  const addr = clientAddr(req), pub = isPublic(req);
   const body = await readBody(req);
   if (!body || typeof body !== "object") { json(400, { error: "bad request" }); return; }
   if (path === "/api/login") {
@@ -175,12 +192,12 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
     loginLimit.ok(addr);
     const s = sessions.create(u);
     log("INFO", `${u.name} (${u.role}) logged in from ${addr}`);
-    json(200, me(s), { "Set-Cookie": sessions.cookie(s) });
+    json(200, me(s, pub), { "Set-Cookie": sessions.cookie(s, pub) });
     return;
   }
   const s = sessions.get(req.headers["cookie"]);
   if (!s || req.headers["x-csrf-token"] !== s.csrf) { json(401, { error: "log in first" }); return; }
-  if (path === "/api/logout") { sessions.end(s); json(200, { user: null }, { "Set-Cookie": sessions.cookie(null) }); return; }
+  if (path === "/api/logout") { sessions.end(s); json(200, { user: null }, { "Set-Cookie": sessions.cookie(null, pub) }); return; }
   if (path === "/api/action") {
     const r = body as ActionRequest;
     const action = String(r.action ?? "");
@@ -242,6 +259,10 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
   }
   // the 3D map: only the names tools/godeye-map writes (no paths from the request reach the file system)
   const m3 = /^\/data\/map3d\/(index\.json|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near)\.bin|tex\/[0-9a-f]{8}\.bc1)$/.exec(path);
+  if (m3 && isPublic(req) && cfg.publicMap3d !== "open" && !sessions.get(req.headers["cookie"])) {
+    send(res, 401, "application/json", JSON.stringify({ error: "log in to see the 3D map" }));
+    return;
+  }
   if (m3) {
     const file = join(rel(cfg.map3dDir), m3[1]);
     if (!existsSync(file)) { send(res, 404, "text/plain", "not found\n"); return; }
@@ -255,7 +276,7 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
     (gz ? stream.pipe(createGzip({ level: 1 })) : stream).pipe(res);
     return;
   }
-  if (path === "/api/me") { send(res, 200, "application/json", JSON.stringify(me(sessions.get(req.headers["cookie"])))); return; }
+  if (path === "/api/me") { send(res, 200, "application/json", JSON.stringify(me(sessions.get(req.headers["cookie"]), isPublic(req)))); return; }
   if (path === "/api/audit") {
     const s = sessions.get(req.headers["cookie"]);
     if (!s) { send(res, 401, "application/json", JSON.stringify({ error: "log in first" })); return; }
@@ -269,10 +290,10 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
 });
 
 http.on("upgrade", (req: IncomingMessage, sock, _head) => {
-  const addr = req.socket.remoteAddress ?? "";
-  if (!lanAllowed(addr) || new URL(req.url ?? "/", "http://x").pathname !== "/ws") { sock.end("HTTP/1.1 403 Forbidden\r\n\r\n"); return; }
+  const addr = clientAddr(req);
+  if (!lanAllowed(req.socket.remoteAddress) || new URL(req.url ?? "/", "http://x").pathname !== "/ws") { sock.end("HTTP/1.1 403 Forbidden\r\n\r\n"); return; }
   if (browsers.size >= 32) { sock.end("HTTP/1.1 503 Service Unavailable\r\n\r\n"); return; }
-  const ws = acceptUpgrade(req, sock, addr);
+  const ws = acceptUpgrade(req, sock, addr, hostOf(req));
   if (!ws) return;
   browsers.add(ws);
   log("INFO", `browser ${addr} connected (${browsers.size} open)`);

@@ -5,6 +5,7 @@
 #   ./build.sh client     tests + LocalOnline.asi        (GTA client, runs under Proton on the BC-250)
 #   ./build.sh server     tests + LocalOnlineServer.exe   (Windows game server)
 #   ./build.sh gori       GoriOnline.asi                  (GTA Online content mod; sources in $GORI_DIR)
+#   ./build.sh godeye     GodEye.exe                      (GodEye's desktop launcher)
 # Outputs go to build/. Toolchain: $W64DEVKIT, ../gta-mods/tools/w64devkit, or a MinGW g++ on PATH.
 set -e
 cd "$(dirname "$0")"
@@ -12,6 +13,14 @@ TC="${W64DEVKIT:-$(cd ../gta-mods/tools/w64devkit/bin 2>/dev/null && pwd)}"
 [ -n "$TC" ] || TC="$(dirname "$(command -v g++ 2>/dev/null)")"
 [ -x "$TC/g++" ] || [ -x "$TC/g++.exe" ] || { echo "MinGW g++ not found (install w64devkit and set W64DEVKIT=/path/to/w64devkit/bin)"; exit 1; }
 GORI_DIR="${GORI_DIR:-$( [ -d gori-online ] && echo gori-online || echo ../gta-mods/GoriOnlineNative )}"
+if [ "${1:-}" = godeye ]; then   # GodEye.exe, the desktop launcher (godeye/launcher)
+  export PATH="$TC:$PATH"
+  mkdir -p build/obj
+  "$TC/windres" godeye/launcher/godeye.rc -O coff -o build/obj/godeye_rc.o
+  "$TC/g++" -std=c++20 -O2 -Wall -mwindows -static -s -o build/GodEye.exe godeye/launcher/godeye_launcher.cpp build/obj/godeye_rc.o -ldxgi -lws2_32 -lshell32
+  ls -l build/GodEye.exe | awk '{print "[godeye] GodEye.exe ok, " $5 " bytes"}'
+  exit 0
+fi
 if [ "${1:-}" = gori ]; then
   export PATH="$TC:$PATH"
   mkdir -p build

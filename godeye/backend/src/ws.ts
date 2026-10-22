@@ -73,10 +73,9 @@ export class WsClient {
 
 // Completes the handshake, or answers 400/403 and returns null. Only same-origin pages may connect: another site open in
 // the same browser must not be able to read the telemetry.
-export function acceptUpgrade(req: IncomingMessage, sock: Duplex, address: string): WsClient | null {
+export function acceptUpgrade(req: IncomingMessage, sock: Duplex, address: string, host = String(req.headers["host"] ?? "")): WsClient | null {
   const key = req.headers["sec-websocket-key"];
   const origin = req.headers["origin"];
-  const host = req.headers["host"];
   const bad = (code: string) => { sock.end(`HTTP/1.1 ${code}\r\nConnection: close\r\n\r\n`); return null; };
   if (typeof key !== "string" || (req.headers["upgrade"] ?? "").toLowerCase() !== "websocket") return bad("400 Bad Request");
   if (origin) {

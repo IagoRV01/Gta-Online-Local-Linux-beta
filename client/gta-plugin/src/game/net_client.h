@@ -16,7 +16,8 @@ struct LoginResult {
 };
 
 // Connect + Hello + Auth. timeoutMs covers the whole handshake.
-LoginResult Login(const std::string &host, int port, const std::string &name, const std::string &token, int timeoutMs);
+LoginResult Login(const std::string &host, int port, const std::string &name, const std::string &token, int timeoutMs,
+                  uint8_t role = proto::kRolePlayer);   // kRoleCamera: a camera client (Phase 12)
 bool Connected();
 uint16_t SelfNetId();       // our netId on the server (0 when offline)
 uint32_t Logins();          // how many times we logged in (a restarted server can hand out the same netId again)

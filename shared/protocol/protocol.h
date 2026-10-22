@@ -21,7 +21,7 @@
 namespace proto {
 
 constexpr uint8_t kMagic = 0x4C;
-constexpr uint8_t kProtocolVersion = 12;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions
+constexpr uint8_t kProtocolVersion = 13;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions; v13 camera clients
 constexpr uint8_t kChanControl = 0, kChanState = 1, kChanEvents = 2, kNumChannels = 3;
 constexpr size_t kMaxPacket = 64 * 1024;       // anything bigger is dropped before parsing
 constexpr size_t kMaxProfileJson = 48 * 1024;
@@ -32,7 +32,7 @@ enum class MsgType : uint16_t {
     Hello = 1,           // C  {u32 gameBuild, str clientVersion}
     Welcome = 2,         // S  {u16 tickRate, u32 serverTimeMs, str serverName}
     Reject = 3,          // S  {u8 code, str reason}   followed by a disconnect
-    Auth = 4,            // C  {str playerName, str token}
+    Auth = 4,            // C  {str playerName, str token, u8 role}   role: 0 player, 1 camera client (v13)
     AuthResult = 5,      // S  {u8 ok, u16 netId, str playerUuid, str newToken, str reason}  newToken only on first registration
     ProfileRequest = 6,  // C  {}
     Profile = 7,         // S  {u8 exists, u32 revision, str json}   exists=0 -> go to the character creator
@@ -54,6 +54,7 @@ enum class MsgType : uint16_t {
     // world (channel 0) — Phase 7
     WorldState = 40,     // S  {u8 h, u8 m, u8 s, u8 flags, str weather, str nextWeather, f32 transition}
     GodEyeAction = 41,   // S  {u8 kind, u8 value, u32 durationMs, str text}   v12: GodEye's actions on one player (or the traffic mode for all)
+    CameraSet = 42,      // S  {u8 mode, u16 target, str cameraId, vec3 pos, vec3 rot, f32 fov, str label}   v13: what a camera client shows
     // economy (channel 2) — Phase 8: the server owns every balance
     MoneyChange = 50,    // C  {u32 requestId, u8 account, i64 delta, str reason}   account: 0 wallet, 1 bank, 2 deposit (wallet->bank; negative = withdraw)
     MoneyResult = 51,    // S  {u32 requestId, u8 ok, i64 wallet, i64 bank, str reason}
@@ -242,7 +243,8 @@ inline bool GetSnapshot(wire::Reader &r, uint32_t &tick, uint32_t &serverTimeMs,
 struct HelloMsg { uint32_t gameBuild = 0; std::string clientVersion; };
 struct WelcomeMsg { uint16_t tickRate = 0; uint32_t serverTimeMs = 0; std::string serverName; };
 struct RejectMsg { RejectCode code{}; std::string reason; };
-struct AuthMsg { std::string name, token; };
+enum ClientRole : uint8_t { kRolePlayer = 0, kRoleCamera = 1 };
+struct AuthMsg { std::string name, token; uint8_t role = kRolePlayer; };
 struct AuthResultMsg { bool ok = false; uint16_t netId = 0; std::string playerUuid, newToken, reason; };
 struct ProfileMsg { bool exists = false; uint32_t revision = 0; std::string json; };
 struct ProfileSaveMsg { uint32_t baseRevision = 0; std::string json; };
@@ -254,8 +256,8 @@ inline void Put(wire::Writer &w, const WelcomeMsg &m) { PutHeader(w, MsgType::We
 inline bool Get(wire::Reader &r, WelcomeMsg &m) { m.tickRate = r.U16(); m.serverTimeMs = r.U32(); m.serverName = r.Str(64); return r.Done(); }
 inline void Put(wire::Writer &w, const RejectMsg &m) { PutHeader(w, MsgType::Reject); w.U8((uint8_t)m.code); w.Str(m.reason, kMaxReason); }
 inline bool Get(wire::Reader &r, RejectMsg &m) { m.code = (RejectCode)r.U8(); m.reason = r.Str(kMaxReason); return r.Done(); }
-inline void Put(wire::Writer &w, const AuthMsg &m) { PutHeader(w, MsgType::Auth); w.Str(m.name, kMaxName); w.Str(m.token, kMaxToken); }
-inline bool Get(wire::Reader &r, AuthMsg &m) { m.name = r.Str(kMaxName); m.token = r.Str(kMaxToken); return r.Done(); }
+inline void Put(wire::Writer &w, const AuthMsg &m) { PutHeader(w, MsgType::Auth); w.Str(m.name, kMaxName); w.Str(m.token, kMaxToken); w.U8(m.role); }
+inline bool Get(wire::Reader &r, AuthMsg &m) { m.name = r.Str(kMaxName); m.token = r.Str(kMaxToken); m.role = r.U8(); return r.Done() && m.role <= kRoleCamera; }
 inline void Put(wire::Writer &w, const AuthResultMsg &m) {
     PutHeader(w, MsgType::AuthResult); w.U8(m.ok); w.U16(m.netId); w.Str(m.playerUuid, 36); w.Str(m.newToken, kMaxToken); w.Str(m.reason, kMaxReason);
 }
@@ -372,6 +374,31 @@ inline bool Get(wire::Reader &r, GodEyeActionMsg &m) {
     if (m.kind == kGeWanted) return m.value <= 5;
     if (m.kind == kGeTraffic) return m.value <= kTrafficRandom;
     return true;
+}
+
+// ---- camera clients (Phase 12) --------------------------------------------------------------------------
+// A camera client is a GTA instance with no character of its own: it sees every player and shows one camera, chosen
+// by GodEye through the server. CCTV cameras are fixed (their pos/rot/fov come from the server's cameras.json); the
+// other modes frame the target player.
+enum CameraMode : uint8_t {
+    kCamCctv = 0, kCamFollow = 1, kCamHeli = 2, kCamDrone = 3, kCamCinematic = 4, kCamThird = 5, kCamChase = 6, kCamFree = 7,
+};
+constexpr const char *kCameraModeNames[] = {"cctv", "follow", "heli", "drone", "cinematic", "third", "chase", "free"};
+struct CameraSetMsg {
+    uint8_t mode = kCamCctv;
+    uint16_t target = 0;          // a player's netId (not CCTV / free)
+    std::string cameraId;         // CCTV: "CAM_001"
+    Vec3 pos, rot;                // CCTV / free: where, and pitch/roll/yaw in degrees
+    float fov = 50.f;
+    std::string label;            // shown on the picture: "CAM_001 Legion Square", "FOLLOW Alex"
+};
+inline void Put(wire::Writer &w, const CameraSetMsg &m) {
+    PutHeader(w, MsgType::CameraSet); w.U8(m.mode); w.U16(m.target); w.Str(m.cameraId, 16);
+    PutVec(w, m.pos); PutVec(w, m.rot); w.F32(m.fov); w.Str(m.label, 64);
+}
+inline bool Get(wire::Reader &r, CameraSetMsg &m) {
+    m.mode = r.U8(); m.target = r.U16(); m.cameraId = r.Str(16); m.pos = GetVec(r); m.rot = GetVec(r); m.fov = r.F32(); m.label = r.Str(64);
+    return r.Done() && m.mode <= kCamFree && m.fov >= 5.f && m.fov <= 130.f;
 }
 
 // ---- economy (Phase 8) -------------------------------------------------------------------------------
