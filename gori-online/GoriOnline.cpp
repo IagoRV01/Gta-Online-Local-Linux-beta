@@ -4713,6 +4713,16 @@ static void CommandTick() {
         else if (a[0] == "chips") { g_chips = (int)F(1); Save(); }
         else if (a[0] == "wheelreset") { g_wheelNext = 0; Save(); }
         else if (a[0] == "water") { float h = 0.f; int r = N<int>(N_GET_WATER_HEIGHT, F(1), F(2), F(3), &h); Log("water at %.1f %.1f: %d height %.2f", F(1), F(2), r, h); }
+        else if (a[0] == "fx" && a.size() > 2) {   // fx <asset> <effect>: a looped particle effect 2 m ahead (finding effects); fx off
+            static int fxh = 0;
+            if (fxh) { N(N_STOP_PARTICLE_FX_LOOPED, fxh, 0); fxh = 0; }
+            N(N_REQUEST_NAMED_PTFX_ASSET, a[1].c_str());
+            for (int k = 0; k < 100 && !NB(N<int>(N_HAS_NAMED_PTFX_ASSET_LOADED, a[1].c_str())); ++k) Wait(20);
+            Vec3 p = Ahead(Pos(Me()), N<float>(N_GET_ENTITY_HEADING, Me()), 2.f);
+            N(N_USE_PARTICLE_FX_ASSET, a[1].c_str());
+            fxh = N<int>(N_START_PARTICLE_FX_LOOPED_AT_COORD, a[2].c_str(), p.x, p.y, p.z + 1.f, 0.f, 0.f, 0.f, 1.f, 0, 0, 0, 1);
+            Log("fx %s/%s: loaded %d handle %d", a[1].c_str(), a[2].c_str(), NB(N<int>(N_HAS_NAMED_PTFX_ASSET_LOADED, a[1].c_str())) ? 1 : 0, fxh);
+        }
         else if (a[0] == "ray" && a.size() > 6) {   // ray x1 y1 z1 x2 y2 z2: the first thing in the way (placing doors)
             int r = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, F(1), F(2), F(3), F(4), F(5), F(6), 1 | 16, Me(), 7);
             int hit = 0; Vec3 end{}, nrm{}; int ent = 0;

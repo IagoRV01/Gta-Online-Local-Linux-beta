@@ -199,6 +199,7 @@ static const NaptHide NAPT_HIDE[] = {
     {"sm12", {"sm_13_emissive_emb", nullptr}},
     {"sm18", {"kt1_05_kt1_emissive_kt1_05", nullptr}},
     {"sm01", {"sm_15_emissive", nullptr}},
+    {"mw34", {"kt1_02_kt1_emissive_kt1_02", nullptr}},
 };
 static const NaptHide *g_naptHid = nullptr;
 static void NaptHideApply(const NaptHide *h, bool on) {

@@ -125,8 +125,25 @@ static void DrunkTick() {
 }
 
 // ---------------------------------------------------------------- the activities
+// the running shower: GTA Online's own effects (ob_mp_shower_med: ent_amb_shower from the head, 45 degrees down, and
+// ent_amb_shower_steam at the feet), from the core particle asset
+static int g_showerFx[2] = {0, 0};
+static void ShowerFx(const NewAptAct &a, bool on) {
+    for (int &f : g_showerFx) if (f) { N(N_STOP_PARTICLE_FX_LOOPED, f, 0); f = 0; }
+    if (!on) return;
+    float r = a.h * 0.0174533f, fx = -std::sin(r), fy = std::cos(r);   // the way the ped faces
+    for (const char *asset : {"core", "scr_mp_house"}) {
+        N(N_REQUEST_NAMED_PTFX_ASSET, asset);
+        for (int k = 0; k < 100 && !NB(N<int>(N_HAS_NAMED_PTFX_ASSET_LOADED, asset)); ++k) Wait(20);
+        if (!g_showerFx[0]) { N(N_USE_PARTICLE_FX_ASSET, asset); g_showerFx[0] = N<int>(N_START_PARTICLE_FX_LOOPED_AT_COORD, "ent_amb_shower", a.x + fx * 0.3f, a.y + fy * 0.3f, a.z + 2.05f, -45.f, 0.f, a.h + 180.f, 1.f, 0, 0, 0, 1); }
+        if (!g_showerFx[1]) { N(N_USE_PARTICLE_FX_ASSET, asset); g_showerFx[1] = N<int>(N_START_PARTICLE_FX_LOOPED_AT_COORD, "ent_amb_shower_steam", a.x, a.y, a.z + 0.05f, 0.f, 0.f, a.h, 1.f, 0, 0, 0, 1); }
+        Log("shower fx (%s): water %d steam %d", asset, g_showerFx[0], g_showerFx[1]);
+        if (g_showerFx[0] && g_showerFx[1]) break;
+    }
+}
 static void ActEnd(bool snapBack) {
     int me = Me();
+    if (g_actKind == 'S') ShowerFx(NEW_APT_ACTS[g_act >= 0 ? g_act : 0], false);
     if (g_actKind == 'B' || g_actKind == 'S') {
         N(N_CLEAR_PED_TASKS_IMMEDIATELY, me);
         N(N_FREEZE_ENTITY_POSITION, me, 0);
@@ -188,6 +205,7 @@ static void ActStart(int i) {
         const char *dict = f ? "mp_safehouseshower@female@" : "mp_safehouseshower@male@";
         if (LoadAnimDict(dict)) N(N_TASK_PLAY_ANIM, me, dict, f ? "shower_idle_a" : "male_shower_idle_a", 8.f, -8.f, -1, 1, 0.f, 0, 0, 0);
         N(N_SET_PED_WETNESS_HEIGHT, me, 2.0f);
+        ShowerFx(a, true);
         N(N_DO_SCREEN_FADE_IN, 500);
         g_actUntil = Now() + 9000;
         break;
