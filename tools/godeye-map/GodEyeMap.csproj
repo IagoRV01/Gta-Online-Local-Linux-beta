@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- GodEye's map data from your own GTA V files (CodeWalker reads them). Build:
+         dotnet build -c Release -p:CodeWalkerDir=C:\path\to\CodeWalker
+       CodeWalker (MIT): https://github.com/dexyfex/CodeWalker -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <CodeWalkerDir Condition="'$(CodeWalkerDir)' == ''">..\..\..\gta-mods\tools\CodeWalker</CodeWalkerDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(CodeWalkerDir)\CodeWalker.Core\CodeWalker.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -74,6 +74,7 @@ uint16_t Self() { return g_self ? g_self : net::SelfNetId(); }   // SetSelf is o
 int g_myRank = 0, g_myFlags = 0;
 uint32_t g_mySession = 0;
 uint16_t g_infoSentAs = 0;           // the netId our info was last sent under (0 = send again)
+uint32_t g_infoSentLogin = 0;        // ...and the login: after a quick server restart the netId can be the same
 int g_infoSentRank = -1, g_infoSentFlags = -1;
 
 double LocalSeconds() { return (double)GetTickCount64() / 1000.0; }
@@ -625,11 +626,11 @@ int Count() { return (int)g_players.size(); }
 
 void Frame() {
     uint16_t self = Self();
-    if (self && (g_infoSentAs != self || g_infoSentRank != g_myRank || g_infoSentFlags != g_myFlags)) {   // our rank / flags to the server
+    if (self && (g_infoSentAs != self || g_infoSentLogin != net::Logins() || g_infoSentRank != g_myRank || g_infoSentFlags != g_myFlags)) {   // our rank / flags to the server
         wire::Writer w;
         Put(w, PlayerInfoMsg{(uint16_t)(g_myRank < 0 ? 0 : g_myRank > kMaxRank ? kMaxRank : g_myRank), (uint8_t)(g_myFlags & 3)});
         net::SendEvent(w);
-        g_infoSentAs = self; g_infoSentRank = g_myRank; g_infoSentFlags = g_myFlags;
+        g_infoSentAs = self; g_infoSentLogin = net::Logins(); g_infoSentRank = g_myRank; g_infoSentFlags = g_myFlags;
     }
     if (!g_clock.Synced()) return;
     double renderT = g_clock.ServerNow(LocalSeconds()) - kDelay;

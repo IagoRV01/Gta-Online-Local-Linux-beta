@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GodEye</title>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><span class="eye" aria-hidden="true"></span>GOD&nbsp;EYE</div>
+  <div class="status"><span id="dot" class="dot"></span><span id="server">connecting…</span></div>
+  <div class="world" id="world"></div>
+</header>
+<main class="layout">
+  <section class="map-wrap" aria-label="Live map">
+    <canvas id="map"></canvas>
+    <div class="map-tools">
+      <button id="zin" title="Zoom in" aria-label="Zoom in">+</button>
+      <button id="zout" title="Zoom out" aria-label="Zoom out">−</button>
+      <button id="fit" title="Show every player" aria-label="Show every player">⤢</button>
+    </div>
+    <div class="layers" role="group" aria-label="Map layers">
+      <label><input type="checkbox" id="lyTerrain" checked> Terrain</label>
+      <label><input type="checkbox" id="lyRoads" checked> Roads</label>
+      <label><input type="checkbox" id="lyZones" checked> Zones</label>
+      <label><input type="checkbox" id="lyLights"> Traffic lights</label>
+    </div>
+    <div class="coords" id="coords"></div>
+    <div class="nomap" id="nomap" hidden>No map data: run <code>tools/godeye-map</code> (see godeye/README.md).</div>
+  </section>
+  <aside class="side" aria-label="Players">
+    <h2>Players <span id="count" class="count">0</span></h2>
+    <div id="list" class="list"></div>
+  </aside>
+</main>
+</body>
+</html>

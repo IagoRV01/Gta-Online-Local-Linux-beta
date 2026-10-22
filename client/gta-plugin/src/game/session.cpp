@@ -55,6 +55,7 @@ bool g_wasDead = false;
 bool g_savesBackedUp = false;
 volatile bool g_menuRequested = false;
 bool g_appearanceSent = false;   // our look has been sent to the server in this connection
+uint32_t g_appearanceLogin = 0;  // the login it was sent in (a quick server restart is never seen offline here)
 
 const char *Who() { return g_haveChar ? g_char.name.c_str() : "-"; }
 void StopStoryRespawn();
@@ -484,6 +485,7 @@ unsigned long long g_lastStateSent = 0;
 void SendAppearance() {
     net::SendAppearance(json::Write(character::ToJson(character::AppearanceOnly(g_char)), 0));
     g_appearanceSent = true;
+    g_appearanceLogin = net::Logins();
 }
 
 void SendOwnState(int me) {
@@ -554,6 +556,7 @@ void MultiplayerFrame(int me) {
         if (g_appearanceSent) { remote::Clear(); g_appearanceSent = false; }
         return;
     }
+    if (g_appearanceSent && g_appearanceLogin != net::Logins()) { remote::Clear(); g_appearanceSent = false; }   // a new server session
     if (!g_appearanceSent) SendAppearance();
     SendOwnState(me);
     combat::Frame(me);

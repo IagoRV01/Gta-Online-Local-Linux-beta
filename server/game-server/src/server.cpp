@@ -49,6 +49,7 @@ bool Server::Start(const ServerConfig &cfg, Storage *storage) {
     lastWorldMs_ = WallMs();
     LOGI("world", "-", "clock %02d:%02d%s, weather %s%s", clock_.Hour(), clock_.Minute(), clock_.frozen ? " (frozen)" : "",
          weather_.Current().c_str(), blackout_ ? ", blackout" : "");
+    AdminApiStart();   // a failure is logged; the game keeps running without GodEye
     return true;
 }
 
@@ -77,6 +78,7 @@ void Server::Run(volatile bool &stop) {
             ++tick_;
             WorldTick(now);
             BroadcastSnapshot();
+            AdminApiPoll(now);
             next += tickMs;
             if (now - next > 1000) next = now;   // we fell far behind (debugger, sleep): don't spiral
         }
@@ -84,6 +86,7 @@ void Server::Run(volatile bool &stop) {
 }
 
 void Server::Shutdown() {
+    AdminApiStop();
     if (!host_) return;
     for (auto &kv : clients_) enet_peer_disconnect(kv.first, 0);
     enet_host_flush(host_);
@@ -680,7 +683,7 @@ void Server::WorldTick(long long now) {
 
 // Admin commands (server.cmd today, the GodEye admin API later). Every change is logged and
 // stored, and pushed to the clients immediately.
-void Server::AdminCommand(const std::string &line) {
+bool Server::AdminCommand(const std::string &line) {
     char verb[32] = {0}, arg[64] = {0};
     int a = 0, b = 0;
     std::sscanf(line.c_str(), "%31s %63s", verb, arg);
@@ -702,6 +705,7 @@ void Server::AdminCommand(const std::string &line) {
         db_->Event("admin", "", "{\"command\":\"" + line.substr(0, 60) + "\"}");
         SendWorld(nullptr);
     }
+    return ok;
 }
 
 // ---------------------------------------------------------------- economy (Phase 8)

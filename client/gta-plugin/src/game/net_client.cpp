@@ -14,6 +14,7 @@ static ENetPeer *g_peer = nullptr;
 static bool g_connected = false;
 static bool g_manual = false;   // Login/Disconnect drive ENet themselves: the Wait hook must not
 static uint16_t g_selfNetId = 0;
+static uint32_t g_logins = 0;   // successful logins: a new one means a new server session
 static std::function<void(const ProfileSavedMsg &)> g_onSaved;
 static std::function<void(MsgType, wire::Reader &)> g_onGame;
 static std::deque<std::vector<uint8_t>> g_inbox;   // packets kept for a blocking waiter
@@ -139,6 +140,7 @@ LoginResult Login(const std::string &hostName, int port, const std::string &name
     res.newToken = ar.newToken;
     res.netId = ar.netId;
     g_selfNetId = ar.netId;
+    ++g_logins;
     LOGI("net", name.c_str(), "logged in to %s:%d as netId %u (rtt %u ms)%s", hostName.c_str(), port, ar.netId, g_peer->roundTripTime,
          ar.newToken.empty() ? "" : ", new account");
     return res;
@@ -146,6 +148,7 @@ LoginResult Login(const std::string &hostName, int port, const std::string &name
 
 bool Connected() { return g_connected && g_peer; }
 uint16_t SelfNetId() { return Connected() ? g_selfNetId : 0; }
+uint32_t Logins() { return g_logins; }
 
 void Disconnect(int flushMs) {
     g_manual = true;

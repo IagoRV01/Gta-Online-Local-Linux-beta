@@ -43,8 +43,13 @@ driver = "sqlite"
 path = "data/localonline.db"
 
 [godeye]
-# Phase 9+. Not started yet.
-http_port = 8080
+# Phase 9: the admin API GodEye reads telemetry from (TCP, bound to 127.0.0.1 only, never the LAN).
+admin_port = 4500          # 0 = off
+telemetry_hz = 10          # pushes to GodEye, changes only (1-20)
+# The shared secret: admin_secret = "...", or a file (created with a random secret on the first start).
+# Default: admin.secret next to the database. GodEye's godeye.json points at the same file.
+# admin_secret_file = "D:/GTALocalOnline/data/admin.secret"
+http_port = 8080           # GodEye's own web port (set in godeye/backend/godeye.json)
 
 [logging]
 dir = "logs"

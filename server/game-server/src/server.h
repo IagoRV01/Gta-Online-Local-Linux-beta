@@ -40,6 +40,10 @@ struct ServerConfig {
     // co-op jobs (v9)
     long long maxJobPayout = 2000000;       // what one member can be paid for one job
     int minJobMs = 60000;                   // a job "passed" sooner than this after it started pays nothing
+    // GodEye admin API (Phase 9): loopback TCP, newline-delimited JSON, shared secret
+    int adminApiPort = 4500;                // 0 = off
+    std::string adminSecret;                // required; main.cpp creates one in admin_secret_file if empty
+    int telemetryHz = 10;
 };
 
 class Server {
@@ -124,7 +128,26 @@ private:
     Client *ByNetId(uint16_t id);
     void WorldTick(long long nowMs);
     void SendWorld(_ENetPeer *only);   // nullptr = everyone authed
-    void AdminCommand(const std::string &line);
+    bool AdminCommand(const std::string &line);
+    // GodEye admin API (admin_api.cpp)
+    struct AdminConn {
+        uintptr_t sock = 0;
+        bool authed = false;
+        long long openedMs = 0;
+        std::string in, out;
+        std::map<uint16_t, std::string> sent;   // last telemetry line per player: only changes are pushed
+        std::string sentWorld;
+    };
+    bool AdminApiStart();
+    void AdminApiPoll(long long now);
+    void AdminApiStop();
+    void AdminApiLine(AdminConn &a, const std::string &line);
+    void AdminTelemetry(AdminConn &a, bool full);
+    std::string PlayerTelemetry(const Client &c) const;
+    std::string WorldTelemetry() const;
+    uintptr_t adminListen_ = ~(uintptr_t)0;
+    std::vector<AdminConn> admins_;
+    long long lastTelemetryMs_ = 0;
     void CombatWindow(Client &c);
     int NowMs() const;
 

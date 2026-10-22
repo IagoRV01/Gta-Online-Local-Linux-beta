@@ -19,6 +19,7 @@ struct LoginResult {
 LoginResult Login(const std::string &host, int port, const std::string &name, const std::string &token, int timeoutMs);
 bool Connected();
 uint16_t SelfNetId();       // our netId on the server (0 when offline)
+uint32_t Logins();          // how many times we logged in (a restarted server can hand out the same netId again)
 void Disconnect(int flushMs = 300);
 
 // Blocking profile download; false on timeout/disconnect.

@@ -21,7 +21,8 @@
 | 8+ Online polish: Maze Bank (wallet/bank, ATMs), Online HUD (money, player list, gamer tags), post-death HUD fix | **built + server verified** (netprobe 2026-10-09 01:45: job → bank, shop → wallet, deposit, withdraw, overdraft refused; schema v1→v2 migration on the live DB) | in-game check pending a GTA restart |
 | 8+ Online polish: properties/interiors/businesses/heists per character, internet purchases from the bank | **built + deployed** (2026-10-09 01:53) | `mods` in the character profile (tests), Gori Online switches profile with YOU; in-game check pending a GTA restart |
 | 8+ Co-op missions (heists, business sales with other players) | not started | needs server-coordinated mission state + entity ownership (`docs/entity-ownership.md`) |
-| 9–14 (GodEye, 3D map, cameras, web game) | not started | allowed to start now that the server path is stable; next in the plan |
+| 9 GodEye Basic (2D map: players, position, heading, vehicle, speed, health, wanted, zone) | **done, verified with netprobe** (2026-10-22) | admin API on the server (loopback, secret), Node backend, web map; `docs/godeye.md` |
+| 10–14 (GodEye control, 3D map, cameras, WebRTC, web game) | not started | Phase 10 next: wanted, weather, police alerts, traffic hacks (traffic-light stops already exported) |
 
 ### Story-mode protection: what was found and fixed (2026-10-07/08)
 

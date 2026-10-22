@@ -44,3 +44,12 @@ Thumbs.db
 gori-online/natives.json
 gori-online/tools/__pycache__/
 __pycache__/
+
+# GodEye: the map made from the player's own game files (godeye/data/map.json) stays local; the vehicle list is ours
+!godeye/backend/data/
+godeye/backend/godeye.json
+*.secret
+
+# .NET build output (tools/godeye-map)
+bin/
+obj/

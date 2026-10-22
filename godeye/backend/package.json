@@ -1,0 +1,11 @@
+{
+  "name": "godeye-backend",
+  "private": true,
+  "description": "GodEye (GTA Local Online, Phase 9+): telemetry from the game server's admin API to browsers. No dependencies.",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test test/*.test.ts"
+  }
+}

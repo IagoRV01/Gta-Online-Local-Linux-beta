@@ -31,7 +31,8 @@ The server never needs GTA. The BC-250 is never the server, except for throwaway
 | `shared/protocol` | header-only C++ (wire format v1) | compiled into both sides | done, unit-tested |
 | `shared/common` | C++: character model + validation, JSON, TOML, log | both sides | done, unit-tested |
 | `tools/netprobe` | C++, ENet | Windows + Linux (native) | done: fake client for LAN/load tests |
-| `godeye/*` | TypeScript (Node 24) + WebSocket, later Three.js | Windows | **not started on purpose** |
+| `godeye/*` | TypeScript (Node 24, no packages) + WebSocket; canvas 2D map, later Three.js | Windows | **Phase 9 done** (2D map) |
+| `tools/godeye-map` | C# + CodeWalker | any PC with GTA V | makes GodEye's map data from the local game files |
 
 ### Why one language (C++) for the client, server and protocol
 
@@ -75,7 +76,8 @@ server/database     schema.sql (Phase 2)
 shared/protocol     wire.h, protocol.h  (v1)
 shared/common       character, json, toml, log
 shared/schemas      JSON schema of the character profile (for GodEye/tools)
-godeye/             placeholders only (Phase 9+)
+godeye/             GodEye backend (Node) + web app; data/map.json is generated locally
+tools/godeye-map    GodEye map data generator (C#, CodeWalker)
 tools/audit         Phase 0 audit scripts (Windows + BC-250)
 tools/netprobe      network test client
 third_party         ENet 1.3.18 (MIT), SQLite 3.53.4 (public domain), vendored source
