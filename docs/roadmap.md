@@ -22,7 +22,9 @@
 | 8+ Online polish: properties/interiors/businesses/heists per character, internet purchases from the bank | **built + deployed** (2026-10-09 01:53) | `mods` in the character profile (tests), Gori Online switches profile with YOU; in-game check pending a GTA restart |
 | 8+ Co-op missions (heists, business sales with other players) | not started | needs server-coordinated mission state + entity ownership (`docs/entity-ownership.md`) |
 | 9 GodEye Basic (2D map: players, position, heading, vehicle, speed, health, wanted, zone) | **done, verified with netprobe** (2026-10-22) | admin API on the server (loopback, secret), Node backend, web map; `docs/godeye.md` |
-| 10–14 (GodEye control, 3D map, cameras, WebRTC, web game) | not started | Phase 10 next: wanted, weather, police alerts, traffic hacks (traffic-light stops already exported) |
+| 10 GodEye Control (wanted, weather, police alerts, roadblocks, traffic hacks; roles, cooldowns, audit) | **done, verified in game** (2026-10-23) | protocol v12 `GodEyeAction`; `docs/godeye.md` |
+| 11 3D map (the real map from the player's own files, Cayo Perico, Isla Neón, Wuhu) | **done** (2026-10-23) | `tools/godeye-map map3d`, `godeye/frontend/map3d.js` |
+| 12–14 (Camera Client, WebRTC, web game) | not started | roles and cooldowns from Phase 10 are the base for the web game's credits |
 
 ### Story-mode protection: what was found and fixed (2026-10-07/08)
 

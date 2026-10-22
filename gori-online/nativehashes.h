@@ -18,6 +18,7 @@ constexpr uint64_t N_ANIMPOSTFX_STOP_ALL = 0xB4EDDC19532BFB85; // void ANIMPOSTF
 constexpr uint64_t N_APPLY_FORCE_TO_ENTITY = 0xC5F68BE9613E2D18; // void APPLY_FORCE_TO_ENTITY(Entity entity, int forceFlags, float x, float y, float z, float offX, float offY, float offZ, int boneIndex, BOOL isDirectionRel, BOOL ignoreUpVec, BOOL isForceRel, BOOL p12, BOOL p13)
 constexpr uint64_t N_APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS = 0x18FF00FC7EFF559E; // void APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS(Entity entity, int forceType, float x, float y, float z, BOOL p5, BOOL isDirectionRel, BOOL isForceRel, BOOL p8)
 constexpr uint64_t N_ARE_ALL_VEHICLE_WINDOWS_INTACT = 0x11D862A3E977A9EF; // BOOL ARE_ALL_VEHICLE_WINDOWS_INTACT(Vehicle vehicle)
+constexpr uint64_t N_ARE_PLAYER_STARS_GREYED_OUT = 0x0A6EB355EE14A2DB; // BOOL ARE_PLAYER_STARS_GREYED_OUT(Player player)
 constexpr uint64_t N_ATTACH_ENTITY_TO_ENTITY = 0x6B9BBD38AB0796DF; // void ATTACH_ENTITY_TO_ENTITY(Entity entity1, Entity entity2, int boneIndex, float xPos, float yPos, float zPos, float xRot, float yRot, float zRot, BOOL p9, BOOL useSoftPinning, BOOL collision, BOOL isPed, int vertexIndex, BOOL fixedRot, Any p15)
 constexpr uint64_t N_ATTACH_TV_AUDIO_TO_ENTITY = 0x845BAD77CC770633; // void ATTACH_TV_AUDIO_TO_ENTITY(Entity entity)
 constexpr uint64_t N_ATTACH_VEHICLE_TO_TRAILER = 0x3C7D42D58F770B54; // void ATTACH_VEHICLE_TO_TRAILER(Vehicle vehicle, Vehicle trailer, float radius)

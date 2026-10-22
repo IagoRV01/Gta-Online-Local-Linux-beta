@@ -6,16 +6,32 @@
 <title>GodEye</title>
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
+<script src="control.js" defer></script>
 </head>
 <body>
 <header class="bar">
   <div class="brand"><span class="eye" aria-hidden="true"></span>GOD&nbsp;EYE</div>
   <div class="status"><span id="dot" class="dot"></span><span id="server">connecting…</span></div>
+  <div class="viewsw" role="group" aria-label="Map view"><button id="v2d" class="on">2D</button><button id="v3d">3D</button></div>
   <div class="world" id="world"></div>
+  <div class="who" id="who"><button id="loginBtn" class="ghost">Log in</button></div>
 </header>
+<dialog id="loginDlg" class="dlg">
+  <form id="loginForm" method="dialog">
+    <h3>GodEye access</h3>
+    <label>Name <input name="name" autocomplete="username" required maxlength="24"></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+    <p class="err" id="loginErr"></p>
+    <div class="row"><button type="button" class="ghost" id="loginCancel">Cancel</button><button type="submit">Log in</button></div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <main class="layout">
   <section class="map-wrap" aria-label="Live map">
     <canvas id="map"></canvas>
+    <canvas id="map3d" hidden></canvas>
+    <div class="nomap" id="nomap3d" hidden>No 3D map data: run <code>tools/godeye-map map3d</code> (see godeye/README.md).</div>
+    <div class="hint3d" id="hint3d" hidden>Drag to turn · right-drag or Shift+drag to move · wheel to zoom · pick a player to follow</div>
     <div class="map-tools">
       <button id="zin" title="Zoom in" aria-label="Zoom in">+</button>
       <button id="zout" title="Zoom out" aria-label="Zoom out">−</button>
@@ -30,9 +46,58 @@
     <div class="coords" id="coords"></div>
     <div class="nomap" id="nomap" hidden>No map data: run <code>tools/godeye-map</code> (see godeye/README.md).</div>
   </section>
-  <aside class="side" aria-label="Players">
+  <aside class="side" aria-label="Players and control">
+    <section id="control" class="control" hidden>
+      <h2>Control <span id="roleTag" class="count"></span></h2>
+      <div class="ctl" data-need="wanted alert roadblock">
+        <h4>Police · <span id="targetName" class="muted">pick a player on the list</span></h4>
+        <div class="btns">
+          <button data-act="wanted" data-value="+1">+1 ★</button>
+          <button data-act="wanted" data-value="+2">+2 ★</button>
+          <button data-act="wanted" data-value="0">Clear ★</button>
+          <button data-act="alert">Police alert</button>
+          <button data-act="roadblock">Roadblock</button>
+        </div>
+      </div>
+      <div class="ctl" data-need="traffic">
+        <h4>Traffic lights <select id="trafficSecs" aria-label="How long"><option value="60">1 min</option><option value="120" selected>2 min</option><option value="300">5 min</option></select></h4>
+        <div class="btns">
+          <button data-act="traffic" data-value="red" class="red">All red</button>
+          <button data-act="traffic" data-value="green" class="green">All green</button>
+          <button data-act="traffic" data-value="random" class="amber">Random</button>
+          <button data-act="traffic" data-value="normal">Normal</button>
+        </div>
+      </div>
+      <div class="ctl" data-need="blackout">
+        <h4>Power</h4>
+        <div class="btns"><button data-act="blackout" data-value="on">Blackout</button><button data-act="blackout" data-value="off">Lights on</button></div>
+      </div>
+      <div class="ctl" data-need="weather time">
+        <h4>World</h4>
+        <div class="btns">
+          <button data-act="weather" data-value="EXTRASUNNY">Sunny</button>
+          <button data-act="weather" data-value="RAIN">Rain</button>
+          <button data-act="weather" data-value="THUNDER">Storm</button>
+          <button data-act="weather" data-value="FOGGY">Fog</button>
+          <button data-act="weather" data-value="SNOW">Snow</button>
+          <button data-act="weather" data-value="auto">Auto</button>
+        </div>
+        <div class="btns">
+          <button data-act="time" data-value="dawn">Dawn</button>
+          <button data-act="time" data-value="day">Day</button>
+          <button data-act="time" data-value="dusk">Dusk</button>
+          <button data-act="time" data-value="night">Night</button>
+        </div>
+      </div>
+      <div class="ctl" data-need="notify">
+        <h4>Message</h4>
+        <form id="msgForm" class="msg"><input id="msgText" maxlength="100" placeholder="To the selected player, or everyone" aria-label="Message"><button type="submit">Send</button></form>
+      </div>
+    </section>
     <h2>Players <span id="count" class="count">0</span></h2>
     <div id="list" class="list"></div>
+    <h2>Events</h2>
+    <div id="events" class="events"><div class="empty">No GodEye actions yet.</div></div>
   </aside>
 </main>
 </body>

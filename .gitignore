@@ -53,3 +53,4 @@ godeye/backend/godeye.json
 # .NET build output (tools/godeye-map)
 bin/
 obj/
+godeye/backend/users.json

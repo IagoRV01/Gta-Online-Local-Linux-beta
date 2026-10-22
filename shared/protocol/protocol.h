@@ -21,7 +21,7 @@
 namespace proto {
 
 constexpr uint8_t kMagic = 0x4C;
-constexpr uint8_t kProtocolVersion = 11;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions
+constexpr uint8_t kProtocolVersion = 12;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions
 constexpr uint8_t kChanControl = 0, kChanState = 1, kChanEvents = 2, kNumChannels = 3;
 constexpr size_t kMaxPacket = 64 * 1024;       // anything bigger is dropped before parsing
 constexpr size_t kMaxProfileJson = 48 * 1024;
@@ -53,6 +53,7 @@ enum class MsgType : uint16_t {
     KillFeed = 35,       // S  {u16 victim, u16 killer, u32 weapon}
     // world (channel 0) — Phase 7
     WorldState = 40,     // S  {u8 h, u8 m, u8 s, u8 flags, str weather, str nextWeather, f32 transition}
+    GodEyeAction = 41,   // S  {u8 kind, u8 value, u32 durationMs, str text}   v12: GodEye's actions on one player (or the traffic mode for all)
     // economy (channel 2) — Phase 8: the server owns every balance
     MoneyChange = 50,    // C  {u32 requestId, u8 account, i64 delta, str reason}   account: 0 wallet, 1 bank, 2 deposit (wallet->bank; negative = withdraw)
     MoneyResult = 51,    // S  {u32 requestId, u8 ok, i64 wallet, i64 bank, str reason}
@@ -347,6 +348,30 @@ inline bool Get(wire::Reader &r, WorldStateMsg &m) {
     m.hour = r.U8(); m.minute = r.U8(); m.second = r.U8(); m.flags = r.U8();
     m.weather = r.Str(16); m.nextWeather = r.Str(16); m.transition = r.F32();
     return r.Done() && m.hour < 24 && m.minute < 60 && m.second < 60 && m.transition >= 0.f && m.transition <= 1.f;
+}
+
+// ---- GodEye actions (Phase 10) -------------------------------------------------------------------------
+// The server sends them to the target player's client (traffic: to everyone, and again on login while it lasts).
+// They are fiction inside the game: wanted stars, police units and traffic lights in that player's world.
+enum GodEyeKind : uint8_t {
+    kGeWanted = 1,       // value = the wanted level to set, 0..5
+    kGePoliceAlert = 2,  // a police unit is sent to the player; text = the dispatch line
+    kGeRoadblock = 3,    // police cars across the road ahead of the player
+    kGeTraffic = 4,      // value = TrafficMode, for durationMs (0 = until changed)
+    kGeNotice = 5,       // text shown as a notification
+};
+enum TrafficMode : uint8_t { kTrafficNormal = 0, kTrafficAllRed = 1, kTrafficAllGreen = 2, kTrafficRandom = 3 };
+constexpr size_t kMaxGodEyeText = 120;
+struct GodEyeActionMsg { uint8_t kind = 0, value = 0; uint32_t durationMs = 0; std::string text; };
+inline void Put(wire::Writer &w, const GodEyeActionMsg &m) {
+    PutHeader(w, MsgType::GodEyeAction); w.U8(m.kind); w.U8(m.value); w.U32(m.durationMs); w.Str(m.text, kMaxGodEyeText);
+}
+inline bool Get(wire::Reader &r, GodEyeActionMsg &m) {
+    m.kind = r.U8(); m.value = r.U8(); m.durationMs = r.U32(); m.text = r.Str(kMaxGodEyeText);
+    if (!r.Done() || m.kind < kGeWanted || m.kind > kGeNotice) return false;
+    if (m.kind == kGeWanted) return m.value <= 5;
+    if (m.kind == kGeTraffic) return m.value <= kTrafficRandom;
+    return true;
 }
 
 // ---- economy (Phase 8) -------------------------------------------------------------------------------

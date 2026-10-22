@@ -30,7 +30,7 @@ const roadBuckets = new Map();   // "bx,by" -> [Float32Array per class]
 
 async function loadMap() {
   try {
-    const r = await fetch("data/map.json");
+    const r = await fetch("data/map.json", { cache: "no-cache" });
     if (!r.ok) throw new Error(r.status);
     map = await r.json();
   } catch { $("nomap").hidden = false; return; }
@@ -283,7 +283,8 @@ let listDirty = true;
 // the panel on a timer, not in the frame loop: frames stop in a background tab, timers only slow down
 setInterval(() => { if (listDirty) { listDirty = false; renderList(); } }, 250);
 
-$("list").addEventListener("click", (ev) => {
+// pointerdown, not click: the cards are rebuilt 4 times a second and a click needs the same element under down and up
+$("list").addEventListener("pointerdown", (ev) => {
   const card = ev.target.closest(".card");
   if (!card) return;
   const id = +card.dataset.id;
@@ -292,6 +293,7 @@ $("list").addEventListener("click", (ev) => {
     selected = follow = id;
     const e = players.get(id);
     if (e?.info.playing && view.s < 0.35) { view.s = 0.6; baseDirty = true; }
+    if (e?.info.playing && is3d && view3d) view3d.focus(e.info.x, e.info.y, e.info.z, 350);
   }
   listDirty = true;
 });
@@ -325,7 +327,7 @@ function connect() {
       for (const id of m.gone) { players.delete(id); if (selected === id) selected = follow = null; }
       if (m.world) renderWorld(m.world);
       if (m.players.length || m.gone.length) listDirty = true;
-    }
+    } else if (m.t === "event" && typeof onGodEyeEvent === "function") onGodEyeEvent(m.entry);
   };
   ws.onclose = () => {
     online = false; setStatus("", "GodEye offline, reconnecting…");
@@ -384,6 +386,8 @@ function fitAll() {
 
 // ---------------------------------------------------------------- frame loop
 function frame(now) {
+  requestAnimationFrame(frame);
+  if (is3d) return;   // map3d.js draws while the 3D view is on
   if (follow != null) {
     const e = players.get(follow);
     if (e?.drawn) {
@@ -396,8 +400,30 @@ function frame(now) {
   ctx.drawImage(baseCanvas, 0, 0);
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   drawPlayers(now);
-  requestAnimationFrame(frame);
 }
+
+// ---------------------------------------------------------------- 2D / 3D (Phase 11: the real map in 3D, map3d.js)
+let view3d = null, is3d = false;
+async function setView(three) {
+  is3d = three;
+  $("v2d").classList.toggle("on", !three);
+  $("v3d").classList.toggle("on", three);
+  canvas.hidden = three;
+  $("map3d").hidden = !three;
+  $("hint3d").hidden = !three;
+  for (const sel of [".map-tools", ".layers", ".coords"]) document.querySelector(sel).hidden = three;
+  if (three) {
+    view3d = view3d || await import("./map3d.js");
+    await view3d.start();
+    const e = follow != null ? players.get(follow) : null;
+    if (e?.info.playing) view3d.focus(e.info.x, e.info.y, e.info.z, 350);
+  } else {
+    view3d?.stop();
+    baseDirty = true;
+  }
+}
+$("v2d").onclick = () => setView(false);
+$("v3d").onclick = () => setView(true);
 
 // the map's box can start at 0x0 (a hidden tab or pane): fit the view the first time it gets a size
 let fitted = false;

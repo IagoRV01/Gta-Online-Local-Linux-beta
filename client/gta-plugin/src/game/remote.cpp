@@ -7,6 +7,7 @@
 #include "common/interp.h"
 #include "common/json.h"
 #include "common/log.h"
+#include "game/godeye.h"
 #include "engine/gta.h"
 #include "engine/shv.h"
 #include "game/appearance.h"
@@ -251,6 +252,11 @@ void OnMessage(MsgType type, wire::Reader &r) {
         case MsgType::WorldState: {
             WorldStateMsg m;
             if (Get(r, m)) world_sync::OnWorldState(m);
+            break;
+        }
+        case MsgType::GodEyeAction: {
+            GodEyeActionMsg m;
+            if (Get(r, m)) godeye::OnAction(m);
             break;
         }
         case MsgType::KillFeed: {

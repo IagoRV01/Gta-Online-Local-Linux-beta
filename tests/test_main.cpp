@@ -487,6 +487,26 @@ static void TestWorld() {
     Put(wb, m);
     wire::Reader rb(wb.Bytes().data(), wb.Size());
     CHECK(GetHeader(rb, h) && !Get(rb, o));
+    // GodEye actions (v12)
+    {
+        GodEyeActionMsg a;
+        a.kind = kGeTraffic; a.value = kTrafficAllRed; a.durationMs = 60000; a.text = "hack";
+        wire::Writer wa;
+        Put(wa, a);
+        wire::Reader ra(wa.Bytes().data(), wa.Size());
+        GodEyeActionMsg b;
+        CHECK(GetHeader(ra, h) && h.type == MsgType::GodEyeAction && Get(ra, b) && b.kind == kGeTraffic && b.value == kTrafficAllRed && b.durationMs == 60000 && b.text == "hack");
+        a.kind = kGeWanted; a.value = 6;   // no six stars
+        wire::Writer wc;
+        Put(wc, a);
+        wire::Reader rc(wc.Bytes().data(), wc.Size());
+        CHECK(GetHeader(rc, h) && !Get(rc, b));
+        a.kind = 9; a.value = 0;           // unknown kind
+        wire::Writer wd;
+        Put(wd, a);
+        wire::Reader rd(wd.Bytes().data(), wd.Size());
+        CHECK(GetHeader(rd, h) && !Get(rd, b));
+    }
     // Maze Bank transaction log
     {   // co-op jobs (v9)
         wire::Writer jw;

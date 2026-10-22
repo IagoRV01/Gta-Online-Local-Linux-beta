@@ -129,6 +129,11 @@ private:
     void WorldTick(long long nowMs);
     void SendWorld(_ENetPeer *only);   // nullptr = everyone authed
     bool AdminCommand(const std::string &line);
+    bool GodEyeCommand(const std::string &verb, const std::string &line);
+    void SendGodEye(Client &c, const proto::GodEyeActionMsg &m);
+    void SendTraffic(_ENetPeer *only);   // nullptr = everyone authed
+    uint8_t trafficMode_ = 0;            // proto::TrafficMode, set by GodEye
+    long long trafficUntilMs_ = 0;       // 0 = until changed
     // GodEye admin API (admin_api.cpp)
     struct AdminConn {
         uintptr_t sock = 0;

@@ -14,6 +14,7 @@
 #include "game/sync.h"
 #include "game/net_client.h"
 #include "game/remote.h"
+#include "game/godeye.h"
 #include "game/combat.h"
 #include "game/economy.h"
 #include "game/garage.h"
@@ -281,6 +282,7 @@ void Exit() {
     remote::Clear();
     combat::Reset();
     world_sync::End();
+    godeye::End();
     g_appearanceSent = false;
     sync::Finish(g_char);   // waits for the server's ack, then disconnects (offline: cache only)
     LOGI("session", Who(), "saved (exit) server rev %u", g_char.revision);
@@ -553,7 +555,7 @@ void SendOwnState(int me) {
 
 void MultiplayerFrame(int me) {
     if (!sync::Online()) {
-        if (g_appearanceSent) { remote::Clear(); g_appearanceSent = false; }
+        if (g_appearanceSent) { remote::Clear(); g_appearanceSent = false; godeye::End(); }
         return;
     }
     if (g_appearanceSent && g_appearanceLogin != net::Logins()) { remote::Clear(); g_appearanceSent = false; }   // a new server session
@@ -561,6 +563,7 @@ void MultiplayerFrame(int me) {
     SendOwnState(me);
     combat::Frame(me);
     world_sync::Frame();
+    godeye::Frame(me);
     garage::Frame();
     remote::Frame();
 }
@@ -628,6 +631,7 @@ void YouFrame() {
             online_ui::Leave();
             g_mode = Mode::Story;
             world_sync::End();
+            godeye::End();
             RestoreStoryRespawn();
             gta::Notify("~b~Local Online~s~  The game returned you to Story Mode.");
             return;

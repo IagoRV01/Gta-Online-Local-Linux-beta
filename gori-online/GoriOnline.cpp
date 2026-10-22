@@ -4141,8 +4141,10 @@ static void Progress() {
     }
     int wanted = N<int>(N_GET_PLAYER_WANTED_LEVEL, Player());
     if (wanted > g_maxWanted) g_maxWanted = wanted;
+    static int greyedAt = -100000;   // escaping means the stars went grey first; GodEye clearing them does not pay
+    if (wanted > 0 && NB(N<int>(N_ARE_PLAYER_STARS_GREYED_OUT, Player()))) greyedAt = Now();
     bool dead = Dead(me);
-    if (wanted == 0 && g_maxWanted > 0 && !dead) { if (!g_mActive) GiveRP(100 * g_maxWanted, "lost the cops"); g_maxWanted = 0; }
+    if (wanted == 0 && g_maxWanted > 0 && !dead) { if (!g_mActive && Now() - greyedAt < 3000) GiveRP(100 * g_maxWanted, "lost the cops"); g_maxWanted = 0; }
     if (dead) { g_wasDead = true; g_maxWanted = 0; g_inside = -1; }
     else if (g_wasDead) {
         g_wasDead = false;

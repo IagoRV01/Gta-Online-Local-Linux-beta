@@ -373,6 +373,7 @@ void Server::HandleAuth(Client &c, const AuthMsg &m) {
     Send(c.peer, w, kChanControl, true);
     LOGI("session", c.name.c_str(), "authenticated as netId %u from %s", c.netId, c.address.c_str());
     SendWorld(c.peer);
+    if (trafficMode_ != kTrafficNormal) SendTraffic(c.peer);   // a GodEye traffic hack still running
     SendJobList(c.peer);   // the open co-op jobs
     for (auto &kv : clients_) {   // tell everyone (both ways) who is here
         if (kv.first == c.peer || !kv.second.authed) continue;
@@ -649,6 +650,11 @@ void Server::WorldTick(long long now) {
         lastWorldSentMs_ = now;
     }
     if (now - lastWorldSentMs_ >= 10000) { SendWorld(nullptr); lastWorldSentMs_ = now; }
+    if (trafficUntilMs_ && now >= trafficUntilMs_) {   // a timed traffic hack ran out
+        trafficMode_ = kTrafficNormal; trafficUntilMs_ = 0;
+        LOGI("godeye", "-", "traffic back to normal");
+        SendTraffic(nullptr);
+    }
     if (now - lastPersistMs_ >= 60000) {
         lastPersistMs_ = now;
         char buf[32];
@@ -681,13 +687,97 @@ void Server::WorldTick(long long now) {
     }
 }
 
-// Admin commands (server.cmd today, the GodEye admin API later). Every change is logged and
-// stored, and pushed to the clients immediately.
+static std::string JsonEsc(const std::string &s) {
+    std::string o;
+    for (unsigned char ch : s) {
+        if (ch == '"' || ch == '\\') { o += '\\'; o += (char)ch; }
+        else if (ch >= 0x20) o += (char)ch;
+    }
+    return o;
+}
+
+// GodEye actions (Phase 10): to one player's client, or the traffic mode to everyone
+void Server::SendGodEye(Client &c, const GodEyeActionMsg &m) {
+    wire::Writer w;
+    Put(w, m);
+    Send(c.peer, w, kChanControl, true);
+}
+
+void Server::SendTraffic(ENetPeer *only) {
+    GodEyeActionMsg m;
+    m.kind = kGeTraffic;
+    m.value = trafficMode_;
+    long long left = trafficUntilMs_ ? trafficUntilMs_ - WallMs() : 0;
+    m.durationMs = left > 0 ? (uint32_t)left : 0;
+    wire::Writer w;
+    Put(w, m);
+    if (only) { Send(only, w, kChanControl, true); return; }
+    for (auto &kv : clients_)
+        if (kv.second.authed) Send(kv.first, w, kChanControl, true);
+}
+
+// The GodEye commands that act on players: "wanted 2 +1", "alert 2 [text]", "roadblock 2", "notify 2|all text",
+// "traffic red|green|random|normal [seconds]". false when the player is unknown or not in the world.
+bool Server::GodEyeCommand(const std::string &v, const std::string &line) {
+    char a1[32] = {0};
+    int consumed = 0;
+    std::sscanf(line.c_str(), "%*s %31s %n", a1, &consumed);
+    std::string arg = a1, rest = consumed > 0 && consumed <= (int)line.size() ? line.substr(consumed) : "";
+    if (rest.size() > kMaxGodEyeText) rest.resize(kMaxGodEyeText);
+    if (v == "traffic") {
+        static const char *modes[] = {"normal", "red", "green", "random"};
+        int mode = -1;
+        for (int i = 0; i < 4; ++i) if (arg == modes[i]) mode = i;
+        if (mode < 0) return false;
+        int secs = std::atoi(rest.c_str());
+        if (secs < 0 || secs > 3600) return false;
+        trafficMode_ = (uint8_t)mode;
+        trafficUntilMs_ = mode != kTrafficNormal && secs > 0 ? WallMs() + secs * 1000LL : 0;
+        SendTraffic(nullptr);
+        return true;
+    }
+    if (v == "notify" && arg == "all") {
+        if (rest.empty()) return false;
+        for (auto &kv : clients_)
+            if (kv.second.authed) SendGodEye(kv.second, GodEyeActionMsg{kGeNotice, 0, 0, rest});
+        return true;
+    }
+    Client *c = ByNetId((uint16_t)std::atoi(arg.c_str()));
+    if (!c || !c->haveState) return false;   // the actions need the player in the world (YOU, not story mode)
+    GodEyeActionMsg m;
+    if (v == "wanted") {
+        int now = c->state.wanted, want;
+        if (!rest.empty() && (rest[0] == '+' || rest[0] == '-')) want = now + std::atoi(rest.c_str());
+        else if (!rest.empty() && std::isdigit((unsigned char)rest[0])) want = std::atoi(rest.c_str());
+        else return false;
+        m.kind = kGeWanted;
+        m.value = (uint8_t)(want < 0 ? 0 : want > 5 ? 5 : want);
+    } else if (v == "alert") {
+        m.kind = kGePoliceAlert;
+        m.text = rest.empty() ? "Dispatch has your description." : rest;
+    } else if (v == "roadblock") m.kind = kGeRoadblock;
+    else if (v == "notify") {
+        if (rest.empty()) return false;
+        m.kind = kGeNotice;
+        m.text = rest;
+    } else return false;
+    SendGodEye(*c, m);
+    return true;
+}
+
+// Admin commands (server.cmd and the GodEye admin API). Every change is logged and stored, and pushed to the
+// clients immediately.
 bool Server::AdminCommand(const std::string &line) {
     char verb[32] = {0}, arg[64] = {0};
     int a = 0, b = 0;
     std::sscanf(line.c_str(), "%31s %63s", verb, arg);
     std::string v = verb, x = arg;
+    if (v == "wanted" || v == "alert" || v == "roadblock" || v == "notify" || v == "traffic") {
+        bool ok = GodEyeCommand(v, line);
+        LOGI("admin", "-", "%s: %s", line.c_str(), ok ? "ok" : "rejected");
+        if (ok) db_->Event("godeye", "", "{\"command\":\"" + JsonEsc(line.substr(0, 160)) + "\"}");
+        return ok;
+    }
     bool ok = true;
     if (v == "time" && std::sscanf(line.c_str(), "%*s %d %d", &a, &b) >= 1) clock_.Set(a, b);
     else if (v == "freeze") { clock_.frozen = x == "on"; db_->SetWorld("clock_frozen", clock_.frozen ? "1" : "0"); }
@@ -702,7 +792,7 @@ bool Server::AdminCommand(const std::string &line) {
         std::snprintf(buf, sizeof buf, "%.2f", clock_.Minutes());
         db_->SetWorld("clock_minutes", buf);
         db_->SetWorld("weather", weather_.Current());
-        db_->Event("admin", "", "{\"command\":\"" + line.substr(0, 60) + "\"}");
+        db_->Event("admin", "", "{\"command\":\"" + JsonEsc(line.substr(0, 60)) + "\"}");
         SendWorld(nullptr);
     }
     return ok;

@@ -10,8 +10,16 @@ static class MapExport
 {
     static int Main(string[] args)
     {
-        if (args.Length != 2) { Console.WriteLine("usage: GodEyeMap <GTA V folder> <out map.json>"); return 1; }
+        if (args.Length < 2)
+        {
+            Console.WriteLine("usage: GodEyeMap <GTA V folder> <out map.json>                       the 2D map data");
+            Console.WriteLine("       GodEyeMap <GTA V folder> map3d <out dir> [extra dlc.rpf...]    the 3D map tiles");
+            Console.WriteLine("       GodEyeMap <GTA V folder> stats3d [extra dlc.rpf...]            what the 3D map would hold");
+            return 1;
+        }
         GTA5Keys.LoadFromPath(args[0], false, null);
+        if (args[1] == "stats3d") return Map3D.Stats(args[0], args.Skip(2).ToArray());
+        if (args[1] == "map3d") return Map3D.Export(args[0], args[2], args.Skip(3).ToArray());
         Run(args[0], args[1]);
         return 0;
     }
@@ -54,6 +62,7 @@ static class MapExport
         const float C = 25;
         int gw = (int)((X1 - X0) / C), gh = (int)((Y1 - Y0) / C);
         var cells = new int[gw * gh];
+        var lows = new int[gw * gh];       // the lowest point of each cell: the 3D view's backdrop under the models
         var waterZ = new float[gw * gh];   // the water level over water cells (0 sea, ~30 the Alamo Sea...)
         for (int j = 0; j < gh; j++)
             for (int i = 0; i < gw; i++)
@@ -74,6 +83,7 @@ static class MapExport
                     foreach (var q in quads)
                         if (q.z > 0.5f && x >= q.x0 && x <= q.x1 && y >= q.y0 && y <= q.y1 && zmin < q.z && z <= q.z + zr + 0.3f) { water = true; waterZ[j * gw + i] = q.z; break; }
                 cells[j * gw + i] = water ? -1 : Math.Max(0, (int)MathF.Round(z));
+                lows[j * gw + i] = water ? -1 : Math.Max(0, (int)MathF.Floor(Math.Max(zmin, 0)));
             }
         // specks of seabed poking above sea level offshore: land patches under 40 cells (2.5 hectares) become sea
         var comp = new int[gw * gh];
@@ -97,6 +107,7 @@ static class MapExport
             }
         sb.Append($",\"grid\":{{\"x0\":{X0},\"y0\":{Y0},\"cell\":{C},\"w\":{gw},\"h\":{gh},\"z\":[");
         sb.Append(string.Join(",", cells));
+        sb.Append("],\"zmin\":[").Append(string.Join(",", lows));
         sb.Append("]}");
 
         // ---- roads: every vehicle node link once, in metres; class 3 motorway, 2 main road, 1 street, 0 dirt track
