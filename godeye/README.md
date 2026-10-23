@@ -1,6 +1,10 @@
 # GodEye
 
 The web view of GTA Local Online. It runs on the Windows server PC next to `LocalOnlineServer.exe`.
+
+It is inspired by the [God's Eye](https://fastandfurious.fandom.com/wiki/God%27s_Eye) hacking device from the Fast &
+Furious films.
+
 - **Phase 9 (GodEye Basic):** a live 2D map of the players.
 - **Phase 10 (Control):** logged-in users act on the game by role: police, traffic lights, power, world, messages.
 - **Phase 11 (3D):** the real map in 3D, streamed from tiles made from your own game files.

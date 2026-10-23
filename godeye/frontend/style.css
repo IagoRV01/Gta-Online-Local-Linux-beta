@@ -148,7 +148,8 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 var(--sans); di
 .hackflash .zport { width: 80px; height: 80px; }
 .evbanner { display: flex; align-items: center; gap: 8px; padding-left: 8px; }
 .evbanner .zport { width: 28px; height: 28px; image-rendering: auto; border-radius: 6px; }
-.zcredits { margin: 0; padding: 4px 14px 14px; font-size: 11px; color: var(--muted); }
+.zcredits { margin: 0; padding: 4px 14px 6px; font-size: 11px; color: var(--muted); }
+.zcredits:last-of-type { padding-bottom: 14px; }
 .zcredits a { color: var(--muted); }
 
 /* ---- Phase 14: the web game */

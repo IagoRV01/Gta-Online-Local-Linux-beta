@@ -7,7 +7,7 @@ const BASE = "data/map3d/";
 let renderer, scene, camera, root, waterGroup, playerGroup, canvas, index = null, running = false;
 let hemi, sun, sky, skyCanvas, skyTex, seaMat, waterMat, maxAniso = 4;   // the light and sky follow the game's clock and weather
 const emitMats = new Set();         // window lights: brighter at night, off in a blackout
-const tiles = new Map();            // "x,y" -> {info, far: {group, layer1: []} | null, near: group | null, loading}
+const tiles = new Map();            // "x,y" -> {info, far, tree: {group, layer1: []} | null, near: group | null, loading}
 const materials = new Map();        // tex key + kind -> material
 const texCache = new Map();         // tex key -> THREE.DataTexture (loading or loaded)
 const markers = new Map();          // player id -> {group, label}
@@ -54,14 +54,18 @@ function decodeBC1(buf) {
   return { w, h, data: out };
 }
 
+// a texture starts as a grey pixel; its tile's pack (or, for older exports, its own file) fills it in
 function texture(key) {
   let t = texCache.get(key);
   if (t) return t;
   t = new THREE.DataTexture(new Uint8Array([150, 150, 150, 255]), 1, 1);
   t.needsUpdate = true;
   texCache.set(key, t);
-  fetch(BASE + "tex/" + key + ".bc1" + ver()).then((r) => (r.ok ? r.arrayBuffer() : null)).then((buf) => {
-    if (!buf) return;
+  if (!index?.packs) fetch(BASE + "tex/" + key + ".bc1" + ver()).then((r) => (r.ok ? r.arrayBuffer() : null)).then((buf) => { if (buf) fillTexture(t, buf); }).catch(() => {});
+  return t;
+}
+
+function fillTexture(t, buf) {
     const { w, h, data } = decodeBC1(buf);
     t.image = { data, width: w, height: h };
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -71,9 +75,30 @@ function texture(key) {
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = maxAniso;
     t.needsUpdate = true;
+    t.userData.filled = true;
     redraw();
-  }).catch(() => {});
-  return t;
+}
+
+// a tile's texture pack: "GET1", u32 count, (u32 key, u32 length) per texture, then the BC1 files back to back
+async function loadPack(t, kind) {
+  const flag = kind + "Tex";
+  if (t[flag]) return;
+  t[flag] = "loading";
+  try {
+    const r = await fetch(`${BASE}t_${t.info.x}_${t.info.y}.${kind}.tex${ver()}`);
+    if (!r.ok) { t[flag] = null; return; }
+    const buf = await r.arrayBuffer(), dv = new DataView(buf);
+    if (dv.getUint32(0, true) !== 0x31544547) throw new Error("not a GodEye texture pack");
+    const n = dv.getUint32(4, true);
+    let off = 8 + n * 8;
+    for (let i = 0; i < n; i++) {
+      const key = dv.getUint32(8 + i * 8, true).toString(16).padStart(8, "0"), len = dv.getUint32(12 + i * 8, true);
+      const tex = texCache.get(key) ?? texture(key);
+      if (!tex.userData.filled) fillTexture(tex, buf.slice(off, off + len));
+      off += len;
+    }
+    t[flag] = "done";
+  } catch (e) { console.warn("pack", t.info.x, t.info.y, kind, e); t[flag] = null; }
 }
 
 // how a batch is drawn comes from its shader family (tools/godeye-map): solid, cut-out, decal, tree, glass, light
@@ -91,7 +116,9 @@ function material(key, kind) {
   } else {
     m = new THREE.MeshLambertMaterial({ color: key ? 0xffffff : 0x9a9a92, side: THREE.DoubleSide });
     if (kind === "cut" || kind === "tree" || kind === "decal") { m.alphaTest = 0.5; m.alphaToCoverage = true; }
-    if (kind === "decal") { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -4; }
+    // decals pulled towards the camera by the slope factor only: three.js flips its sign for a reversed depth buffer,
+    // not the units'
+    if (kind === "decal") { m.polygonOffset = true; m.polygonOffsetFactor = -2; m.polygonOffsetUnits = 0; }
   }
   if (key && key !== "@water" && kind !== "water") m.map = texture(key);
   materials.set(k, m);
@@ -152,8 +179,11 @@ async function loadTile(t, kind) {
     const r = await fetch(`${BASE}t_${t.info.x}_${t.info.y}.${kind}.bin${ver()}`);
     if (!r.ok) return;
     const parsed = parseTile(await r.arrayBuffer());
-    if (kind === "far") { t.far = parsed; root.add(parsed.group); }
-    else { t.near = parsed.group; root.add(parsed.group); }
+    if (kind === "far") t.far = parsed;
+    else if (kind === "tree") t.tree = parsed;
+    else t.near = parsed.group;
+    root.add(parsed.group);
+    if (index.packs) loadPack(t, kind === "near" ? "near" : "far");
     applyNear(t);
     redraw();
   } catch (e) { console.warn("tile", t.info.x, t.info.y, kind, e); }
@@ -165,6 +195,7 @@ function applyNear(t) {
   if (t.near && t.near.visible !== swap) redraw();
   if (t.near) t.near.visible = swap;
   if (t.far) for (const m of t.far.layer1) m.visible = !swap;
+  if (t.tree) for (const m of t.tree.layer1) m.visible = !swap;
 }
 
 function dispose(group) {
@@ -179,6 +210,8 @@ function stream() {
   if (!index) return;
   const cx = orbit.tx, cy = orbit.ty;
   const farR = Math.max(4000, orbit.dist * 2.2), nearR = orbit.dist < 2200 ? 1500 : 0;
+  // trees: a fifth of the far data, and specks from far away, so they come only when the camera is closer
+  const treeR = orbit.dist < 3500 ? Math.max(2500, orbit.dist * 1.4) : 0;
   const order = [];
   for (const t of tiles.values()) {
     const mx = (t.info.x + 0.5) * index.tile, my = (t.info.y + 0.5) * index.tile;
@@ -186,18 +219,26 @@ function stream() {
     t.nearWanted = d < nearR && t.info.near > 0;
     if (d < farR && !t.far && !t.loading) order.push([d, t, "far"]);
     if (t.nearWanted && !t.near && !t.loading) order.push([d * 0.5, t, "near"]);
+    if (d < treeR && t.far && !t.tree && t.info.tree > 0 && !t.loading) order.push([d * 0.8, t, "tree"]);
+    if (t.tree && d > treeR + 1500) { dispose(t.tree.group); t.tree = null; }
     if (t.near && d > nearR + 1200) { dispose(t.near); t.near = null; }
-    if (t.far && d > farR + 3000) { dispose(t.far.group); t.far = null; }
+    if (t.far && d > farR + 3000) { dispose(t.far.group); t.far = null; if (t.tree) { dispose(t.tree.group); t.tree = null; } }
     applyNear(t);
   }
   order.sort((a, b) => a[0] - b[0]);
-  for (const [, t, kind] of order) { if (inflight >= 4) break; loadTile(t, kind); }
+  for (const [, t, kind] of order) { if (inflight >= 6) break; loadTile(t, kind); }
 }
 
 // ---------------------------------------------------------------- scene
 function build() {
   canvas = document.getElementById("map3d");
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
+  // a reversed depth buffer keeps far hills from flickering without writing depth per pixel (the logarithmic buffer
+  // does, which turns off the GPU's early depth test); where EXT_clip_control is missing, the logarithmic one
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, reversedDepthBuffer: true });
+  if (!renderer.capabilities.reversedDepthBuffer) {
+    renderer.dispose();
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
+  }
   renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));   // sharp enough, and far cheaper on 4K screens
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;   // keeps the colours; ACES washed the map out
@@ -283,7 +324,7 @@ function updateSky() {
   const w = typeof worldNow !== "undefined" ? worldNow : null;
   const h = w ? (w.hour + w.minute / 60) % 24 : 13;
   const weather = w?.weather ?? "CLEAR";
-  const key = `${Math.round(h * 12)}|${weather}|${!!w?.blackout}`;   // five game minutes is fine enough
+  const key = `${Math.round(h * 12)}|${weather}|${!!w?.blackout}|${Math.round(orbit.dist / 200)}`;   // five game minutes, 200 m of zoom
   if (key === skyKey) return;
   skyKey = key;
   let a = DAY[0], b = DAY[1];
@@ -307,7 +348,9 @@ function updateSky() {
   scene.background.copy(cHor);
   const [fn, ff] = FOG[weather] ?? [9000, 22000];
   scene.fog.color.copy(cHor);
-  scene.fog.near = fn; scene.fog.far = ff;
+  // the game's fog lies beyond the point looked at: a haze for the mood, never a wall over the map (FOGGY would
+  // otherwise hide the whole city from an overview)
+  scene.fog.near = fn + orbit.dist * 0.9; scene.fog.far = ff + orbit.dist * 2;
   // the sun: rises in the east (+x) at six, sets in the west at six; a dim moon light at night
   const ang = ((h - 6) / 12) * Math.PI;
   const up = Math.sin(ang);
@@ -491,7 +534,7 @@ export function focus(x, y, z, dist = 400) { orbit.tx = x; orbit.ty = y; orbit.t
 export function stats() {
   let far = 0, near = 0, meshes = 0;
   for (const t of tiles.values()) { if (t.far) { far++; meshes += t.far.group.children.length; } if (t.near) { near++; meshes += t.near.children.length; } }
-  return { far, near, meshes, renders, textures: texCache.size, calls: renderer?.info.render.calls, tris: renderer?.info.render.triangles, orbit: { ...orbit } };
+  return { far, near, meshes, renders, textures: texCache.size, depth: renderer?.capabilities.reversedDepthBuffer ? "reversed" : "logarithmic", calls: renderer?.info.render.calls, tris: renderer?.info.render.triangles, orbit: { ...orbit } };
 }
 
 // for debugging from the console: the scene, the water and the tiles

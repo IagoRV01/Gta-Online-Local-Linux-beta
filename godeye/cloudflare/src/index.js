@@ -35,20 +35,53 @@ async function status(req, env) {
   return new Response(JSON.stringify({ open, game }), { headers });
 }
 
+// The 3D map's tiles and texture packs carry the export's stamp (?v=) and never change, so Cloudflare keeps them at
+// the edge: after the first visit they come from Cloudflare instead of the home connection. Only while GodEye says the
+// 3D map is open to everyone (asked at most once a minute), so closing it again also closes the cache.
+const EDGE = /^\/data\/map3d\/(?!index\.json)[A-Za-z0-9_.\/-]+$/;
+let policy = { open: false, at: 0 };
+async function map3dOpen(env) {
+  if (Date.now() - policy.at < 60000) return policy.open;
+  let open = false;
+  try {
+    const r = await env.GODEYE.fetch(new Request("http://godeye/api/me", { headers: { "x-godeye-public": "1" } }));
+    if (r.ok) open = !!(await r.json()).map3d;
+  } catch { /* closed */ }
+  policy = { open, at: Date.now() };
+  return open;
+}
+
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (url.pathname === "/__status" && req.method === "GET") return status(req, env);
+    const edge = req.method === "GET" && EDGE.test(url.pathname) && url.searchParams.has("v") && (await map3dOpen(env));
+    const key = edge ? new Request(url.toString(), { method: "GET" }) : null;
+    if (edge) {
+      const hit = await caches.default.match(key);
+      if (hit) { const r = new Response(hit.body, hit); r.headers.set("x-godeye-edge", "hit"); return r; }
+    }
     const headers = new Headers(req.headers);
     for (const h of ["x-godeye-public", "x-forwarded-host", "x-forwarded-proto"]) headers.delete(h);   // never trust a client's
     headers.set("x-godeye-public", "1");
     headers.set("x-forwarded-host", url.host);
     headers.set("x-forwarded-proto", "https");
+    if (edge) headers.set("accept-encoding", "br");   // one stored copy: the exporter's Brotli one
     const target = new URL(req.url);
     target.protocol = "http:";   // the backend listens on plain http behind the tunnel
     try {
       const res = await env.GODEYE.fetch(new Request(target, { method: req.method, headers, body: req.body, redirect: "manual" }));
       if (res.status === 502 || res.status === 503 || res.status === 530) throw new Error("origin down");
+      if (edge && res.status === 200) {
+        // one stored copy, so no Vary header (it keeps the cache from ever matching). Cloudflare's cache keeps it
+        // decoded, so hits travel uncompressed, but from Cloudflare instead of the home connection.
+        const stored = new Response(res.clone().body, res);
+        stored.headers.delete("vary");
+        ctx.waitUntil(caches.default.put(key, stored));
+        const r = new Response(res.body, res);
+        r.headers.set("x-godeye-edge", "miss");
+        return r;
+      }
       return res;
     } catch {
       if (req.headers.get("upgrade") === "websocket" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/data/"))

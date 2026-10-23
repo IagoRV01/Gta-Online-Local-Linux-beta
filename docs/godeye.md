@@ -149,6 +149,24 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
     to the camera. The exporter makes two crossed upright cards from them.
   - `GodEyeMap <gta> shaders3d <box>` lists shaders, vertex layouts and model reach for an area.
 - **Textures:** each one's mip of at most 128 px, BC1-encoded (1-bit alpha), decoded by the browser (about 70 MB).
+- **Files per tile** (index.json version 2, `packs: true`):
+  - `far.bin` without its trees;
+  - `tree.bin`, only loaded when the camera is within ~2.5–5 km;
+  - `near.bin`;
+  - a texture pack each for far+trees and for near: "GET1", the count, (key, length) pairs, then the BC1 files.
+  - Every file also has a Brotli copy (`.br`, quality 9) made by the exporter.
+  - The backend serves the `.br` copy when the browser takes br, gzip on the fly on the LAN, and nothing compressed
+    to the PC's own window.
+  - Files carrying the `?v=` stamp are `public, max-age=31536000, immutable`.
+- **Edge cache:**
+  - The Worker keeps those files in Cloudflare's cache while GodEye says the 3D map is open to everyone (asked at
+    most once a minute).
+  - After the first visit they come from Cloudflare instead of the home connection.
+  - Cloudflare's cache stores them decoded, so hits travel uncompressed.
+- **Measured 2026-10-23 on the public address with a warm cache:**
+  - the overview filled 10 tiles in 5 s, 40 in 9 s and 80 in 16 s;
+  - it took 198 requests. Before, it was thousands of single textures and ~130 MB per load through the home
+    upload.
 - **Viewer** (`godeye/frontend/map3d.js`, Three.js r186 vendored, MIT):
   - Orbit camera: drag to turn, right-drag to move, wheel or pinch to zoom.
   - Tiles stream by distance (on a timer, so loading goes on in a background tab).
@@ -164,6 +182,10 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
     - Before, every frame redrew some 4,000 draw calls 60 times a second, even on a still view. Measured: 0 frames
       in 5 s on a still view.
   - The sky dome takes a gradient texture, so its faces no longer show.
+  - The depth buffer is reversed where the GPU has EXT_clip_control, otherwise logarithmic. The logarithmic one
+    writes depth per pixel and turns off early depth testing. Decals are pulled forward by the slope factor only.
+  - The game's fog lies beyond the point looked at (near + 0.9 × camera distance), so FOGGY hazes the map instead of
+    hiding it.
   - The 2D map also draws only when something changed.
   - A backdrop under everything: the lowest ground of each 25 m cell (`zmin` in map.json) 3 m lower. The few spots the
     far models leave open show earth, not the sea, and it never rises above real ground.

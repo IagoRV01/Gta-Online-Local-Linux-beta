@@ -467,7 +467,7 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
   // the 3D map: only the names tools/godeye-map writes (no paths from the request reach the file system)
-  const m3 = /^\/data\/map3d\/(index\.json|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near)\.bin|tex\/[0-9a-f]{8}\.bc1)$/.exec(path);
+  const m3 = /^\/data\/map3d\/(index\.json|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near|tree)\.bin|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near)\.tex|tex\/[0-9a-f]{8}\.bc1)$/.exec(path);
   if (m3 && isPublic(req) && settings.value.publicMap3d !== "open" && !sessions.get(req.headers["cookie"])) {
     send(res, 401, "application/json", JSON.stringify({ error: "log in to see the 3D map" }));
     return;
@@ -476,11 +476,20 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
     const file = join(rel(cfg.map3dDir), m3[1]);
     if (!existsSync(file)) { send(res, 404, "text/plain", "not found\n"); return; }
     const type = m3[1].endsWith(".json") ? "application/json" : "application/octet-stream";
-    const headers: Record<string, string> = { "Content-Type": type, ...SECURITY_HEADERS, "Cache-Control": "max-age=3600" };
-    const gz = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
-    if (gz) headers["Content-Encoding"] = "gzip";
+    // files carry the export's stamp (?v=): they never change, so browsers and Cloudflare may keep them for good
+    const versioned = m3[1] !== "index.json" && new URL(req.url ?? "/", "http://x").searchParams.has("v");
+    const headers: Record<string, string> = { "Content-Type": type, ...SECURITY_HEADERS, Vary: "Accept-Encoding",
+      "Cache-Control": m3[1] === "index.json" ? "no-cache" : versioned ? "public, max-age=31536000, immutable" : "max-age=3600" };
+    // the exporter's Brotli copy when the browser takes it (https, the public address); gzip on the fly on the LAN;
+    // nothing for this PC's own window, where compressing only costs time
+    const ae = String(req.headers["accept-encoding"] ?? "");
+    const br = /\bbr\b/.test(ae) && existsSync(file + ".br");
+    const local = !isPublic(req) && /^(::1|::ffff:127\.|127\.)/.test(req.socket.remoteAddress ?? "");
+    const gz = !br && !local && /\bgzip\b/.test(ae);
+    if (br) headers["Content-Encoding"] = "br";
+    else if (gz) headers["Content-Encoding"] = "gzip";
     res.writeHead(200, headers);
-    const stream = createReadStream(file);
+    const stream = createReadStream(br ? file + ".br" : file);
     stream.on("error", () => res.destroy());
     (gz ? stream.pipe(createGzip({ level: 1 })) : stream).pipe(res);
     return;

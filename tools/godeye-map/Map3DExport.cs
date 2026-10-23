@@ -11,7 +11,10 @@ using SharpDX;
 //   t_<x>_<y>.far.bin           every tile: the SLOD1 models (swapped out up close), the LOD models with no SLOD1 above,
 //                               and the SLOD2 models 4 m lower (the game's distant hills, which SLOD1 leaves out)
 //   t_<x>_<y>.near.bin          up close: the LOD models that replace that tile's SLOD1 ones
+//   t_<x>_<y>.tree.bin          the far file's trees, loaded only when the camera comes closer (a fifth of its weight)
+//   t_<x>_<y>.far.tex / .near.tex  the textures those files use, in one pack each (one request instead of hundreds)
 //   tex/<hash>.bc1              128 px textures, BC1 (with 1-bit alpha), decoded by the browser
+//   *.br                        every tile file and pack again, Brotli-compressed, for the public address
 // A tile file: "GEM1", u32 json length, json {origin, scale, batches[]}, vertices (u16 x3 position, f16 x2 uv,
 // i8 x4 normal: 14 bytes), u16 indices per batch (each batch is at most 65535 vertices). origin and scale span the
 // tile's own vertices, which may reach well past the tile (one SLOD model can cover a whole district).
@@ -130,16 +133,30 @@ static partial class Map3D
         }
         Console.WriteLine($"textures: {texOk} written, {texFail} not found or not decodable");
 
-        // ---- tiles
-        long bytesFar = 0, bytesNear = 0;
+        // ---- tiles: far (without its trees), trees, near; a texture pack for far+trees and one for near
+        long bytesFar = 0, bytesNear = 0, bytesTree = 0, bytesPacks = 0, bytesBr = 0;
         var index = new List<object>();
         foreach (var ((tx, ty), t) in tiles.OrderBy(k => k.Key))
         {
             string bn = $"t_{tx}_{ty}";
-            long f = WriteTile(Path.Combine(outDir, bn + ".far.bin"), tx, ty, t, t.Far.Values.SelectMany(v => v), texNames);
-            long n = t.Near.Count > 0 ? WriteTile(Path.Combine(outDir, bn + ".near.bin"), tx, ty, t, t.Near.Values.SelectMany(v => v), texNames) : 0;
-            bytesFar += f; bytesNear += n;
-            index.Add(new { x = tx, y = ty, far = f, near = n, z0 = Math.Round(t.Z0), z1 = Math.Round(t.Z1), ents = t.Ents });
+            var farAll = t.Far.Values.SelectMany(v => v).Where(b => b.I.Count > 0).ToList();
+            var farB = farAll.Where(b => b.Kind != "tree").ToList();
+            var treeB = farAll.Where(b => b.Kind == "tree").ToList();
+            var nearB = t.Near.Values.SelectMany(v => v).Where(b => b.I.Count > 0).ToList();
+            long f = WriteTile(Path.Combine(outDir, bn + ".far.bin"), tx, ty, t, farB, texNames);
+            long tr = treeB.Count > 0 ? WriteTile(Path.Combine(outDir, bn + ".tree.bin"), tx, ty, t, treeB, texNames) : 0;
+            long n = nearB.Count > 0 ? WriteTile(Path.Combine(outDir, bn + ".near.bin"), tx, ty, t, nearB, texNames) : 0;
+            var farTex = farAll.Select(b => b.Tex).Where(texNames.Contains).ToHashSet();
+            var nearTex = nearB.Select(b => b.Tex).Where(k => texNames.Contains(k) && !farTex.Contains(k)).ToHashSet();
+            long pf = WritePack(Path.Combine(outDir, bn + ".far.tex"), outDir, farTex);
+            long pn = nearTex.Count > 0 ? WritePack(Path.Combine(outDir, bn + ".near.tex"), outDir, nearTex) : 0;
+            foreach (var ext in new[] { ".far.bin", ".tree.bin", ".near.bin", ".far.tex", ".near.tex" })
+            {
+                var file = Path.Combine(outDir, bn + ext);
+                if (File.Exists(file)) bytesBr += Brotli(file); else if (File.Exists(file + ".br")) File.Delete(file + ".br");
+            }
+            bytesFar += f; bytesNear += n; bytesTree += tr; bytesPacks += pf + pn;
+            index.Add(new { x = tx, y = ty, far = f, tree = tr, near = n, ftex = pf, ntex = pn, z0 = Math.Round(t.Z0), z1 = Math.Round(t.Z1), ents = t.Ents });
         }
 
         // ---- water: the sea is a plane at 0; lakes and Cayo's own water from the water files
@@ -159,9 +176,9 @@ static partial class Map3D
             catch (Exception ex) { Console.Error.WriteLine($"{inner}: {ex.Message}"); }
         }
         // `built` versions the tile and texture URLs, so browsers never mix a new index with cached old tiles
-        var idx = new { version = 1, built = DateTime.UtcNow.ToString("yyyyMMddHHmmss"), tile = Tile, tex = TexMax, tiles = index, water };
+        var idx = new { version = 2, built = DateTime.UtcNow.ToString("yyyyMMddHHmmss"), tile = Tile, tex = TexMax, packs = true, tiles = index, water };
         File.WriteAllText(Path.Combine(outDir, "index.json"), JsonSerializer.Serialize(idx));
-        Console.WriteLine($"wrote {index.Count} tiles: far {bytesFar / 1048576} MB, near {bytesNear / 1048576} MB; {water.Count} raised water quads");
+        Console.WriteLine($"wrote {index.Count} tiles: far {bytesFar / 1048576} MB, trees {bytesTree / 1048576} MB, near {bytesNear / 1048576} MB, texture packs {bytesPacks / 1048576} MB; Brotli copies {bytesBr / 1048576} MB; {water.Count} raised water quads");
         return 0;
     }
 
@@ -391,6 +408,28 @@ static partial class Map3D
             bits |= (uint)idx << (k * 2);
         }
         BitConverter.GetBytes(c0).CopyTo(o, at); BitConverter.GetBytes(c1).CopyTo(o, at + 2); BitConverter.GetBytes(bits).CopyTo(o, at + 4);
+    }
+
+    // ---- a texture pack: "GET1", u32 count, then per texture u32 key and u32 length, then the .bc1 files one after another
+    static long WritePack(string path, string outDir, IEnumerable<string> keys)
+    {
+        var list = keys.OrderBy(k => k).Select(k => (k, data: File.ReadAllBytes(Path.Combine(outDir, "tex", k + ".bc1")))).ToList();
+        using var f = File.Create(path);
+        using var w = new BinaryWriter(f);
+        w.Write(Encoding.ASCII.GetBytes("GET1")); w.Write(list.Count);
+        foreach (var (k, data) in list) { w.Write(Convert.ToUInt32(k, 16)); w.Write(data.Length); }
+        foreach (var (_, data) in list) w.Write(data);
+        return f.Length;
+    }
+
+    // a Brotli copy next to the file (quality 9, 16 MB window): the public address serves it to browsers that take br
+    static long Brotli(string file)
+    {
+        var src = File.ReadAllBytes(file);
+        var dst = new byte[System.IO.Compression.BrotliEncoder.GetMaxCompressedLength(src.Length)];
+        if (!System.IO.Compression.BrotliEncoder.TryCompress(src, dst, out int n, 9, 24)) throw new Exception("brotli " + file);
+        File.WriteAllBytes(file + ".br", dst.AsSpan(0, n).ToArray());
+        return n;
     }
 
     // ---- one tile file
