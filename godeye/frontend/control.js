@@ -28,15 +28,18 @@ async function api(path, body) {
 function renderAuth() {
   const who = $("who");
   if (!auth.user) {
-    who.innerHTML = auth.control === false ? "" : `<button id="loginBtn" class="ghost">Log in</button>`;
+    const canSignup = !!auth.setup || !!auth.signup?.length;
+    who.innerHTML = auth.control === false && !canSignup ? "" : `<button id="loginBtn" class="ghost">${auth.setup ? "Set up GodEye" : canSignup ? "Log in · Sign up" : "Log in"}</button>`;
     $("control").hidden = true;
     $("gameBox").hidden = true;
+    if (typeof closePanel === "function") closePanel();
     const b = $("loginBtn");
-    if (b) b.onclick = () => { $("loginErr").textContent = ""; zSet("loginZ", "login"); $("loginDlg").showModal(); };
+    if (b) b.onclick = () => openAuth(auth.setup ? "signup" : "login");
     return;
   }
-  who.innerHTML = `${zRole(auth.role)}<span><b>${esc(auth.user)}</b> · ${esc(auth.role)}</span><button id="logoutBtn" class="ghost">Log out</button>`;
-  $("logoutBtn").onclick = async () => { await api("api/logout", {}); auth = { user: null, control: true }; renderAuth(); };
+  who.innerHTML = `${zRole(auth.role)}<span><b>${esc(auth.user)}</b> · ${esc(auth.role)}</span>${auth.panel ? `<button id="panelBtn" class="ghost">Panel</button>` : ""}<button id="logoutBtn" class="ghost">Log out</button>`;
+  if (auth.panel) $("panelBtn").onclick = () => ($("panelView").hidden ? openPanel() : closePanel());
+  $("logoutBtn").onclick = async () => { await api("api/logout", {}); const r = await api("api/me"); auth = r.data || { user: null }; renderAuth(); };
   $("control").hidden = false;
   if (typeof loadGame === "function") loadGame();   // Phase 14: credits, events, leaderboard
   $("roleTag").textContent = auth.role;
@@ -44,16 +47,44 @@ function renderAuth() {
   for (const b of document.querySelectorAll("[data-act]")) b.hidden = !auth.can.includes(b.dataset.act);
 }
 
+// the access dialog: log in, or make an account (the first one is the ADMIN; then a side to play)
+const ROLE_BLURB = {
+  HACKER: "Traffic lights, blackouts and cameras: hack the city.",
+  DISPATCH: "Wanted stars, police alerts and roadblocks: hunt the players.",
+  OPERATOR: "Weather, time, cameras, messages and events: run the show.",
+};
+let authMode = "login";
+function openAuth(mode) {
+  authMode = mode;
+  const signup = mode === "signup", roles = auth.setup ? [] : auth.signup || [];
+  for (const b of document.querySelectorAll("[data-auth]")) b.classList.toggle("on", b.dataset.auth === mode);
+  $("authTabs").hidden = !!auth.setup || !roles.length || auth.control === false;
+  $("setupNote").hidden = !auth.setup;
+  $("pw2Row").hidden = !signup;
+  $("rolePick").hidden = !signup || !roles.length;
+  $("roleChoices").innerHTML = roles.map((r, i) => `<label class="rolecard">${zRole(r)}<input type="radio" name="role" value="${r}"${i ? "" : " checked"}><span><b>${r}</b><small>${esc(ROLE_BLURB[r] || "")}</small></span></label>`).join("");
+  $("loginGo").textContent = !signup ? "Log in" : auth.setup ? "Make the ADMIN account" : "Create account";
+  $("loginForm").password.autocomplete = signup ? "new-password" : "current-password";
+  $("loginErr").textContent = "";
+  zSet("loginZ", "login");
+  if (!$("loginDlg").open) $("loginDlg").showModal();
+}
+for (const b of document.querySelectorAll("[data-auth]")) b.onclick = () => openAuth(b.dataset.auth);
+
 $("loginForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = new FormData(ev.target);
-  const r = await api("api/login", { name: f.get("name"), password: f.get("password") });
+  let r;
+  if (authMode === "signup") {
+    if (f.get("password") !== f.get("password2")) { $("loginErr").textContent = "the two passwords differ"; zSet("loginZ", "loginBad"); return; }
+    r = await api("api/register", { name: f.get("name"), password: f.get("password"), role: f.get("role") || "" });
+  } else r = await api("api/login", { name: f.get("name"), password: f.get("password") });
   if (!r.ok) { $("loginErr").textContent = r.data.error || "login failed"; zSet("loginZ", "loginBad"); return; }
   auth = r.data;
   ev.target.reset();
   $("loginDlg").close();
   renderAuth();
-  toast(`Logged in as ${auth.user} (${auth.role})`, false, "welcome");
+  toast(authMode === "signup" ? `Welcome, ${auth.user}! You play as ${auth.role}.` : `Logged in as ${auth.user} (${auth.role})`, false, "welcome");
   loadAudit();
   loadGame();
 });

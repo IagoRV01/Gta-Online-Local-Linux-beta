@@ -41,13 +41,13 @@ GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1
 4. **Start it.** Run `server\windows\start-godeye.bat`, or `node src/main.ts godeye.json` inside `backend/`.
 5. **Open it.** Browse to `http://<server LAN IP>:8080` on any PC or phone on the LAN.
    - Other devices need an inbound TCP 8080 rule in Windows Firewall. That is your decision; see `server/windows/setup-firewall.ps1`.
-6. **Make users for the controls** (Phase 10), on the server PC, in `backend/`:
-   ```
-   node src/users.ts add <name> ADMIN
-   ```
-   It asks for the password and does not echo it. The roles are HACKER, DISPATCH, OPERATOR and ADMIN.
-   - Without users the page is view-only.
-   - GodEye reads `users.json` when it starts.
+6. **Make your account.**
+   - On a fresh install the page shows **Set up GodEye**. The first account, made on the server PC or its LAN, is the
+     **ADMIN**: the owner, with the control panel. It can never be made through the public address.
+   - After that, **Log in · Sign up**: anyone can make an account and pick a side (HACKER, DISPATCH or OPERATOR),
+     unless the ADMIN closes sign-up.
+   - Sign-up works in the browser and in the GodEye.exe window, which is the same page.
+   - A command line works too: `node src/users.ts add <name> <role>` in `backend/`, then restart GodEye.
 7. **Make the 3D map** (Phase 11), once and again after a GTA update. Add the paths of your own map packs, and a
    folder of patched ymaps if your game edits some:
    ```
@@ -281,6 +281,25 @@ server.
 - **The ledger:** credits live in `game.ledgerFile`, one JSON line per change, written to disk before the change
   counts. Balances, today's uses and a running event come back after a restart or a power cut.
 
+## The control panel (ADMIN)
+
+The **Panel** button in the header opens, over the map, everything the owner of a GodEye watches:
+- **This PC:** CPU, memory, every NVIDIA card (load, VRAM and temperature), free disk space, uptime.
+- **Game server:** connected or not, its name and protocol, who is online, the game's clock and weather.
+- **GodEye:** how long it has run, its memory, open pages, the last visit through the public address, the 2D and 3D
+  maps (and when the 3D one was built), camera clients and live video.
+- **Accounts:**
+  - every account, with its role, when it was made and its last login;
+  - change a role, set a new password (which logs that user out), delete an account, make one;
+  - the last ADMIN can be neither demoted nor deleted.
+- **Settings**, saved in `settings.json`:
+  - sign-up open or closed;
+  - which roles new players may pick (ADMIN is never offered);
+  - whether the 3D map on the public address needs a login.
+- **Hack Credits:** the board, the running event (with a Stop button) and the latest ledger entries.
+- **Latest actions** and the **logs**: the last 250 lines of GodEye's log and of the game server's (`serverLogFile`
+  in `godeye.json`).
+
 ## Security
 
 - **The admin API**
@@ -293,6 +312,10 @@ server.
   - WebSockets must come from the same origin, so another site open in your browser cannot read the telemetry.
   - Strict CSP, and no inline scripts or styles.
   - Static files come from a fixed list.
+- **Accounts**
+  - The first account (ADMIN) can only be made from the server PC or its LAN.
+  - Each address can make 3 accounts an hour, and an install holds at most 1,000.
+  - Names are 2-24 characters and passwords 8-200, stored as scrypt hashes.
 - **Phase 10 controls**
   - They need a login: scrypt hashes, an HttpOnly SameSite=Strict cookie, and the CSRF token on every POST.
   - Each role sees only its own actions.

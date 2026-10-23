@@ -10,6 +10,7 @@
 <script src="video.js" defer></script>
 <script src="game.js" defer></script>
 <script src="zorua.js" defer></script>
+<script src="panel.js" defer></script>
 </head>
 <body>
 <header class="bar">
@@ -23,10 +24,14 @@
 <dialog id="loginDlg" class="dlg">
   <form id="loginForm" method="dialog">
     <h3><img id="loginZ" class="zport" alt="" hidden>GodEye access</h3>
+    <div class="atabs" id="authTabs" role="tablist"><button type="button" data-auth="login" class="on">Log in</button><button type="button" data-auth="signup">Create account</button></div>
+    <p class="setup" id="setupNote" hidden>No accounts yet. This first one is the <b>ADMIN</b>: the owner of this GodEye, with the control panel.</p>
     <label>Name <input name="name" autocomplete="username" required maxlength="24"></label>
     <label>Password <input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+    <label id="pw2Row" hidden>Repeat the password <input name="password2" type="password" autocomplete="new-password" maxlength="200"></label>
+    <fieldset class="rolepick" id="rolePick" hidden><legend>Pick your side</legend><div id="roleChoices"></div></fieldset>
     <p class="err" id="loginErr"></p>
-    <div class="row"><button type="button" class="ghost" id="loginCancel">Cancel</button><button type="submit">Log in</button></div>
+    <div class="row"><button type="button" class="ghost" id="loginCancel">Cancel</button><button type="submit" id="loginGo">Log in</button></div>
   </form>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -41,6 +46,30 @@
   <section class="map-wrap" aria-label="Live map">
     <canvas id="map"></canvas>
     <canvas id="map3d" hidden></canvas>
+    <section class="panelview" id="panelView" hidden aria-label="Control panel">
+      <div class="phead"><span id="panelZ"></span><h2>Control panel</h2><button id="panelClose" class="ghost" aria-label="Close the control panel">Close</button></div>
+      <div class="pgrid">
+        <article class="pcard"><h3>This PC</h3><div id="pSystem"></div></article>
+        <article class="pcard"><h3>Game server</h3><div id="pServer"></div></article>
+        <article class="pcard"><h3>GodEye</h3><div id="pGodEye"></div></article>
+        <article class="pcard"><h3>Settings</h3>
+          <form id="pSettings" class="pform">
+            <label>Sign-up <select id="setRegistration"><option value="open">Open: anyone can make an account</option><option value="closed">Closed: only the ADMIN makes accounts</option></select></label>
+            <fieldset><legend>Roles new players may pick</legend>
+              <label><input type="checkbox" data-signup-role="HACKER"> HACKER</label>
+              <label><input type="checkbox" data-signup-role="DISPATCH"> DISPATCH</label>
+              <label><input type="checkbox" data-signup-role="OPERATOR"> OPERATOR</label></fieldset>
+            <label>3D map on the public address <select id="setMap3d"><option value="open">Open to everyone</option><option value="login">Logged-in users only</option></select></label>
+            <button class="ghost">Save settings</button>
+          </form></article>
+        <article class="pcard pwide"><h3>Accounts</h3><div id="pUsers"></div>
+          <form id="pNewUser" class="pinline"><input name="name" placeholder="Name" maxlength="24" required><select name="role"><option>HACKER</option><option>DISPATCH</option><option>OPERATOR</option><option>ADMIN</option></select><input name="password" type="password" placeholder="Password (8+)" minlength="8" maxlength="200" autocomplete="new-password" required><button class="ghost">Make account</button></form></article>
+        <article class="pcard"><h3>Hack Credits</h3><div id="pGame"></div></article>
+        <article class="pcard"><h3>Latest actions</h3><div id="pAudit" class="events"></div></article>
+        <article class="pcard pwide"><h3>Logs <span class="ltabs"><button data-log="godeye" class="on">GodEye</button><button data-log="server">Game server</button></span></h3>
+          <p class="pnote" id="pLogFile"></p><pre id="pLog" class="plog"></pre></article>
+      </div>
+    </section>
     <div class="evbanner" id="evBanner" hidden><span id="evZ"></span><span id="evText"></span></div>
     <div class="nomap" id="nomap3d" hidden>No 3D map data: run <code>tools/godeye-map map3d</code> (see godeye/README.md).</div>
     <div class="videobox" id="videoBox" hidden>

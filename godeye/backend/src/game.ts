@@ -101,6 +101,7 @@ export class Game {
   private bonusDay = new Map<string, string>();
   private seen = new Map<string, number>();
   private bounties: Bounty[] = [];
+  private recentEntries: Entry[] = [];   // the latest balance changes, for the control panel
   event: ActiveEvent | null = null;
 
   constructor(cfg: GameConfig, log: (level: string, m: string) => void) {
@@ -122,6 +123,8 @@ export class Game {
     if (e.t === "event") { this.event = e as unknown as ActiveEvent; return; }
     if (e.t === "eventEnd") { if (this.event?.id === e.id) this.event = null; return; }
     if (!e.user) return;
+    this.recentEntries.push(e);
+    if (this.recentEntries.length > 60) this.recentEntries.shift();
     const k = e.user.toLowerCase();
     this.names.set(k, e.user);
     this.balances.set(k, (this.balances.get(k) ?? 0) + (e.delta ?? 0));
@@ -223,6 +226,8 @@ export class Game {
   }
 
   endEvent(): void { if (this.event) this.write({ at: new Date().toISOString(), t: "eventEnd", id: this.event.id }); }
+
+  recent(n = 30): Entry[] { return this.recentEntries.slice(-n).reverse(); }
 
   publicEvent(): object | null {
     const e = this.event;

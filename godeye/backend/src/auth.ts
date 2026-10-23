@@ -1,13 +1,21 @@
-// GodEye accounts (Phase 10). users.json next to godeye.json holds name, role and an scrypt hash per user; it is made
-// with `node src/users.ts add <name> <role>`. Sessions live in memory (a restart logs everyone out): an HttpOnly,
-// SameSite=Strict cookie plus a CSRF token that every POST must echo in X-CSRF-Token.
+// GodEye accounts (Phase 10). users.json next to godeye.json holds name, role and an scrypt hash per user. Accounts are
+// made on the page (sign-up; the very first one, from the server's own network, becomes the ADMIN), in the ADMIN's
+// control panel, or with `node src/users.ts add <name> <role>`. Sessions live in memory (a restart logs everyone out):
+// an HttpOnly, SameSite=Strict cookie plus a CSRF token that every POST must echo in X-CSRF-Token.
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 export const ROLES = ["HACKER", "DISPATCH", "OPERATOR", "ADMIN"] as const;
 export type Role = (typeof ROLES)[number];
 
-export interface UserRecord { name: string; role: Role; salt: string; hash: string }
+export interface UserRecord { name: string; role: Role; salt: string; hash: string; created?: string; lastLogin?: string }
+
+export const NAME_RULE = /^[A-Za-z0-9_.-]{2,24}$/;
+export function checkNewAccount(name: unknown, password: unknown): string | null {
+  if (typeof name !== "string" || !NAME_RULE.test(name)) return "names are 2-24 letters, digits, _ . -";
+  if (typeof password !== "string" || password.length < 8 || password.length > 200) return "passwords are 8-200 characters";
+  return null;
+}
 export interface Session { id: string; user: string; role: Role; csrf: string; expires: number }
 
 const SESSION_MS = 12 * 3600 * 1000;
@@ -35,12 +43,45 @@ export class Users {
   save(): void { writeFileSync(this.file, JSON.stringify([...this.users.values()], null, 2) + "\n", { mode: 0o600 }); }
 
   set(name: string, role: Role, password: string): void {
-    this.users.set(name.toLowerCase(), { name, role, ...hashPassword(password) });
+    const old = this.users.get(name.toLowerCase());
+    this.users.set(name.toLowerCase(), { name, role, ...hashPassword(password), created: old?.created ?? new Date().toISOString(), lastLogin: old?.lastLogin });
   }
+
+  has(name: string): boolean { return this.users.has(String(name).toLowerCase()); }
+  get(name: string): UserRecord | undefined { return this.users.get(String(name).toLowerCase()); }
+
+  // a new account (sign-up or the control panel): the name must be free
+  create(name: string, role: Role, password: string): string | null {
+    const bad = checkNewAccount(name, password);
+    if (bad) return bad;
+    if (this.has(name)) return "that name is taken";
+    this.set(name, role, password);
+    this.save();
+    return null;
+  }
+
+  setRole(name: string, role: Role): boolean {
+    const u = this.get(name);
+    if (!u || !ROLES.includes(role)) return false;
+    u.role = role; this.save(); return true;
+  }
+
+  setPassword(name: string, password: string): string | null {
+    const u = this.get(name);
+    if (!u) return "no such user";
+    if (typeof password !== "string" || password.length < 8 || password.length > 200) return "passwords are 8-200 characters";
+    Object.assign(u, hashPassword(password)); this.save(); return null;
+  }
+
+  touchLogin(name: string): void { const u = this.get(name); if (u) { u.lastLogin = new Date().toISOString(); this.save(); } }
+
+  admins(): number { return [...this.users.values()].filter((u) => u.role === "ADMIN").length; }
 
   remove(name: string): boolean { return this.users.delete(name.toLowerCase()); }
 
-  list(): { name: string; role: Role }[] { return [...this.users.values()].map((u) => ({ name: u.name, role: u.role })); }
+  list(): { name: string; role: Role; created?: string; lastLogin?: string }[] {
+    return [...this.users.values()].map((u) => ({ name: u.name, role: u.role, created: u.created, lastLogin: u.lastLogin }));
+  }
 
   // the record when the password matches; the same work is done for unknown names (no timing hint)
   check(name: string, password: string): UserRecord | null {
@@ -72,11 +113,28 @@ export class Sessions {
 
   end(s: Session): void { this.byId.delete(s.id); }
 
+  // after a role change or a deletion: open sessions follow (a new role) or end (role null)
+  updateUser(name: string, role: Role | null): void {
+    for (const [id, s] of this.byId)
+      if (s.user.toLowerCase() === name.toLowerCase()) { if (role) s.role = role; else this.byId.delete(id); }
+  }
+
   // `secure`: on the public (https) address the cookie is never sent over plain http
   cookie(s: Session | null, secure = false): string {
     const flags = "HttpOnly; SameSite=Strict; Path=/" + (secure ? "; Secure" : "");
     return s ? `ge_session=${s.id}; ${flags}; Max-Age=${SESSION_MS / 1000}` : `ge_session=; ${flags}; Max-Age=0`;
   }
+}
+
+// new accounts per address: 3 an hour (sign-up spam)
+export class SignupLimiter {
+  private made = new Map<string, number[]>();
+  allowed(addr: string): boolean {
+    const now = Date.now(), m = (this.made.get(addr) ?? []).filter((t) => now - t < 3600000);
+    this.made.set(addr, m);
+    return m.length < 3;
+  }
+  made1(addr: string): void { (this.made.get(addr) ?? this.made.set(addr, []).get(addr)!).push(Date.now()); }
 }
 
 // failed logins per address: 5 in 5 minutes, then a wait

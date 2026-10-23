@@ -57,3 +57,4 @@ godeye/backend/users.json
 godeye/cloudflare/wrangler.toml
 .wrangler/
 godeye/backend/credits.jsonl
+godeye/backend/settings.json

@@ -212,7 +212,8 @@ function build() {
   sky = new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
   sky.renderOrder = -1;
   scene.add(sky);
-  seaMat = new THREE.MeshPhongMaterial({ color: 0x1f6d9c, specular: 0x6f8fa8, shininess: 60, transparent: true, opacity: 0.9 });
+  // the sea is opaque: through a see-through sea the earth backdrop below showed as dark wedges over open water
+  seaMat = new THREE.MeshPhongMaterial({ color: 0x1f6d9c, specular: 0x6f8fa8, shininess: 60 });
   waterMat = new THREE.MeshPhongMaterial({ color: 0x3a7da3, specular: 0x6f8fa8, shininess: 60, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
   root = new THREE.Group();
   scene.add(root);

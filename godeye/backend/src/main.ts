@@ -2,6 +2,8 @@
 // vehicle, weapon) and pushes it to browsers over WebSocket, changes only. Serves the web app too.
 // Phase 10: logged-in users act on the game (wanted, police, traffic, world) through checked server commands.
 // Phase 14: the web game on top: Hack Credits, hacking minigames, daily limits, bounties and OPERATOR events.
+// Accounts are made on the page (the first one, from the server's network, is the ADMIN), and the ADMIN has a control
+// panel: the PC, the game server, GodEye, accounts, settings, credits and logs.
 //   node src/main.ts [godeye.json]
 // GodEye never talks to GTA, and browsers never talk to the game server.
 import { appendFileSync, createReadStream, existsSync, readFileSync, mkdirSync } from "node:fs";
@@ -11,8 +13,9 @@ import { fileURLToPath } from "node:url";
 import { createGzip, gzipSync } from "node:zlib";
 import { ACTIONS, Limits, allowed, toCommand, type ActionRequest } from "./actions.ts";
 import { AdminLink } from "./admin.ts";
-import { LoginLimiter, Sessions, Users } from "./auth.ts";
+import { LoginLimiter, ROLES, Sessions, SignupLimiter, Users, type Role } from "./auth.ts";
 import { EVENTS, GAME_DEFAULTS, Game, eventLines, type GameConfig } from "./game.ts";
+import { SIGNUP_ROLES, SettingsStore, system, tail } from "./panel.ts";
 import { Puzzles } from "./puzzles.ts";
 import { loadVehicles, vehicleName, weaponName } from "./names.ts";
 import { Video, VIDEO_DEFAULTS, type VideoConfig } from "./video.ts";
@@ -31,6 +34,9 @@ interface Config {
   map3dDir: string;
   logFile: string;
   usersFile: string;
+  settingsFile: string;            // what the ADMIN changes on the control panel
+  serverLogFile: string;           // the game server's log, shown on the control panel
+  registration: "open" | "closed"; // the first value of the sign-up setting
   publicMap3d: "login" | "open";   // the 3D map on the public address: login (default) or open
   video: VideoConfig;              // Phase 13: the camera clients as live video
   game: GameConfig;                // Phase 14: credits, minigames, limits, events
@@ -44,6 +50,9 @@ const defaults: Config = {
   map3dDir: "../data/map3d",
   logFile: "D:/GTALocalOnline/logs/godeye.log",
   usersFile: "users.json",
+  settingsFile: "settings.json",
+  serverLogFile: "D:/GTALocalOnline/logs/game-server.log",
+  registration: "open",
   publicMap3d: "login",
   video: VIDEO_DEFAULTS,
   game: GAME_DEFAULTS,
@@ -171,12 +180,16 @@ video.start();
 const users = new Users(rel(cfg.usersFile));
 const sessions = new Sessions();
 const loginLimit = new LoginLimiter();
+const signupLimit = new SignupLimiter();
+const settings = new SettingsStore(rel(cfg.settingsFile), { registration: cfg.registration, signupRoles: SIGNUP_ROLES, publicMap3d: cfg.publicMap3d });
+const startedAt = Date.now();
+let lastPublicAt = 0;   // the last request through the public address
 const limits = new Limits();
 // ---- the web game (Phase 14)
 cfg.game.ledgerFile = rel(cfg.game.ledgerFile);
 const game = cfg.game.enabled ? new Game(cfg.game, log) : null;
 const puzzles = new Puzzles();
-log("INFO", `${users.count} GodEye users in ${rel(cfg.usersFile)}${users.count ? "" : " (control off until one is added: node src/users.ts add <name> ADMIN)"}`);
+log("INFO", `${users.count} GodEye users in ${rel(cfg.usersFile)}${users.count ? "" : " (none yet: the first account made on this PC or its LAN becomes the ADMIN)"}; sign-up ${settings.value.registration}`);
 interface AuditEntry { at: string; user: string; role: string; action: string; line: string; ok: boolean }
 const audit: AuditEntry[] = [];
 function record(user: string, role: string, action: string, line: string, ok: boolean): void {
@@ -219,10 +232,12 @@ function sameOrigin(req: IncomingMessage): boolean {
 }
 
 function me(s: ReturnType<Sessions["get"]>, pub = false): object {
-  const map3d = !pub || cfg.publicMap3d === "open" || !!s;
-  if (!s) return { user: null, control: users.count > 0, public: pub, map3d };
+  const map3d = !pub || settings.value.publicMap3d === "open" || !!s;
+  // setup: no account yet, so this visitor (on the server's network) can make the ADMIN one
+  const signup = users.count > 0 && settings.value.registration === "open" ? settings.value.signupRoles : [];
+  if (!s) return { user: null, control: users.count > 0, signup, setup: users.count === 0 && !pub, public: pub, map3d };
   const can = Object.keys(ACTIONS).filter((a) => allowed(s.role, a) && (a !== "event" || !!game));
-  return { user: s.user, role: s.role, csrf: s.csrf, can, cooldowns: limits.cooldowns(s.user), public: pub, map3d, game: !!game };
+  return { user: s.user, role: s.role, csrf: s.csrf, can, cooldowns: limits.cooldowns(s.user), public: pub, map3d, game: !!game, panel: s.role === "ADMIN" };
 }
 
 async function handlePost(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
@@ -236,8 +251,28 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
     const u = users.check(String(body.name ?? "").slice(0, 32), String(body.password ?? "").slice(0, 200));
     if (!u) { loginLimit.fail(addr); log("WARN", `failed login for "${String(body.name ?? "").slice(0, 32)}" from ${addr}`); json(401, { error: "wrong name or password" }); return; }
     loginLimit.ok(addr);
+    users.touchLogin(u.name);
     const s = sessions.create(u);
     log("INFO", `${u.name} (${u.role}) logged in from ${addr}`);
+    json(200, me(s, pub), { "Set-Cookie": sessions.cookie(s, pub) });
+    return;
+  }
+  if (path === "/api/register") {   // a new account: the ADMIN one on a fresh install, then the roles the ADMIN allows
+    const name = String(body.name ?? ""), password = String(body.password ?? "");
+    const first = users.count === 0;
+    if (first && pub) { json(403, { error: "make the first (ADMIN) account on the server PC or its network" }); return; }
+    if (!first && settings.value.registration !== "open") { json(403, { error: "sign-up is closed on this GodEye" }); return; }
+    const role = (first ? "ADMIN" : String(body.role ?? "")) as Role;
+    if (!first && !settings.value.signupRoles.includes(role)) { json(400, { error: "pick one of the roles offered" }); return; }
+    if (!signupLimit.allowed(addr)) { json(429, { error: "too many new accounts from here: try again in an hour" }); return; }
+    if (users.count >= 1000) { json(403, { error: "this GodEye is full" }); return; }
+    const bad = users.create(name, role, password);
+    if (bad) { json(400, { error: bad }); return; }
+    signupLimit.made1(addr);
+    const u = users.get(name)!;
+    users.touchLogin(u.name);
+    const s = sessions.create(u);
+    log("INFO", `new account ${u.name} (${u.role}) from ${addr}${first ? ": the first one, ADMIN" : ""}`);
     json(200, me(s, pub), { "Set-Cookie": sessions.cookie(s, pub) });
     return;
   }
@@ -308,6 +343,57 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
     json(ok ? 200 : 409, ok ? { ok, cooldownUntil: until, credits: game?.balance(s.user) } : { error: "the game server refused it" });
     return;
   }
+  // ---- the control panel (ADMIN)
+  if (path.startsWith("/api/panel/") && s.role !== "ADMIN") { json(403, { error: "ADMIN only" }); return; }
+  if (path === "/api/panel/user") {
+    const op = String(body.op ?? ""), name = String(body.name ?? "");
+    const target = users.get(name);
+    if (op === "create") {
+      const role = String(body.role ?? "") as Role;
+      if (!ROLES.includes(role)) { json(400, { error: "unknown role" }); return; }
+      const bad = users.create(name, role, String(body.password ?? ""));
+      if (bad) { json(400, { error: bad }); return; }
+      log("INFO", `${s.user} made the account ${name} (${role})`);
+      json(200, { ok: true });
+      return;
+    }
+    if (!target) { json(404, { error: "no such user" }); return; }
+    const lastAdmin = target.role === "ADMIN" && users.admins() <= 1;
+    if (op === "role") {
+      const role = String(body.role ?? "") as Role;
+      if (!ROLES.includes(role)) { json(400, { error: "unknown role" }); return; }
+      if (lastAdmin && role !== "ADMIN") { json(409, { error: "that is the last ADMIN" }); return; }
+      users.setRole(target.name, role);
+      sessions.updateUser(target.name, role);
+      log("INFO", `${s.user} set ${target.name}'s role to ${role}`);
+      json(200, { ok: true });
+      return;
+    }
+    if (op === "password") {
+      const bad = users.setPassword(target.name, String(body.password ?? ""));
+      if (bad) { json(400, { error: bad }); return; }
+      if (target.name.toLowerCase() !== s.user.toLowerCase()) sessions.updateUser(target.name, null);   // logged out everywhere
+      log("INFO", `${s.user} set a new password for ${target.name}`);
+      json(200, { ok: true });
+      return;
+    }
+    if (op === "delete") {
+      if (lastAdmin) { json(409, { error: "that is the last ADMIN" }); return; }
+      users.remove(target.name); users.save();
+      sessions.updateUser(target.name, null);
+      log("INFO", `${s.user} deleted the account ${target.name}`);
+      json(200, { ok: true });
+      return;
+    }
+    json(400, { error: "unknown operation" });
+    return;
+  }
+  if (path === "/api/panel/settings") {
+    const v = settings.update({ registration: body.registration, signupRoles: body.signupRoles, publicMap3d: body.publicMap3d });
+    log("INFO", `${s.user} changed the settings: sign-up ${v.registration} (${v.signupRoles.join(", ")}), public 3D ${v.publicMap3d}`);
+    json(200, v);
+    return;
+  }
   if (path === "/api/game/grant") {   // ADMIN: give (or take) credits
     if (!game || s.role !== "ADMIN") { json(403, { error: "ADMIN only" }); return; }
     const who = users.list().find((u) => u.name.toLowerCase() === String(body.user ?? "").toLowerCase());
@@ -331,6 +417,7 @@ const STATIC: Record<string, [string, string]> = {
   "/video.js": ["video.js", "text/javascript; charset=utf-8"],
   "/game.js": ["game.js", "text/javascript; charset=utf-8"],
   "/zorua.js": ["zorua.js", "text/javascript; charset=utf-8"],
+  "/panel.js": ["panel.js", "text/javascript; charset=utf-8"],
   "/vendor/three/three.module.min.js": ["vendor/three/three.module.min.js", "text/javascript; charset=utf-8"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
 };
@@ -348,6 +435,7 @@ function send(res: ServerResponse, code: number, type: string, body: string | Bu
 
 const http = createServer((req: IncomingMessage, res: ServerResponse) => {
   if (!lanAllowed(req.socket.remoteAddress)) { send(res, 403, "text/plain", "LAN only\n"); return; }
+  if (isPublic(req)) lastPublicAt = Date.now();
   const path = new URL(req.url ?? "/", "http://x").pathname;
   if (path.startsWith("/video/")) {   // Phase 13: WHEP signalling and HLS, relayed to mediamtx
     if (req.method !== "GET" && !sameOrigin(req)) { send(res, 403, "text/plain", "cross-site request refused\n"); return; }
@@ -380,7 +468,7 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
   }
   // the 3D map: only the names tools/godeye-map writes (no paths from the request reach the file system)
   const m3 = /^\/data\/map3d\/(index\.json|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near)\.bin|tex\/[0-9a-f]{8}\.bc1)$/.exec(path);
-  if (m3 && isPublic(req) && cfg.publicMap3d !== "open" && !sessions.get(req.headers["cookie"])) {
+  if (m3 && isPublic(req) && settings.value.publicMap3d !== "open" && !sessions.get(req.headers["cookie"])) {
     send(res, 401, "application/json", JSON.stringify({ error: "log in to see the 3D map" }));
     return;
   }
@@ -406,6 +494,34 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
     const can = Object.keys(ACTIONS).filter((a) => allowed(s.role, a));
     const roles = new Map(users.list().map((u) => [u.name.toLowerCase(), u.role]));
     send(res, 200, "application/json", JSON.stringify({ enabled: true, ...game.status(s.user, s.role, can), event: game.publicEvent(), board: game.board((k) => roles.get(k)) }));
+    return;
+  }
+  if (path === "/api/panel" || path === "/api/panel/logs") {   // the control panel (ADMIN)
+    const s = sessions.get(req.headers["cookie"]);
+    if (!s || s.role !== "ADMIN") { send(res, s ? 403 : 401, "application/json", JSON.stringify({ error: "ADMIN only" })); return; }
+    if (path === "/api/panel/logs") {
+      const which = new URL(req.url ?? "/", "http://x").searchParams.get("which");
+      const file = which === "server" ? cfg.serverLogFile : cfg.logFile;
+      send(res, 200, "application/json", JSON.stringify({ file, lines: tail(file, 250) }));
+      return;
+    }
+    const all = [...players.values()];
+    const m3 = join(rel(cfg.map3dDir), "index.json");
+    let built3d = "";
+    try { built3d = JSON.parse(readFileSync(m3, "utf8")).built ?? ""; } catch { /* no 3D map */ }
+    send(res, 200, "application/json", JSON.stringify({
+      system: system([cfg.logFile, cfg.usersFile, cfg.map3dDir].map((p) => resolve(dirname(cfgPath), p))),
+      server: { online: admin.connected, info: serverInfo, world, players: all.length, playing: all.filter((p) => p.playing).length, names: all.map((p) => p.name) },
+      godeye: {
+        uptime: Math.round((Date.now() - startedAt) / 1000), node: process.version, rss: process.memoryUsage().rss,
+        browsers: browsers.size, lastPublic: lastPublicAt ? Math.round((Date.now() - lastPublicAt) / 1000) : null,
+        map2d: !!mapGz, map3d: built3d, video: video.streams, cameras: cameras.length,
+      },
+      settings: settings.value,
+      users: users.list(),
+      game: game ? { board: game.board((k) => users.get(k)?.role), event: game.publicEvent(), recent: game.recent(30) } : null,
+      audit: audit.slice(-30).reverse(),
+    }));
     return;
   }
   if (path === "/api/audit") {

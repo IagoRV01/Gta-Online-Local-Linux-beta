@@ -1,5 +1,7 @@
 # Guía de instalación desde cero
 
+*English: [INSTALL.md](INSTALL.md).*
+
 Esta guía monta **GTA Local Online** completo en tu casa: un servidor y uno o varios PCs jugando en la
 misma red local. No hace falta saber programar: solo descargar, copiar archivos y editar dos ficheros de
 texto. Calcula unos 30 minutos la primera vez.
@@ -15,6 +17,7 @@ texto. Calcula unos 30 minutos la primera vez.
 8. [Actualizar](#8-actualizar)
 9. [Solución de problemas](#9-solución-de-problemas)
 10. [Compilar tú mismo](#10-compilar-tú-mismo)
+11. [Opcional: GodEye](#11-opcional-godeye)
 
 ---
 
@@ -65,7 +68,7 @@ texto. Calcula unos 30 minutos la primera vez.
    - Para quitar la regla más adelante: `Remove-NetFirewallRule -DisplayName 'GTA Local Online (UDP)'`
 4. **Arranca el servidor:** doble clic en `start-server.bat`. Debe aparecer algo así:
    ```
-   INFO  [net] listening on UDP 0.0.0.0:4499, tick 20 Hz, max 8 players, protocol v10
+   INFO  [net] listening on UDP 0.0.0.0:4499, tick 20 Hz, max 8 players, protocol v13
    ```
    La primera vez Windows puede preguntar si permites el acceso a la red: acepta para **redes privadas**.
    Deja la ventana abierta mientras jugáis (cerrarla apaga el servidor).
@@ -261,3 +264,17 @@ Solo si quieres modificar el código; la release ya trae todo compilado.
 Opcional: si añades funciones nativas nuevas, descarga `natives.json` de
 [alloc8or/gta5-nativedb-data](https://github.com/alloc8or/gta5-nativedb-data) a
 `client/gta-plugin/tools/` y `gori-online/` para que el build regenere las cabeceras de nativas.
+
+---
+
+## 11. Opcional: GodEye
+
+GodEye es una web que corre en el PC servidor junto al servidor del juego:
+- mapas 2D y 3D en directo;
+- cámaras con vídeo en directo;
+- un juego asimétrico en la web: hackers, centralita de policía y operadores juegan contra los jugadores sin GTA.
+
+Su guía es [godeye/README.md](../godeye/README.md) (en inglés). Resumen:
+1. Instala Node.js 24 y arranca GodEye (`GodEye.exe`, o `node src/main.ts` en `godeye/backend`).
+2. Ábrelo en el PC servidor.
+3. Pulsa **Set up GodEye** para crear la primera cuenta: la del ADMIN, con el panel de control.

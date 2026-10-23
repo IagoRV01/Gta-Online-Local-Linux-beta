@@ -1,159 +1,165 @@
 # GTA Local Online (Beta)
 
-**Un "GTA Online" privado para tu red local**, construido sobre el modo historia de GTA V Legacy:
-un servidor propio en Windows, un cliente `.asi` en cada PC que juega y el mod **Gori Online** con el
-contenido (personaje freemode, dinero, propiedades, negocios —también desguaces, oficinas de fianzas, la
-fábrica textil y los Money Fronts—, golpes, carreras Transform, deathmatch, Survival, misiones de contacto,
-Drug Wars, Los Santos Customs y Benny's como en Online, Arena War con su taller, Ammu-Nation, teléfono de
-Online...).
+*Español: [README.es.md](README.es.md).*
 
-Sin servidores de Rockstar, sin Internet y sin cuentas de terceros: todo vive en tu LAN.
+**A private "GTA Online" for your local network**, built on GTA V Legacy's story mode. It is made of:
+- a server of your own on Windows;
+- a `.asi` client on every PC that plays;
+- the **Gori Online** mod, with the content: freemode character, money, properties, businesses (salvage yards, bail
+  offices, the garment factory and the Money Fronts too), heists, Transform races, deathmatch, Survival, contact
+  missions, Drug Wars, Los Santos Customs and Benny's as in Online, Arena War with its workshop, Ammu-Nation, the
+  Online phone...
 
-> ⚠️ No es GTA Online ni se conecta a él. Necesitas tu propia copia legal de **GTA V Legacy** (Steam,
-> Rockstar o Epic). Este repositorio no contiene ningún archivo del juego. Úsalo solo en modo historia:
-> ScriptHookV ya impide cargar mods en GTA Online.
+No Rockstar servers, no Internet and no third-party accounts: everything lives on your LAN.
 
-**➡️ Guía paso a paso desde cero: [docs/GUIA-INSTALACION.md](docs/GUIA-INSTALACION.md)**
+> ⚠️ This is not GTA Online and never connects to it.
+> - You need your own legal copy of **GTA V Legacy** (Steam, Rockstar or Epic). This repository contains no game
+>   files.
+> - Use it in story mode only: ScriptHookV already refuses to load mods in GTA Online.
+
+**➡️ Step-by-step guide from scratch: [docs/INSTALL.md](docs/INSTALL.md)** (Spanish:
+[docs/GUIA-INSTALACION.md](docs/GUIA-INSTALACION.md))
 
 ---
 
-## Cómo funciona
+## How it works
 
 ```
- PC servidor (Windows)                         PCs que juegan (Windows o Linux con Proton)
+ Server PC (Windows)                           PCs that play (Windows, or Linux with Proton)
  ┌──────────────────────────┐   LAN, UDP 4499  ┌─────────────────────────────────────────┐
  │ LocalOnlineServer.exe    │ ◄──────────────► │ GTA V Legacy 1.0.3889 + ScriptHookV      │
- │  · cuentas y personajes  │      (ENet)      │  · LocalOnline.asi  (red, personaje YOU, │
- │  · dinero (libro mayor)  │                  │    otros jugadores, dinero, garaje)      │
- │  · trabajos y carreras   │                  │  · GoriOnline.asi   (el contenido de     │
- │  · hora y clima comunes  │                  │    Online: menús, misiones, negocios...) │
- │  · SQLite (data/*.db)    │                  └─────────────────────────────────────────┘
- └──────────────────────────┘
+ │  · accounts, characters  │      (ENet)      │  · LocalOnline.asi  (network, YOU        │
+ │  · money (a ledger)      │                  │    character, other players, money,      │
+ │  · jobs and races        │                  │    garage)                               │
+ │  · shared time, weather  │                  │  · GoriOnline.asi   (Online's content:   │
+ │  · SQLite (data/*.db)    │                  │    menus, missions, businesses...)       │
+ └──────────────────────────┘                  └─────────────────────────────────────────┘
 ```
 
-- El **servidor** no necesita GTA: puede ir en cualquier PC con Windows de la red (también en uno de
-  los que juegan).
-- Cada jugador ve a los demás, sus coches y su ropa; el dinero, los perfiles y los pagos de los trabajos
-  los guarda el servidor.
-- Hasta 8 jugadores (configurable).
+- The **server** doesn't need GTA. It runs on any Windows PC on the network, including one of those that play.
+- Everyone sees the others, their cars and their clothes. The server keeps the money, the profiles and the job
+  payouts.
+- Up to 8 players (configurable).
 
-## Qué incluye
+## What's included
 
-| Parte | Qué hace |
+| Part | What it does |
 |---|---|
-| `LocalOnline.asi` | Pantalla de inicio *Story Mode / Local Online*, creador de personaje freemode, sincronización de jugadores y vehículos, PvP validado por el servidor, banco Maze Bank, HUD de Online, garaje, trabajos cooperativos. Menú: **F10**. |
-| `GoriOnline.asi` | Menú de interacción de Online (**M**, o mantener *Back/Select* en el mando): propiedades y negocios, golpes, misiones de contacto, carreras (y creador de carreras), deathmatch, Survival, The First Dose / The Last Dose y el Acid Lab, LS Customs, Ammu-Nation, vehículos especiales, yate, casino, Internet y teléfono de Online. |
-| `LocalOnlineServer.exe` | Servidor autoritativo: cuentas, personajes, economía con límites anti-trampas, trabajos, carreras, deathmatch, Survival, hora y clima compartidos. |
-| `netprobe.exe` | Cliente de prueba sin GTA para comprobar que la red llega al servidor. |
+| `LocalOnline.asi` | *Story Mode / Local Online* start screen, freemode character creator, player and vehicle sync, server-checked PvP, Maze Bank, the Online HUD, garage, co-op jobs. Menu: **F10**. |
+| `GoriOnline.asi` | Online's interaction menu (**M**, or hold *Back/Select* on a controller): properties and businesses, heists, contact missions, races (and a race creator), deathmatch, Survival, The First Dose / The Last Dose and the Acid Lab, LS Customs, Ammu-Nation, special vehicles, yacht, casino, the Online Internet and phone. |
+| `LocalOnlineServer.exe` | The authoritative server: accounts, characters, an economy with anti-cheat limits, jobs, races, deathmatch, Survival, shared time and weather. |
+| `netprobe.exe` | A test client without GTA, to check that the network reaches the server. |
+| `godeye/` | **GodEye**, the web app for watching and playing from a browser (below). |
 
-**Limitaciones conocidas:** los NPC no se sincronizan entre jugadores (en Survival y en las misiones
-cada uno lucha contra sus propios enemigos, a la vez y en el mismo sitio); solo funciona con la versión
-**1.0.3889** de GTA V Legacy (no con GTA V Enhanced); los trabajos de Online son recreaciones, no los
-originales de Rockstar.
+**Known limits:**
+- NPCs aren't synced between players: in Survival and in missions everyone fights their own enemies, at the same
+  time and in the same place.
+- It only works with GTA V Legacy **1.0.3889**, not with GTA V Enhanced.
+- Online's jobs are recreations, not Rockstar's originals.
 
-## GodEye: la partida vista (y jugada) desde el navegador
+## GodEye: the session seen (and played) from a browser
 
-<img src="docs/img/godeye-hack.png" alt="Minijuego de hackeo de GodEye con Zorua" width="420" align="right">
+<img src="docs/img/godeye-hack.png" alt="GodEye's hacking minigame with Zorua" width="420" align="right">
 
-**GodEye** es una web que corre en el PC servidor junto a `LocalOnlineServer.exe`. Sirve para ver la partida en
-directo y para jugar contra los que están en GTA sin tener GTA:
+**GodEye** is a web app on the server PC, next to `LocalOnlineServer.exe`. With it you watch the session live, and
+you play against the people in GTA without GTA:
 
-- **Mapa en directo:** jugadores, coches, velocidad, vida, estrellas y zona.
-  - Mapa 2D.
-  - Mapa 3D real, hecho en tu PC con *tus* archivos del juego, con Cayo Perico y las islas propias. Sigue la hora,
-    el tiempo y los apagones de la partida.
-- **Cámaras:** un segundo GTA en el PC servidor hace de cámara.
-  - Tipos: CCTV, seguir, helicóptero, dron, cinemática…
-  - Vídeo en directo: WebRTC en la LAN y HLS desde Internet.
-- **Juego asimétrico por roles:**
-  - HACKER: semáforos y apagones.
-  - DISPATCH: estrellas, alertas y controles policiales.
-  - OPERATOR: clima, hora, cámaras y eventos.
+- **Live map:** players, cars, speed, health, wanted stars and zone.
+  - A 2D map.
+  - The real 3D map, built on your PC from *your* game files, with Cayo Perico and our own islands. It follows the
+    session's clock, weather and blackouts.
+- **Cameras:** a second GTA on the server PC acts as a camera.
+  - CCTV, follow, helicopter, drone, cinematic…
+  - Live video: WebRTC on the LAN, HLS from the internet.
+- **An asymmetric game by roles:**
+  - HACKER: traffic lights and blackouts.
+  - DISPATCH: wanted stars, police alerts and roadblocks.
+  - OPERATOR: weather, time, cameras and events.
 - **Hack Credits:**
-  - Las acciones se pagan con créditos. Se ganan mirando, con un bonus diario y con recompensas.
-  - Las acciones gordas piden antes un **minijuego de hackeo** que comprueba el servidor.
-  - También hay límites diarios, cooldowns y eventos: tormenta eléctrica, atasco, persecución y happy hour.
-- **Seguridad:**
-  - Login con roles, CSRF y límites por usuario.
-  - Registro de todas las acciones.
-  - El navegador nunca habla con GTA: todo pasa por el servidor.
-- **`GodEye.exe`:** la abre y la cierra desde el escritorio, en la tarjeta gráfica que elijas.
-- **Acceso desde fuera (opcional):** dirección pública con Cloudflare Tunnel.
-- **Mascota:** Zorua, con sprites de la comunidad (ver créditos abajo).
+  - Actions cost credits, earned by watching, with a daily bonus and with bounties.
+  - The big hacks first need a **hacking minigame**, checked by the server.
+  - Daily limits, cooldowns, and events: electrical storm, gridlock, manhunt, happy hour.
+- **Accounts and a control panel:**
+  - Everyone makes their own account, in the browser or in the GodEye app, and picks a side.
+  - The first account on a fresh install is the **ADMIN**, the server's owner. The ADMIN's **control panel** shows
+    the PC (CPU, memory, graphics cards, disks), the game server, GodEye, accounts and roles, settings, credits and
+    logs.
+- **Security:**
+  - Logins with roles, CSRF and per-user limits.
+  - Every action is logged.
+  - The browser never talks to GTA: everything goes through the server.
+- **`GodEye.exe`:** opens and closes it from the desktop, on the graphics card you choose.
+- **Remote access (optional):** a public address through Cloudflare Tunnel.
+- **Mascot:** Zorua, as community sprites (credits below).
 
-Cómo montarla: [godeye/README.md](godeye/README.md) · diseño: [docs/godeye.md](docs/godeye.md).
+Setting it up: [godeye/README.md](godeye/README.md) · design: [docs/godeye.md](docs/godeye.md).
 
 <br clear="right">
 
-## Inicio rápido
+## Quick start
 
-1. Descarga la última [release](../../releases): `GTALocalOnline-Server-*.zip` y `GTALocalOnline-Client-*.zip`.
-2. **Servidor (un PC Windows):** descomprime, copia `server.example.toml` a `server.toml`, abre el
-   cortafuegos con `setup-firewall.ps1` y ejecuta `start-server.bat`. Apunta su IP (`ipconfig`).
-3. **Cada PC que juega:** instala [ScriptHookV](http://www.dev-c.com/gtav/scripthookv/) para la versión
-   3889, copia `LocalOnline.asi`, `GoriOnline.asi` y la carpeta `LocalOnline\` a la carpeta de GTA V, y pon
-   la IP del servidor y tu nombre en `LocalOnline\client.toml`.
-4. En Linux/Steam Deck añade en Steam las opciones de lanzamiento
+1. Download the latest [release](../../releases): `GTALocalOnline-Server-*.zip` and `GTALocalOnline-Client-*.zip`.
+2. **Server (one Windows PC):**
+   - unzip it, and copy `server.example.toml` to `server.toml`;
+   - open the firewall with `setup-firewall.ps1`;
+   - run `start-server.bat`, and note its IP (`ipconfig`).
+3. **Every PC that plays:**
+   - install [ScriptHookV](http://www.dev-c.com/gtav/scripthookv/) for version 3889;
+   - copy `LocalOnline.asi`, `GoriOnline.asi` and the `LocalOnline\` folder into the GTA V folder;
+   - put the server's IP and your name in `LocalOnline\client.toml`.
+4. On Linux / Steam Deck, add these launch options in Steam:
    `WINEDLLOVERRIDES="dinput8,xinput1_4=n,b" %command%`.
-5. Abre GTA V y elige **LOCAL ONLINE** en la pantalla de inicio.
+5. Start GTA V and pick **LOCAL ONLINE** on the start screen.
 
-Todos los detalles, capturas de qué esperar y solución de problemas: **[docs/GUIA-INSTALACION.md](docs/GUIA-INSTALACION.md)**.
+Every detail, what to expect and troubleshooting: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
-## Compilar desde el código
+## Building from source
 
-Necesitas Windows con [w64devkit](https://github.com/skeeto/w64devkit) (MinGW g++ 14 o superior), Python 3 y
-Git Bash (o la propia shell de w64devkit):
+You need Windows with:
+- [w64devkit](https://github.com/skeeto/w64devkit) (MinGW g++ 14 or newer);
+- Python 3;
+- Git Bash (or w64devkit's own shell).
 
 ```bash
-export W64DEVKIT=/c/ruta/a/w64devkit/bin   # o pon su bin/ en el PATH
+export W64DEVKIT=/c/path/to/w64devkit/bin   # or put its bin/ on the PATH
 ./build.sh          # tests + LocalOnline.asi + LocalOnlineServer.exe + netprobe.exe
 ./build.sh gori     # GoriOnline.asi
+./build.sh godeye   # GodEye.exe
 ```
 
-Los binarios quedan en `build/`. No hace falta Visual Studio ni el SDK de ScriptHookV: los `.asi` enlazan
-ScriptHookV en tiempo de ejecución con `GetProcAddress`.
+The binaries end up in `build/`. Neither Visual Studio nor the ScriptHookV SDK is needed: the `.asi` files link
+ScriptHookV at run time with `GetProcAddress`.
 
-## Estructura
+## Layout
 
 ```
 client/gta-plugin/   LocalOnline.asi (C++20)
-client/linux/        deploy.sh: copia el cliente a un PC Linux por SSH
-gori-online/         GoriOnline.asi (C++20) y sus generadores de datos (tools/)
-server/              LocalOnlineServer.exe, esquema SQLite y scripts de Windows
-shared/              protocolo de red y código común cliente/servidor
-config/              server.example.toml y client.example.toml
-tests/               tests unitarios (se ejecutan en cada ./build.sh)
-tools/netprobe/      cliente de prueba de red
-godeye/              GodEye: backend (Node.js), web, lanzador GodEye.exe, Worker de Cloudflare, sprites de Zorua
-tools/godeye-map/    genera los mapas 2D/3D de GodEye desde tus archivos del juego (no se publican)
-docs/                guía de instalación y documentación técnica
-third_party/         ENet y SQLite (ver THIRD_PARTY.md)
+client/linux/        deploy.sh: copies the client to a Linux PC over SSH
+gori-online/         GoriOnline.asi (C++20) and its data generators (tools/)
+server/              LocalOnlineServer.exe, the SQLite schema and Windows scripts
+shared/              the network protocol and code shared by client and server
+config/              server.example.toml and client.example.toml
+tests/               unit tests (they run on every ./build.sh)
+tools/netprobe/      the network test client
+godeye/              GodEye: backend (Node.js), web app, GodEye.exe launcher, Cloudflare Worker, Zorua sprites
+tools/godeye-map/    makes GodEye's 2D/3D maps from your game files (never published)
+docs/                the installation guide and the technical docs
+third_party/         ENet and SQLite (see THIRD_PARTY.md)
 ```
 
-Documentación técnica: [arquitectura](docs/architecture.md), [protocolo](docs/protocol.md),
-[decisiones](docs/decisions.md), [multijugador y contenido](docs/multiplayer.md), [Proton](docs/proton.md),
-[problemas conocidos](docs/troubleshooting.md).
+Technical docs: [architecture](docs/architecture.md), [protocol](docs/protocol.md), [decisions](docs/decisions.md),
+[multiplayer and content](docs/multiplayer.md), [Proton](docs/proton.md), [known problems](docs/troubleshooting.md).
 
-## English summary
+## License
 
-A private, LAN-only "GTA Online" for GTA V Legacy (1.0.3889) story mode: a Windows game server
-(`LocalOnlineServer.exe`), a ScriptHookV client plugin (`LocalOnline.asi`) and a content mod
-(`GoriOnline.asi`) that recreates GTA Online's freemode, properties, businesses, heists, races,
-deathmatches, survivals and contact missions. GodEye, a web app on the server PC, shows the session live
-(2D and 3D maps, camera clients with live video) and lets people without GTA play against the others as
-hackers, police dispatch or operators, with credits and hacking minigames. Download the release, run the server, drop the two `.asi`
-files plus ScriptHookV into each game folder and point `LocalOnline\client.toml` at the server. The full
-step-by-step guide is in Spanish: [docs/GUIA-INSTALACION.md](docs/GUIA-INSTALACION.md). No Rockstar files
-are included; you need your own copy of the game.
-
-## Licencia
-
-[MIT](LICENSE). ENet (MIT), SQLite (dominio público) y three.js (MIT) mantienen sus licencias: ver
+[MIT](LICENSE). ENet (MIT), SQLite (public domain) and three.js (MIT) keep their own licenses: see
 [THIRD_PARTY.md](THIRD_PARTY.md).
 
-Los sprites de Zorua de `godeye/` son de la comunidad de
-[PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab), de **baronessfaron**, **Emmuffin** y
-**MilesFarber**. Su licencia es [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): uso no comercial,
-citando a sus autores. Zorua es © Nintendo / Creatures / GAME FREAK; GodEye es un proyecto de fans sin ánimo de
-lucro.
-GTA V y sus marcas pertenecen a Rockstar Games / Take-Two; este proyecto no está afiliado a ellos.
+GodEye's Zorua sprites in `godeye/` are community sprites from
+[PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab), by **baronessfaron**, **Emmuffin** and
+**MilesFarber**.
+- Their license is [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): non-commercial use, crediting the
+  authors.
+- Zorua is © Nintendo / Creatures / GAME FREAK, and GodEye is a non-commercial fan project.
+
+GTA V and its trademarks belong to Rockstar Games / Take-Two; this project is not affiliated with them.

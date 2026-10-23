@@ -285,6 +285,30 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
     board;
   - 21 unit tests pass.
 
+## Accounts and the control panel
+
+- **Accounts** (`auth.ts`):
+  - `POST /api/register {name, password, role}` makes an account and logs it in.
+  - With no account yet, the first one must come from the LAN (not the public address) and is the ADMIN, whatever
+    role it asked for.
+  - After that it needs sign-up to be open, and a role from `settings.signupRoles`.
+  - 3 accounts an hour per address, 1,000 at most.
+  - `/api/me` tells the page `setup` (no account yet, LAN), `signup` (the roles offered) and `panel` (ADMIN).
+- **Settings** (`panel.ts` `SettingsStore`, `settings.json`): `registration`, `signupRoles` and `publicMap3d`, which
+  start from godeye.json.
+- **Control panel** (ADMIN):
+  - `GET /api/panel`: the PC (CPU from core times, memory, nvidia-smi every 3 s, disk space), the game server,
+    GodEye, settings, accounts, credits and the latest actions.
+  - `GET /api/panel/logs?which=godeye|server`: the last 250 lines.
+  - `POST /api/panel/user {op: create|role|password|delete}`. A role change reaches open sessions. A new password or
+    a deletion ends them. The last ADMIN stays.
+  - `POST /api/panel/settings`.
+- **Verified 2026-10-23:**
+  - `panel_e2e.mjs`: 24 of 24.
+  - A fresh install: the public address is refused; the first LAN account becomes ADMIN.
+  - 27 unit tests.
+  - The panel showed both RTX 5060 Ti cards, the CPU and the memory live.
+
 ## Security baseline
 
 - Accounts and roles: HACKER / DISPATCH / OPERATOR / ADMIN.

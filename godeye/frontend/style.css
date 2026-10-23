@@ -71,6 +71,70 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 var(--sans); di
 .meter .ar { background: var(--accent); }
 .barrow span:last-child { font-family: var(--mono); text-align: right; color: var(--text); }
 
+/* ---- accounts: log in or sign up */
+.atabs { display: flex; gap: 4px; margin: 0 0 12px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; }
+.atabs button { flex: 1; border: 0 !important; background: none !important; color: var(--muted) !important; padding: 6px 8px !important; border-radius: 7px !important; }
+.atabs button.on { background: var(--panel-2) !important; color: var(--accent) !important; }
+.setup { margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--warn); border-radius: 8px; color: var(--warn); font-size: 12.5px; }
+.setup b { color: var(--text); }
+.rolepick { border: 0; padding: 0; margin: 0 0 8px; }
+.rolepick legend { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.dlg label.rolecard { flex-direction: row; align-items: center; gap: 10px; padding: 7px 9px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 9px; cursor: pointer; color: var(--text); }
+.rolecard:has(input:checked) { border-color: var(--accent); background: var(--panel-2); }
+.rolecard input { margin: 0; }
+.rolecard span { display: flex; flex-direction: column; gap: 1px; }
+.rolecard small { color: var(--muted); font-size: 11.5px; }
+.dlg .zrole { width: 30px; height: 30px; }
+
+/* ---- the control panel (panel.js), over the map */
+.panelview { position: absolute; inset: 0; z-index: 9; overflow: auto; background: rgba(7, 11, 16, .97); padding: 14px 16px 24px; }
+.phead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.phead h2 { margin: 0; flex: 1; font: 700 14px var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--accent); }
+.phead .zport { width: 36px; height: 36px; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.pcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.pcard.pwide { grid-column: 1 / -1; }
+.pcard h3 { margin: 0 0 10px; font: 600 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+.pnote { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.pm { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 6px; }
+.pm span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm b { font: 500 11.5px var(--mono); }
+.pm progress { width: 100%; height: 8px; appearance: none; border: 0; border-radius: 4px; background: #1b2733; overflow: hidden; }
+.pm progress::-webkit-progress-bar { background: #1b2733; border-radius: 4px; }
+.pm progress::-webkit-progress-value { background: var(--accent); border-radius: 4px; }
+.pm progress::-moz-progress-bar { background: var(--accent); }
+.pstate { margin: 0 0 8px; font-weight: 600; }
+.pstate.ok { color: var(--ok); } .pstate.bad { color: var(--bad); } .pstate.warn { color: var(--warn); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pdl { display: grid; grid-template-columns: 100px 1fr; gap: 4px 10px; margin: 0; font-size: 12.5px; }
+.pdl dt { color: var(--muted); } .pdl dd { margin: 0; }
+.ptable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ptable th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.ptable td { padding: 5px 6px; border-bottom: 1px solid #16212c; vertical-align: middle; }
+.ptable .pname { display: flex; align-items: center; gap: 8px; }
+.ptable .zrole { width: 24px; height: 24px; }
+.ptable select, .pform select, .pinline input, .pinline select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-size: 12.5px; }
+.pact { white-space: nowrap; text-align: right; }
+.panelview button.ghost { padding: 4px 9px; font-size: 12px; margin-left: 4px; }
+.panelview button.danger:hover { border-color: var(--bad); color: var(--bad); }
+.pinline { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.pinline input { flex: 1; min-width: 120px; }
+.pform { display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; color: var(--muted); }
+.pform label { display: flex; flex-direction: column; gap: 4px; }
+.pform fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: flex; gap: 12px; flex-wrap: wrap; }
+.pform fieldset label { flex-direction: row; align-items: center; gap: 5px; color: var(--text); }
+.pform button { align-self: flex-start; margin-left: 0 !important; }
+.pledger { max-height: 180px; overflow: auto; font-size: 11.5px; display: flex; flex-direction: column; gap: 2px; }
+.pledger div { display: grid; grid-template-columns: 92px 1fr 60px 1fr; gap: 6px; }
+.pledger time { color: var(--muted); font-family: var(--mono); }
+.pledger .pos { color: var(--ok); text-align: right; font-family: var(--mono); } .pledger .neg { color: var(--bad); text-align: right; font-family: var(--mono); }
+.pledger i { color: var(--muted); font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ltabs { display: inline-flex; gap: 4px; margin-left: auto; }
+.ltabs button { border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 6px; padding: 2px 8px; font: 500 11px var(--mono); cursor: pointer; }
+.ltabs button.on { color: var(--accent); border-color: var(--accent); }
+.plog { margin: 0; max-height: 320px; overflow: auto; background: #04070b; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 11px/1.45 var(--mono); color: #9fb3c6; white-space: pre-wrap; word-break: break-all; }
+#pAudit { padding: 0; max-height: 260px; overflow: auto; }
+@media (max-width: 760px) { .pm { grid-template-columns: 80px 1fr auto; } .ptable th:nth-child(3), .ptable td:nth-child(3) { display: none; } }
+
 /* ---- Zorua (zorua.js): pixel art, never smoothed */
 .zport { width: 40px; height: 40px; flex: none; image-rendering: pixelated; border-radius: 8px; }
 .zrole { width: 30px; height: 30px; flex: none; border-radius: 50%; border: 1px solid var(--line); }
