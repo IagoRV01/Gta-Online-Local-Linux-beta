@@ -18,3 +18,5 @@ service_id = "<vpc service id>"
 # OFF_SPRITE_URL = "https://example.com/sleeping.png"
 # OFF_SPRITE_FRAMES = "2"
 # OFF_SPRITE_CREDIT = "Sprite by ... (license)"
+# Sites whose pages may read /__status (is GodEye open?), comma-separated:
+# STATUS_ORIGINS = "https://example.com"

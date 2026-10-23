@@ -20,9 +20,25 @@ p{color:var(--muted);margin:0}${css}</style></head><body><main>${sprite}<h1>GOD 
 <p>GodEye is closed right now. It is on while its owner has it open; try again later.</p>${sprite && env.OFF_SPRITE_CREDIT ? `<small>${esc(env.OFF_SPRITE_CREDIT)}</small>` : ""}</main></body></html>`;
 }
 
+// /__status: whether GodEye is open, for a button on another site (e.g. a "GodEye" link with a live dot). Only the
+// origins in STATUS_ORIGINS (wrangler.toml [vars], comma-separated) may read it from a page.
+async function status(req, env) {
+  const origin = req.headers.get("origin") ?? "";
+  const allowed = String(env.STATUS_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const headers = { "content-type": "application/json", "cache-control": "no-store" };
+  if (allowed.includes(origin)) { headers["access-control-allow-origin"] = origin; headers["vary"] = "origin"; }
+  let open = false, game = false;
+  try {
+    const r = await env.GODEYE.fetch(new Request("http://godeye/api/health", { headers: { "x-godeye-public": "1" } }));
+    if (r.ok) { const h = await r.json(); open = !!h.ok; game = !!h.server; }
+  } catch { /* closed */ }
+  return new Response(JSON.stringify({ open, game }), { headers });
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (url.pathname === "/__status" && req.method === "GET") return status(req, env);
     const headers = new Headers(req.headers);
     for (const h of ["x-godeye-public", "x-forwarded-host", "x-forwarded-proto"]) headers.delete(h);   // never trust a client's
     headers.set("x-godeye-public", "1");
