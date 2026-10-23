@@ -57,8 +57,18 @@ GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1
    ```
    dotnet bin\Release\net8.0\GodEyeMap.dll "C:\...\Grand Theft Auto V" map3d ..\..\godeye\data\map3d [dlc.rpf...] [ymap folder]
    ```
-   - It takes about 5 minutes and writes about 1 GB, never committed.
+   - It takes about 5 minutes and writes about 1.7 GB, never committed.
    - The 3D button on the page uses it.
+8. **Make the satellite 2D map**, from the 3D map, after step 7 (Node.js, Edge or Chrome, Python with Pillow):
+   ```
+   node tools/godeye-sat/render.mjs      (run it again until it says "done")
+   python tools/godeye-sat/tiles.py
+   ```
+   - It sees the 3D map straight down at noon, 1 m a pixel, islands included. Nothing below sea level is drawn,
+     and lakes get their water.
+   - It writes 256 px WebP tiles from 1 to 32 m a pixel into `godeye/data/sat`: about 1,600 tiles, 13 MB, never
+     committed.
+   - The 2D map then has a **Satellite** layer, on by default, with the road network as an option on top.
 
 `npm test`, or `node --test "test/*.test.ts"` in `backend/`, runs the unit tests.
 

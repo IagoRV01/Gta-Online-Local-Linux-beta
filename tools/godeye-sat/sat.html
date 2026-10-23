@@ -1,0 +1,190 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>GodEye satellite renderer</title>
+<canvas id="c" width="1024" height="1024"></canvas>
+<script type="module">
+// Renders GodEye's 2D satellite map: the 3D map's own tiles (made from the player's game files by tools/godeye-map),
+// seen straight down at noon, one 1024 m block at a time. render.mjs drives it and keeps the PNGs.
+import * as THREE from "/three.module.min.js";
+
+const HALF = new Float32Array(65536);
+for (let h = 0; h < 65536; h++) {
+  const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 31, f = h & 1023;
+  HALF[h] = e === 0 ? s * f * 2 ** -24 : e === 31 ? (f ? NaN : s * Infinity) : s * (1 + f / 1024) * 2 ** (e - 15);
+}
+
+function decodeBC1(buf) {
+  const dv = new DataView(buf), w = dv.getUint16(0, true), h = dv.getUint16(2, true), out = new Uint8Array(w * h * 4);
+  const bw = (w + 3) >> 2, bh = (h + 3) >> 2, pal = new Uint8Array(16);
+  for (let by = 0; by < bh; by++)
+    for (let bx = 0; bx < bw; bx++) {
+      const o = 8 + (by * bw + bx) * 8, c0 = dv.getUint16(o, true), c1 = dv.getUint16(o + 2, true), bits = dv.getUint32(o + 4, true);
+      const r0 = ((c0 >> 11) & 31) * 255 / 31, g0 = ((c0 >> 5) & 63) * 255 / 63, b0 = (c0 & 31) * 255 / 31;
+      const r1 = ((c1 >> 11) & 31) * 255 / 31, g1 = ((c1 >> 5) & 63) * 255 / 63, b1 = (c1 & 31) * 255 / 31;
+      pal.set([r0, g0, b0, 255, r1, g1, b1, 255]);
+      if (c0 > c1) pal.set([(2 * r0 + r1) / 3, (2 * g0 + g1) / 3, (2 * b0 + b1) / 3, 255, (r0 + 2 * r1) / 3, (g0 + 2 * g1) / 3, (b0 + 2 * b1) / 3, 255], 8);
+      else pal.set([(r0 + r1) / 2, (g0 + g1) / 2, (b0 + b1) / 2, 255, 0, 0, 0, 0], 8);
+      for (let k = 0; k < 16; k++) {
+        const x = bx * 4 + (k & 3), y = by * 4 + (k >> 2);
+        if (x >= w || y >= h) continue;
+        const p = ((bits >>> (k * 2)) & 3) * 4, q = (y * w + x) * 4;
+        out[q] = pal[p]; out[q + 1] = pal[p + 1]; out[q + 2] = pal[p + 2]; out[q + 3] = pal[p + 3];
+      }
+    }
+  return { w, h, data: out };
+}
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("c"), antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.setClearColor(0x000000, 0);   // the sea stays transparent: the page draws its own
+// nothing below sea level: seabeds (the sand square under Isla Neón, Cayo's shallows) would show as land
+renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, 1), -0.3)];
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xeaf3ff, 0x6b5a45, 1.45));
+const sun = new THREE.DirectionalLight(0xfff2dd, 1.9);   // a high afternoon sun from the south-west: relief, short shadows
+sun.position.set(-2500, -3500, 9000);
+scene.add(sun);
+const camera = new THREE.OrthographicCamera(-512, 512, 512, -512, 1, 20000);
+camera.up.set(0, 1, 0);
+
+const texCache = new Map(), materials = new Map();
+const tiles = new Map();   // "x,y" -> {groups: [], packs}
+let index = null;
+
+function texture(key) {
+  let t = texCache.get(key);
+  if (!t) { t = new THREE.DataTexture(new Uint8Array([150, 150, 150, 255]), 1, 1); t.needsUpdate = true; texCache.set(key, t); }
+  return t;
+}
+function fill(t, buf) {
+  const { w, h, data } = decodeBC1(buf);
+  t.image = { data, width: w, height: h };
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.needsUpdate = true; t.userData.filled = true;
+}
+function material(key, kind) {
+  const k = key + "|" + kind;
+  let m = materials.get(k);
+  if (m) return m;
+  if (key === "@water" || kind === "water") m = new THREE.MeshLambertMaterial({ color: 0x2f7aa6, side: THREE.DoubleSide });
+  else if (kind === "emit") m = null;   // night window lights: nothing by day
+  else if (kind === "glass") m = new THREE.MeshLambertMaterial({ color: 0x8aa7b8, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+  else {
+    m = new THREE.MeshLambertMaterial({ color: key ? 0xffffff : 0x9a9a92, side: THREE.DoubleSide });
+    if (key) m.map = texture(key);
+    if (kind === "cut" || kind === "tree" || kind === "decal") m.alphaTest = 0.5;
+    if (kind === "decal") { m.polygonOffset = true; m.polygonOffsetFactor = -2; }
+  }
+  materials.set(k, m);
+  return m;
+}
+
+function parseTile(buf) {
+  const dv = new DataView(buf), hlen = dv.getUint32(4, true);
+  const head = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 8, hlen)));
+  const vOff = 8 + hlen, nv = head.batches.reduce((a, b) => Math.max(a, b.v0 + b.vn), 0), ni = head.batches.reduce((a, b) => Math.max(a, b.i0 + b.in), 0);
+  const raw16 = new Uint16Array(buf, vOff, nv * 7), raw8 = new Int8Array(buf, vOff, nv * 14);
+  const pos = new Uint16Array(nv * 3), uv = new Float32Array(nv * 2), nrm = new Float32Array(nv * 3), kz = head.scale[2] / head.scale[0];
+  for (let i = 0; i < nv; i++) {
+    const o = i * 7;
+    pos[i * 3] = raw16[o]; pos[i * 3 + 1] = raw16[o + 1]; pos[i * 3 + 2] = raw16[o + 2];
+    uv[i * 2] = HALF[raw16[o + 3]]; uv[i * 2 + 1] = HALF[raw16[o + 4]];
+    const nx = raw8[i * 14 + 10], ny = raw8[i * 14 + 11], nz = raw8[i * 14 + 12] * kz, l = Math.hypot(nx, ny, nz) || 1;
+    nrm[i * 3] = nx / l; nrm[i * 3 + 1] = ny / l; nrm[i * 3 + 2] = nz / l;
+  }
+  let iOff = vOff + nv * 14;
+  if (iOff % 4) iOff += 4 - (iOff % 4);
+  const idx = new Uint16Array(buf, iOff, ni);
+  const group = new THREE.Group();
+  group.position.set(...head.origin); group.scale.set(...head.scale); group.updateMatrixWorld(true);
+  const layer1 = [];
+  for (const b of head.batches) {
+    const mat = material(b.tex, b.kind ?? (b.alpha ? "cut" : ""));
+    if (!mat) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos.subarray(b.v0 * 3, (b.v0 + b.vn) * 3), 3, true));
+    g.setAttribute("uv", new THREE.BufferAttribute(uv.subarray(b.v0 * 2, (b.v0 + b.vn) * 2), 2));
+    g.setAttribute("normal", new THREE.BufferAttribute(nrm.subarray(b.v0 * 3, (b.v0 + b.vn) * 3), 3));
+    g.setIndex(new THREE.BufferAttribute(idx.slice(b.i0, b.i0 + b.in), 1));
+    g.computeBoundingSphere();
+    const mesh = new THREE.Mesh(g, mat);
+    if (b.kind === "glass") mesh.renderOrder = 2;
+    group.add(mesh);
+    if (b.layer === 1) layer1.push(mesh);
+  }
+  return { group, layer1 };
+}
+
+async function bin(url) { const r = await fetch(url); return r.ok ? r.arrayBuffer() : null; }
+async function pack(url) {
+  const buf = await bin(url);
+  if (!buf) return;
+  const dv = new DataView(buf), n = dv.getUint32(4, true);
+  let off = 8 + n * 8;
+  for (let i = 0; i < n; i++) {
+    const key = dv.getUint32(8 + i * 8, true).toString(16).padStart(8, "0"), len = dv.getUint32(12 + i * 8, true);
+    const t = texture(key);
+    if (!t.userData.filled) fill(t, buf.slice(off, off + len));
+    off += len;
+  }
+}
+
+// a tile at its most detailed: the near models replace the far file's SLOD1 ones; trees included
+async function loadTile(info) {
+  const key = info.x + "," + info.y;
+  if (tiles.has(key)) return;
+  const entry = { groups: [] };
+  tiles.set(key, entry);
+  const base = `/map3d/t_${info.x}_${info.y}`;
+  const far = await bin(base + ".far.bin");
+  const parts = [];
+  if (far) parts.push(parseTile(far));
+  if (info.tree) { const b = await bin(base + ".tree.bin"); if (b) parts.push(parseTile(b)); }
+  let near = null;
+  if (info.near) { const b = await bin(base + ".near.bin"); if (b) near = parseTile(b); }
+  await pack(base + ".far.tex");
+  if (info.ntex) await pack(base + ".near.tex");
+  if (near) { for (const p of parts) for (const m of p.layer1) m.visible = false; parts.push(near); }
+  for (const p of parts) { scene.add(p.group); entry.groups.push(p.group); }
+}
+function unloadTile(key) {
+  const e = tiles.get(key);
+  if (!e) return;
+  for (const g of e.groups) { g.removeFromParent(); g.traverse((o) => o.geometry?.dispose()); }
+  tiles.delete(key);
+}
+
+// render.mjs calls these
+window.sat = {
+  async init() {
+    index = await (await fetch("/map3d/index.json")).json();
+    // lakes and reservoirs above sea level (water.xml): their surfaces hide the lake beds, as in the game
+    const lake = new THREE.MeshLambertMaterial({ color: 0x2c6f96 });
+    for (const [x0, y0, x1, y1, z] of index.water) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, y1 - y0), lake);
+      m.position.set((x0 + x1) / 2, (y0 + y1) / 2, z);
+      scene.add(m);
+    }
+    return { tiles: index.tiles.length, built: index.built, lakes: index.water.length };
+  },
+  cells() { return index.tiles.map((t) => [t.x, t.y]); },
+  // block (bx, by): world x bx*1024..+1024, y by*1024..+1024, 1 m a pixel; tiles within one cell around are loaded
+  async render(bx, by) {
+    const want = index.tiles.filter((t) => Math.abs(t.x - bx) <= 1 && Math.abs(t.y - by) <= 1);
+    const keep = new Set(want.map((t) => t.x + "," + t.y));
+    for (const k of [...tiles.keys()]) if (!keep.has(k)) unloadTile(k);
+    for (const t of want) await loadTile(t);
+    const cx = bx * 1024 + 512, cy = by * 1024 + 512;
+    camera.position.set(cx, cy, 6000);
+    camera.lookAt(cx, cy, 0);
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    return document.getElementById("c").toDataURL("image/png");
+  },
+};
+window.satReady = true;
+</script>

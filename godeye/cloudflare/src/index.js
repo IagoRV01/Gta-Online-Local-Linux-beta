@@ -38,7 +38,7 @@ async function status(req, env) {
 // The 3D map's tiles and texture packs carry the export's stamp (?v=) and never change, so Cloudflare keeps them at
 // the edge: after the first visit they come from Cloudflare instead of the home connection. Only while GodEye says the
 // 3D map is open to everyone (asked at most once a minute), so closing it again also closes the cache.
-const EDGE = /^\/data\/map3d\/(?!index\.json)[A-Za-z0-9_.\/-]+$/;
+const EDGE = /^\/data\/(map3d|sat)\/(?!index\.json)[A-Za-z0-9_.\/-]+$/;
 let policy = { open: false, at: 0 };
 async function map3dOpen(env) {
   if (Date.now() - policy.at < 60000) return policy.open;

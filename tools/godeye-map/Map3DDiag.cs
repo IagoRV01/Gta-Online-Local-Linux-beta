@@ -90,3 +90,32 @@ static partial class Map3D
 
     static YmapFile Load(string path) { var y = new YmapFile(); y.Load(File.ReadAllBytes(path)); return y; }
 }
+
+// GodEyeMap <gta> findytd <name part>: every texture dictionary whose path contains that text, with its textures
+static partial class Map3D
+{
+    public static int FindYtd(string gta, string part)
+    {
+        int n = 0;
+        foreach (var rel in GameRpfs(gta))
+        {
+            RpfFile rpf;
+            try { rpf = new RpfFile(Path.Combine(gta, rel), rel); rpf.ScanStructure(null, null); } catch { continue; }
+            foreach (var e in AllEntriesDeep(rpf).OfType<RpfFileEntry>())
+            {
+                if (!e.Path.EndsWith(".ytd", StringComparison.OrdinalIgnoreCase) || e.Path.IndexOf(part, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (++n > 400) continue;
+                string texs = "";
+                try
+                {
+                    var y = RpfFile.GetFile<YtdFile>(e);
+                    texs = string.Join(" ", (y?.TextureDict?.Textures?.data_items ?? Array.Empty<Texture>()).Take(12).Select(t => $"{t.Name}:{t.Width}x{t.Height}:{t.Format}"));
+                }
+                catch (Exception ex) { texs = "(" + ex.Message + ")"; }
+                Console.WriteLine($"{e.Path}  {texs}");
+            }
+        }
+        Console.WriteLine($"{n} dictionaries");
+        return 0;
+    }
+}

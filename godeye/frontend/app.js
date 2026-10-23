@@ -80,13 +80,62 @@ const ROAD_STYLE = [   // dirt, street, main, motorway: colour, width at 1 px/m,
   ["#c98a45", 8, 1.3, 0.0],
 ];
 
+// ---- the satellite map (tools/godeye-sat): the game's own models seen from above, in 256 px tiles of 1 to 32 m a
+// pixel. The sea is transparent; tiles load as the view needs them, a coarser level fills in meanwhile.
+let satIndex = null;
+const satImgs = new Map();   // "L/tx_ty" -> Image
+(async () => {
+  try {
+    const r = await fetch("data/sat/index.json", { cache: "no-cache" });
+    if (!r.ok) return;
+    const j = await r.json();
+    satIndex = { ...j, sets: j.tiles.map((l) => new Set(l)) };
+    $("lySatRow").hidden = false;
+    $("lyRoads").checked = false;   // the picture shows the roads; the drawn network is there to switch on
+    baseDirty = true;
+  } catch { /* no satellite map: the terrain shading stays */ }
+})();
+function satTile(L, tx, ty) {
+  const key = `${L}/${tx}_${ty}`;
+  let img = satImgs.get(key);
+  if (!img) {
+    img = new Image();
+    img.onload = () => { baseDirty = true; };
+    img.src = `data/sat/${key}.webp?v=${satIndex.built}`;
+    satImgs.set(key, img);
+    if (satImgs.size > 900) satImgs.delete(satImgs.keys().next().value);   // forget the oldest
+  }
+  return img.complete && img.naturalWidth ? img : null;
+}
+function drawSat(c) {
+  const s = view.s, want = Math.log2(1 / (s * view.dpr));
+  const L = Math.max(0, Math.min(satIndex.levels - 1, Math.floor(want)));
+  const [x0, y1] = toWorld(0, 0), [x1, y0] = toWorld(view.w, view.h);
+  c.imageSmoothingEnabled = true;
+  c.imageSmoothingQuality = "high";
+  for (const lv of [...new Set([Math.min(satIndex.levels - 1, L + 2), L])]) {   // coarse first, then the sharp one
+    const S = T_SAT * 2 ** lv;
+    for (let tx = Math.floor(x0 / S); tx <= Math.floor(x1 / S); tx++)
+      for (let ty = Math.floor(y0 / S); ty <= Math.floor(y1 / S); ty++) {
+        if (!satIndex.sets[lv].has(`${tx}_${ty}`)) continue;
+        const img = satTile(lv, tx, ty);
+        if (!img) continue;
+        const [sx, sy] = toScreen(tx * S, (ty + 1) * S);
+        c.drawImage(img, sx, sy, S * s + 0.5, S * s + 0.5);   // half a pixel over: no seams between tiles
+      }
+  }
+}
+const T_SAT = 256;
+
 function drawBase() {
   const c = bctx, s = view.s;
   if (view.w < 1 || view.h < 1 || !(s > 0)) return;   // a hidden pane has no size yet: nothing to draw
   c.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
-  c.fillStyle = "#0a1a28";
+  const sat = satIndex && $("lySat").checked;
+  c.fillStyle = sat ? "#0e4a6b" : "#0a1a28";   // with the satellite map, the sea is sea blue
   c.fillRect(0, 0, view.w, view.h);
-  if (map && terrain && $("lyTerrain").checked) {
+  if (sat) drawSat(c);
+  else if (map && terrain && $("lyTerrain").checked) {
     const g = map.grid;
     const [sx, sy] = toScreen(g.x0, g.y0 + g.h * g.cell);
     c.imageSmoothingEnabled = true;
@@ -378,7 +427,7 @@ function zoomAt(sx, sy, f) {
 $("zin").onclick = () => zoomAt(view.w / 2, view.h / 2, 1.6);
 $("zout").onclick = () => zoomAt(view.w / 2, view.h / 2, 1 / 1.6);
 $("fit").onclick = fitAll;
-for (const id of ["lyTerrain", "lyRoads", "lyZones", "lyLights"]) $(id).onchange = () => { baseDirty = true; };
+for (const id of ["lySat", "lyTerrain", "lyRoads", "lyZones", "lyLights"]) $(id).onchange = () => { baseDirty = true; };
 
 function fitAll() {
   follow = null;

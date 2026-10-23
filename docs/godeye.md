@@ -199,6 +199,25 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   - Overview of Los Santos: 44 far tiles, 5.8 M triangles, 3,400 draw calls.
   - Close to Alex at Hawick: 6 near tiles swapped in, 3 M triangles, 767 calls, buildings and trees textured.
 
+## The satellite 2D map
+
+- `tools/godeye-sat/render.mjs` serves `sat.html`, three.js and the map3d files on a local port, and drives a
+  headless Edge over the DevTools protocol.
+- For every 1024 m block that has a tile, and the blocks around those (206), `sat.html` renders straight down:
+  - an orthographic camera at 1 m a pixel;
+  - a high afternoon sun from the south-west;
+  - the near models in place of the far ones, trees included, window lights left out;
+  - a clipping plane at sea level (seabeds would read as land), and water.xml's lakes as water surfaces.
+- The browser is restarted every 40 blocks: textures pile up in GPU memory. The script skips blocks already done.
+- `tiles.py` cuts the blocks into 256 px WebP tiles with alpha: level L is 2^L metres a pixel, from 0 to 5, and
+  coarser levels are 2×2 merges.
+  - All-sea tiles are not written. `index.json` lists the tiles that exist.
+  - Result: 1,644 tiles, 13 MB, made in about 2 minutes plus 27 s.
+- The backend serves `/data/sat/` under the 3D map's public rule (`publicMap3d`). The Worker caches the stamped
+  tiles at the edge, like the 3D ones.
+- The page (`app.js` `drawSat`) picks the level from the zoom and draws a coarser level under it while the sharp one
+  loads. The sea is painted blue under the transparent coast, and the drawn road network is off by default.
+
 ## Phase 12: the Camera Client
 
 - **Protocol v13.** `Auth` carries a role (0 player, 1 camera). `CameraSet` (42, server → camera) carries:

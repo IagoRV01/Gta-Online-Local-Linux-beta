@@ -32,6 +32,7 @@ interface Config {
   admin: { host: string; port: number; secretFile: string };
   mapFile: string;
   map3dDir: string;
+  satDir: string;                  // the 2D satellite tiles (tools/godeye-sat), made like the 3D map from the game files
   logFile: string;
   usersFile: string;
   settingsFile: string;            // what the ADMIN changes on the control panel
@@ -48,6 +49,7 @@ const defaults: Config = {
   admin: { host: "127.0.0.1", port: 4500, secretFile: "D:/GTALocalOnline/data/admin.secret" },
   mapFile: "../data/map.json",
   map3dDir: "../data/map3d",
+  satDir: "../data/sat",
   logFile: "D:/GTALocalOnline/logs/godeye.log",
   usersFile: "users.json",
   settingsFile: "settings.json",
@@ -492,6 +494,20 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
     const stream = createReadStream(br ? file + ".br" : file);
     stream.on("error", () => res.destroy());
     (gz ? stream.pipe(createGzip({ level: 1 })) : stream).pipe(res);
+    return;
+  }
+  // the 2D satellite map: the same rules as the 3D one (it is made of the same game files)
+  const sat = /^\/data\/sat\/(index\.json|[0-9]\/-?\d{1,4}_-?\d{1,4}\.webp)$/.exec(path);
+  if (sat) {
+    if (isPublic(req) && settings.value.publicMap3d !== "open" && !sessions.get(req.headers["cookie"])) {
+      send(res, 401, "application/json", JSON.stringify({ error: "log in to see the satellite map" }));
+      return;
+    }
+    const file = join(rel(cfg.satDir), sat[1]);
+    if (!existsSync(file)) { send(res, 404, "text/plain", "not found\n"); return; }
+    const versioned = sat[1] !== "index.json" && new URL(req.url ?? "/", "http://x").searchParams.has("v");
+    send(res, 200, sat[1].endsWith(".json") ? "application/json" : "image/webp", readFileSync(file),
+      { "Cache-Control": sat[1] === "index.json" ? "no-cache" : versioned ? "public, max-age=31536000, immutable" : "max-age=3600" });
     return;
   }
   if (path === "/api/me") { send(res, 200, "application/json", JSON.stringify(me(sessions.get(req.headers["cookie"]), isPublic(req)))); return; }
