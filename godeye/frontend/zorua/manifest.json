@@ -1,0 +1,41 @@
+{
+ "commit": "0dc6643393a57c6d6eddd024d002e679585a2249",
+ "portraits": [
+  "Normal",
+  "Happy",
+  "Joyous",
+  "Inspired",
+  "Determined",
+  "Worried",
+  "Surprised",
+  "Shouting",
+  "Sigh",
+  "Sad",
+  "Pain",
+  "Dizzy",
+  "Stunned",
+  "Angry",
+  "Crying",
+  "Hisui-Determined",
+  "Hisui-Normal",
+  "Shiny-Normal"
+ ],
+ "idle": {
+  "w": 24,
+  "h": 32,
+  "durations": [
+   40,
+   12,
+   20,
+   12
+  ]
+ },
+ "sleep": {
+  "w": 24,
+  "h": 24,
+  "durations": [
+   30,
+   35
+  ]
+ }
+}

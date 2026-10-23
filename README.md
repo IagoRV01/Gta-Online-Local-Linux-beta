@@ -51,6 +51,40 @@ cada uno lucha contra sus propios enemigos, a la vez y en el mismo sitio); solo 
 **1.0.3889** de GTA V Legacy (no con GTA V Enhanced); los trabajos de Online son recreaciones, no los
 originales de Rockstar.
 
+## GodEye: la partida vista (y jugada) desde el navegador
+
+<img src="docs/img/godeye-hack.png" alt="Minijuego de hackeo de GodEye con Zorua" width="420" align="right">
+
+**GodEye** es una web que corre en el PC servidor junto a `LocalOnlineServer.exe`. Sirve para ver la partida en
+directo y para jugar contra los que están en GTA sin tener GTA:
+
+- **Mapa en directo:** jugadores, coches, velocidad, vida, estrellas y zona.
+  - Mapa 2D.
+  - Mapa 3D real, hecho en tu PC con *tus* archivos del juego, con Cayo Perico y las islas propias. Sigue la hora,
+    el tiempo y los apagones de la partida.
+- **Cámaras:** un segundo GTA en el PC servidor hace de cámara.
+  - Tipos: CCTV, seguir, helicóptero, dron, cinemática…
+  - Vídeo en directo: WebRTC en la LAN y HLS desde Internet.
+- **Juego asimétrico por roles:**
+  - HACKER: semáforos y apagones.
+  - DISPATCH: estrellas, alertas y controles policiales.
+  - OPERATOR: clima, hora, cámaras y eventos.
+- **Hack Credits:**
+  - Las acciones se pagan con créditos. Se ganan mirando, con un bonus diario y con recompensas.
+  - Las acciones gordas piden antes un **minijuego de hackeo** que comprueba el servidor.
+  - También hay límites diarios, cooldowns y eventos: tormenta eléctrica, atasco, persecución y happy hour.
+- **Seguridad:**
+  - Login con roles, CSRF y límites por usuario.
+  - Registro de todas las acciones.
+  - El navegador nunca habla con GTA: todo pasa por el servidor.
+- **`GodEye.exe`:** la abre y la cierra desde el escritorio, en la tarjeta gráfica que elijas.
+- **Acceso desde fuera (opcional):** dirección pública con Cloudflare Tunnel.
+- **Mascota:** Zorua, con sprites de la comunidad (ver créditos abajo).
+
+Cómo montarla: [godeye/README.md](godeye/README.md) · diseño: [docs/godeye.md](docs/godeye.md).
+
+<br clear="right">
+
 ## Inicio rápido
 
 1. Descarga la última [release](../../releases): `GTALocalOnline-Server-*.zip` y `GTALocalOnline-Client-*.zip`.
@@ -90,6 +124,8 @@ shared/              protocolo de red y código común cliente/servidor
 config/              server.example.toml y client.example.toml
 tests/               tests unitarios (se ejecutan en cada ./build.sh)
 tools/netprobe/      cliente de prueba de red
+godeye/              GodEye: backend (Node.js), web, lanzador GodEye.exe, Worker de Cloudflare, sprites de Zorua
+tools/godeye-map/    genera los mapas 2D/3D de GodEye desde tus archivos del juego (no se publican)
 docs/                guía de instalación y documentación técnica
 third_party/         ENet y SQLite (ver THIRD_PARTY.md)
 ```
@@ -103,12 +139,21 @@ Documentación técnica: [arquitectura](docs/architecture.md), [protocolo](docs/
 A private, LAN-only "GTA Online" for GTA V Legacy (1.0.3889) story mode: a Windows game server
 (`LocalOnlineServer.exe`), a ScriptHookV client plugin (`LocalOnline.asi`) and a content mod
 (`GoriOnline.asi`) that recreates GTA Online's freemode, properties, businesses, heists, races,
-deathmatches, survivals and contact missions. Download the release, run the server, drop the two `.asi`
+deathmatches, survivals and contact missions. GodEye, a web app on the server PC, shows the session live
+(2D and 3D maps, camera clients with live video) and lets people without GTA play against the others as
+hackers, police dispatch or operators, with credits and hacking minigames. Download the release, run the server, drop the two `.asi`
 files plus ScriptHookV into each game folder and point `LocalOnline\client.toml` at the server. The full
 step-by-step guide is in Spanish: [docs/GUIA-INSTALACION.md](docs/GUIA-INSTALACION.md). No Rockstar files
 are included; you need your own copy of the game.
 
 ## Licencia
 
-[MIT](LICENSE). ENet (MIT) y SQLite (dominio público) mantienen sus licencias: ver [THIRD_PARTY.md](THIRD_PARTY.md).
+[MIT](LICENSE). ENet (MIT), SQLite (dominio público) y three.js (MIT) mantienen sus licencias: ver
+[THIRD_PARTY.md](THIRD_PARTY.md).
+
+Los sprites de Zorua de `godeye/` son de la comunidad de
+[PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab), de **baronessfaron**, **Emmuffin** y
+**MilesFarber**. Su licencia es [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): uso no comercial,
+citando a sus autores. Zorua es © Nintendo / Creatures / GAME FREAK; GodEye es un proyecto de fans sin ánimo de
+lucro.
 GTA V y sus marcas pertenecen a Rockstar Games / Take-Two; este proyecto no está afiliado a ellos.

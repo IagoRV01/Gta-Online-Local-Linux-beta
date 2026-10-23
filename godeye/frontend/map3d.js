@@ -5,8 +5,10 @@ import * as THREE from "./vendor/three/three.module.min.js";
 
 const BASE = "data/map3d/";
 let renderer, scene, camera, root, waterGroup, playerGroup, canvas, index = null, running = false;
+let hemi, sun, sky, seaMat, waterMat, maxAniso = 4;   // the light and sky follow the game's clock and weather
+const emitMats = new Set();         // window lights: brighter at night, off in a blackout
 const tiles = new Map();            // "x,y" -> {info, far: {group, layer1: []} | null, near: group | null, loading}
-const materials = new Map();        // tex key + alpha -> material
+const materials = new Map();        // tex key + kind -> material
 const texCache = new Map();         // tex key -> THREE.DataTexture (loading or loaded)
 const markers = new Map();          // player id -> {group, label}
 const ver = () => (index?.built ? "?v=" + index.built : "");   // a new export never mixes with cached old tiles
@@ -63,24 +65,30 @@ function texture(key) {
     t.minFilter = THREE.LinearMipmapLinearFilter;
     t.generateMipmaps = true;
     t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 4;
+    t.anisotropy = maxAniso;
     t.needsUpdate = true;
   }).catch(() => {});
   return t;
 }
 
-function material(key, alpha) {
-  const k = key + (alpha ? "|a" : "");
+// how a batch is drawn comes from its shader family (tools/godeye-map): solid, cut-out, decal, tree, glass, light
+// panel or water. Older exports only say alpha or not.
+function material(key, kind) {
+  const k = key + "|" + kind;
   let m = materials.get(k);
   if (m) return m;
-  if (key === "@water") {   // the game's own water surfaces (rivers, ponds, pools)
-    m = new THREE.MeshLambertMaterial({ color: 0x3a7da3, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
-    materials.set(k, m);
-    return m;
+  if (key === "@water" || kind === "water") m = waterMat;   // the game's own water surfaces (rivers, ponds, pools)
+  else if (kind === "emit") {   // light panels laid over the walls: their black adds nothing, their windows glow
+    m = new THREE.MeshBasicMaterial({ color: 0xffe2b0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.1, side: THREE.DoubleSide });
+    emitMats.add(m);
+  } else if (kind === "glass") {
+    m = new THREE.MeshPhongMaterial({ color: 0x9fbccc, specular: 0x8899aa, shininess: 80, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide });
+  } else {
+    m = new THREE.MeshLambertMaterial({ color: key ? 0xffffff : 0x9a9a92, side: THREE.DoubleSide });
+    if (kind === "cut" || kind === "tree" || kind === "decal") { m.alphaTest = 0.5; m.alphaToCoverage = true; }
+    if (kind === "decal") { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -4; }
   }
-  m = new THREE.MeshLambertMaterial({ color: key ? 0xffffff : 0x9a9a92, side: THREE.DoubleSide });
-  if (key) m.map = texture(key);
-  if (alpha) m.alphaTest = 0.5;
+  if (key && key !== "@water" && kind !== "water") m.map = texture(key);
   materials.set(k, m);
   return m;
 }
@@ -123,7 +131,8 @@ function parseTile(buf) {
     g.setAttribute("normal", new THREE.BufferAttribute(nrm.subarray(b.v0 * 3, (b.v0 + b.vn) * 3), 3));
     g.setIndex(new THREE.BufferAttribute(idx.slice(b.i0, b.i0 + b.in), 1));
     g.computeBoundingSphere();
-    const mesh = new THREE.Mesh(g, material(b.tex, b.alpha));
+    const mesh = new THREE.Mesh(g, material(b.tex, b.kind ?? (b.alpha ? "cut" : "")));
+    if (b.kind === "emit" || b.kind === "glass") mesh.renderOrder = 2;   // after the walls they lie on
     mesh.matrixAutoUpdate = false;
     group.add(mesh);
     if (b.layer === 1) layer1.push(mesh);
@@ -183,20 +192,33 @@ function build() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NeutralToneMapping;   // keeps the colours; ACES washed the map out
+  renderer.toneMappingExposure = 1.05;
+  maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9ec4e8);
   scene.fog = new THREE.Fog(0x9ec4e8, 6000, 16000);
-  camera = new THREE.PerspectiveCamera(55, 1, 1, 30000);
+  camera = new THREE.PerspectiveCamera(55, 1, 1, 42000);
   camera.up.set(0, 0, 1);
-  scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b5a45, 1.6));
-  const sun = new THREE.DirectionalLight(0xfff2dd, 1.8);
+  hemi = new THREE.HemisphereLight(0xdfefff, 0x6b5a45, 1.6);
+  scene.add(hemi);
+  sun = new THREE.DirectionalLight(0xfff2dd, 1.8);
   sun.position.set(-3000, -2000, 5000);
   scene.add(sun);
+  // the sky: a dome shaded from the horizon to the zenith, following the camera
+  const dome = new THREE.SphereGeometry(20000, 32, 16);
+  dome.rotateX(Math.PI / 2);   // poles on z
+  dome.setAttribute("color", new THREE.BufferAttribute(new Float32Array(dome.attributes.position.count * 3), 3));
+  sky = new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  sky.renderOrder = -1;
+  scene.add(sky);
+  seaMat = new THREE.MeshPhongMaterial({ color: 0x1f6d9c, specular: 0x6f8fa8, shininess: 60, transparent: true, opacity: 0.9 });
+  waterMat = new THREE.MeshPhongMaterial({ color: 0x3a7da3, specular: 0x6f8fa8, shininess: 60, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
   root = new THREE.Group();
   scene.add(root);
   waterGroup = new THREE.Group();
   scene.add(waterGroup);
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), new THREE.MeshLambertMaterial({ color: 0x2e6f95, transparent: true, opacity: 0.88 }));
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), seaMat);
   sea.position.set(0, 0, -0.3);
   waterGroup.add(sea);
   playerGroup = new THREE.Group();
@@ -224,12 +246,69 @@ async function addBackdrop() {
 }
 
 function addWater() {
-  const mat = new THREE.MeshLambertMaterial({ color: 0x3a7da3, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+  const mat = waterMat;
   for (const [x0, y0, x1, y1, z] of index.water) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, y1 - y0), mat);
     m.position.set((x0 + x1) / 2, (y0 + y1) / 2, z);
     waterGroup.add(m);
   }
+}
+
+// ---------------------------------------------------------------- the game's clock and weather
+// keyframes over the day: hour, zenith, horizon, sun, ambient, night (window lights)
+const DAY = [
+  [0, 0x0b1430, 0x2a3866, 0.45, 0.95, 1], [5, 0x0b1430, 0x2a3866, 0.45, 0.95, 1],
+  [6.2, 0x3b5d92, 0xf2a36e, 0.9, 0.95, 0.6], [7.6, 0x4f93dc, 0xbcd8f0, 2.0, 1.5, 0],
+  [17.4, 0x4f93dc, 0xbcd8f0, 2.0, 1.5, 0], [19, 0x3d4f86, 0xf0905c, 0.9, 0.95, 0.5],
+  [20.4, 0x0b1430, 0x2a3866, 0.45, 0.95, 1], [24, 0x0b1430, 0x2a3866, 0.45, 0.95, 1],   // a map stays readable at night
+];
+const GREY = { CLOUDS: 0.25, OVERCAST: 0.55, RAIN: 0.7, THUNDER: 0.8, CLEARING: 0.35, SMOG: 0.4, FOGGY: 0.6, SNOW: 0.5, SNOWLIGHT: 0.4, BLIZZARD: 0.85, XMAS: 0.45, HALLOWEEN: 0.5 };
+const FOG = { FOGGY: [600, 3500], SMOG: [2500, 9000], RAIN: [3500, 11000], THUNDER: [3000, 10000], BLIZZARD: [800, 4000], SNOW: [3000, 10000], OVERCAST: [5000, 14000] };
+const c1 = new THREE.Color(), c2 = new THREE.Color(), cg = new THREE.Color(0x9aa3ad), cTop = new THREE.Color(), cHor = new THREE.Color();
+let skyKey = "";
+
+function updateSky() {
+  const w = typeof worldNow !== "undefined" ? worldNow : null;
+  const h = w ? (w.hour + w.minute / 60) % 24 : 13;
+  const weather = w?.weather ?? "CLEAR";
+  const key = `${Math.round(h * 12)}|${weather}|${!!w?.blackout}`;   // five game minutes is fine enough
+  if (key === skyKey) return;
+  skyKey = key;
+  let a = DAY[0], b = DAY[1];
+  for (let i = 0; i < DAY.length - 1; i++) if (h >= DAY[i][0] && h <= DAY[i + 1][0]) { a = DAY[i]; b = DAY[i + 1]; break; }
+  const f = b[0] > a[0] ? (h - a[0]) / (b[0] - a[0]) : 0;
+  const mix = (x, y) => x + (y - x) * f;
+  const grey = GREY[weather] ?? 0, night = mix(a[5], b[5]);
+  cTop.copy(c1.setHex(a[1])).lerp(c2.setHex(b[1]), f).lerp(cg, grey * (1 - night) * 0.8);
+  cHor.copy(c1.setHex(a[2])).lerp(c2.setHex(b[2]), f).lerp(cg, grey * (1 - night));
+  if (night > 0.5) cHor.multiplyScalar(1 - grey * 0.4);   // a cloudy night has no glow on the horizon
+  // the dome: horizon colour low down, zenith colour above
+  const pos = sky.geometry.attributes.position, col = sky.geometry.attributes.color;
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.min(1, Math.max(0, pos.getZ(i) / 20000 * 2.2));
+    c1.copy(cHor).lerp(cTop, t);
+    col.setXYZ(i, c1.r, c1.g, c1.b);
+  }
+  col.needsUpdate = true;
+  scene.background.copy(cHor);
+  const [fn, ff] = FOG[weather] ?? [9000, 22000];
+  scene.fog.color.copy(cHor);
+  scene.fog.near = fn; scene.fog.far = ff;
+  // the sun: rises in the east (+x) at six, sets in the west at six; a dim moon light at night
+  const ang = ((h - 6) / 12) * Math.PI;
+  const up = Math.sin(ang);
+  if (up > 0) sun.position.set(Math.cos(ang) * 5000, -2500, Math.max(400, up * 6000));
+  else sun.position.set(-2000, 1500, 5000);
+  sun.intensity = mix(a[3], b[3]) * (1 - grey * 0.65);
+  sun.color.set(up > 0 && up < 0.35 ? 0xffc890 : up > 0 ? 0xfff2dd : 0x9fb4ff);
+  hemi.intensity = mix(a[4], b[4]) * (1 - grey * 0.25);
+  hemi.color.copy(cTop).lerp(c1.setHex(0xffffff), 0.55);
+  seaMat.color.setHex(0x1f6d9c).lerp(cHor, 0.15).multiplyScalar(1 - night * 0.6);
+  waterMat.color.setHex(0x3a7da3).lerp(cHor, 0.2).multiplyScalar(1 - night * 0.6);
+  for (const m of [seaMat, waterMat]) m.specular.setHex(0x6f8fa8).multiplyScalar(1 - night * 0.8);   // no sun glare at night
+  // window lights: faint by day, full at night, gone in a blackout
+  const glow = w?.blackout ? 0 : 0.12 + night * 0.88;
+  for (const m of emitMats) { m.opacity = glow; m.visible = glow > 0; }
 }
 
 // ---------------------------------------------------------------- players
@@ -343,6 +422,8 @@ function frame(now) {
     if (p) { orbit.tx += (p.x - orbit.tx) * 0.15; orbit.ty += (p.y - orbit.ty) * 0.15; orbit.tz += ((e.info.z ?? orbit.tz) - orbit.tz) * 0.15; }
   }
   placeCamera();
+  sky.position.copy(camera.position);
+  updateSky();
   updatePlayers(now);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

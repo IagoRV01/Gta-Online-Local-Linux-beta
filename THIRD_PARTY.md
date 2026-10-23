@@ -4,6 +4,9 @@
 |---|---|---|
 | [ENet](http://enet.bespin.org/) | `third_party/enet/` | MIT (see `third_party/enet/LICENSE`) |
 | [SQLite](https://sqlite.org/) amalgamation | `third_party/sqlite/` | Public domain |
+| [three.js](https://threejs.org/) r186 | `godeye/frontend/vendor/three/` | MIT |
+| Zorua sprites from [PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab), by baronessfaron, Emmuffin and MilesFarber | `godeye/frontend/zorua/`, `godeye/launcher/zorua*.ico` (made from them) | [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/); Zorua is © Nintendo / Creatures / GAME FREAK (see `godeye/frontend/zorua/CREDITS.md`) |
+| Shader names from [CodeWalker](https://github.com/dexyfex/CodeWalker) | `tools/godeye-map/ShaderNames.cs` | MIT |
 | Native names and hashes from [alloc8or/gta5-nativedb-data](https://github.com/alloc8or/gta5-nativedb-data) | `client/gta-plugin/src/engine/natives.h`, `gori-online/nativehashes.h` (generated) | see that repository |
 
 ## Not included (you need to get them yourself)
@@ -11,6 +14,9 @@
 - **GTA V Legacy**, by Rockstar Games: your own legal copy. No game files are in this repository.
 - **ScriptHookV** and its `dinput8.dll` ASI loader, by Alexander Blade: <http://www.dev-c.com/gtav/scripthookv/>. Its license does not allow redistribution.
 - **Races and stunt tracks** for Gori Online's race list: download them from their authors.
+- **GodEye's maps** (`godeye/data/`): made on your PC from your own game files by `tools/godeye-map`.
+- **mediamtx, FFmpeg and cloudflared** for GodEye's live video and public address: download them from their
+  projects (see `godeye/README.md`).
 
 ## Game data
 

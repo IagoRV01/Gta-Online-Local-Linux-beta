@@ -2,11 +2,12 @@
 
   python tools/zorua/fetch_zorua.py
 
-The sprites are CC BY-NC 4.0 by their artists (CREDITS.md, written next to them). Zorua itself belongs to Nintendo /
-Game Freak, so this repository does not carry the files: this script downloads them, pinned to one SpriteCollab commit
-and checked against known SHA-256 sums, into godeye/frontend/zorua (git-ignored). GodEye uses them when they are there
-and its plain eye when not. With Pillow installed it also makes the launcher's icons (godeye/launcher/zorua*.ico);
-rebuild GodEye.exe afterwards (./build.sh godeye).
+The sprites are CC BY-NC 4.0 by their artists (CREDITS.md, written next to them); Zorua itself is (c) Nintendo /
+Creatures / GAME FREAK, and GodEye is a non-commercial fan project. The repository carries the files in
+godeye/frontend/zorua; this script downloads them again from one pinned SpriteCollab commit, checked against known
+SHA-256 sums, and rebuilds manifest.json, CREDITS.md and, with Pillow, the launcher's icons
+(godeye/launcher/zorua*.ico; rebuild GodEye.exe afterwards with ./build.sh godeye). Without the folder GodEye shows
+its plain eye.
 """
 import hashlib, json, os, sys, urllib.request
 import xml.etree.ElementTree as ET

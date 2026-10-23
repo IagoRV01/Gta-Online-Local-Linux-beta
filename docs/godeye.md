@@ -133,19 +133,39 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
     distant hills SLOD1 leaves out);
   - near: a tile's LOD models, which replace its SLOD1 ones when the camera is within 1.5 km;
   - our islands' models: drawn as they are (they have no LODs).
-  - Tile format: "GEM1", a JSON header, 14-byte vertices (u16 position in the tile box, f16 uv, i8 normal) and u16
-    indices per texture batch.
-- **Textures:** each one's mip of at most 64 px, BC1-encoded (1-bit alpha), decoded by the browser.
+  - Tile format: "GEM1", a JSON header, 14-byte vertices (u16 position, f16 uv, i8 normal) and u16 indices per
+    texture batch. The position box is the file's own vertices, not the tile: one SLOD model can cover a whole
+    district.
+  - Until 2026-10-23 that box was the tile ±64 m, and 166 tiles had vertices squashed against its edges: stretched
+    ground, a cut Wuhu.
+- **Shader families:**
+  - Shader hashes are read as names with CodeWalker's list (`ShaderNames.cs`).
+  - Each batch gets a kind: solid, `cut` (alpha-tested), `decal` (alpha-tested, pulled forward), `tree`, `glass`
+    (translucent), `emit` or `water`.
+  - `emit` is the window-light panels laid over the walls. They are drawn as added light: faint by day, full at night,
+    off in a blackout.
+  - Shadow proxies are dropped.
+  - `trees_lod2` billboards are only a centre point plus size and corner data, which the game's vertex shader turns
+    to the camera. The exporter makes two crossed upright cards from them.
+  - `GodEyeMap <gta> shaders3d <box>` lists shaders, vertex layouts and model reach for an area.
+- **Textures:** each one's mip of at most 128 px, BC1-encoded (1-bit alpha), decoded by the browser (about 70 MB).
 - **Viewer** (`godeye/frontend/map3d.js`, Three.js r186 vendored, MIT):
   - Orbit camera: drag to turn, right-drag to move, wheel or pinch to zoom.
   - Tiles stream by distance (on a timer, so loading goes on in a background tab).
   - Sea plane at 0 and the raised water of the water files.
+  - **The sky follows the game:**
+    - a dome, sun, ambient light and fog follow the server's clock and weather (`worldNow` in app.js);
+    - rain, thunder and fog grey the sky and bring the fog closer;
+    - neutral tone mapping, anisotropic filtering, alpha-to-coverage on cut-outs.
   - A backdrop under everything: the lowest ground of each 25 m cell (`zmin` in map.json) 3 m lower. The few spots the
     far models leave open show earth, not the sea, and it never rises above real ground.
   - Tile and texture URLs carry the export's `built` stamp, so a new export is never mixed with cached old tiles.
 - North Yankton (prologue ymaps) is left out: it sits where Cayo Perico is, and the game loads only one of them.
   - Players: a pin, a heading arrow and a name, interpolated like the 2D map. Picking a player follows them.
 - **Verified 2026-10-23:**
+  - Downtown up close shows real facades, round tree canopies, and no floating black panels or flat dark squares.
+  - At 23:00 the windows light up across the city.
+  - Wuhu is whole.
   - Overview of Los Santos: 44 far tiles, 5.8 M triangles, 3,400 draw calls.
   - Close to Alex at Hawick: 6 near tiles swapped in, 3 M triangles, 767 calls, buildings and trees textured.
 

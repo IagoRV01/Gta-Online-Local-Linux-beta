@@ -96,15 +96,18 @@ The camera GTA picks its card in its own settings (below).
 
 ## Zorua (optional art)
 
-GodEye can show Zorua, as community sprites from [PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab)
-(CC BY-NC 4.0; the artists are named in the `CREDITS.md` the script writes). This repository does not carry them:
-Zorua belongs to Nintendo / Game Freak. Fetch them yourself:
+GodEye's mascot is Zorua, as community sprites from [PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab).
+- **License:** CC BY-NC 4.0. The artists are baronessfaron, Emmuffin and MilesFarber (see
+  [frontend/zorua/CREDITS.md](frontend/zorua/CREDITS.md)).
+- Zorua is © Nintendo / Creatures / GAME FREAK, and GodEye is a non-commercial fan project.
+- The files are in `godeye/frontend/zorua/`, with the launcher icons in `godeye/launcher/zorua*.ico`.
+- To download them again from the pinned SpriteCollab commit, each checked against its SHA-256:
 ```
 python tools/zorua/fetch_zorua.py
 ```
 - **What it does:**
   - downloads 18 portraits and 2 animations from one pinned SpriteCollab commit, each checked against its SHA-256,
-    into `godeye/frontend/zorua/` (git-ignored);
+    into `godeye/frontend/zorua/`;
   - writes `manifest.json` and `CREDITS.md` there;
   - with Pillow installed, makes `godeye/launcher/zorua.ico` and `zorua-error.ico`.
 - **Each moment has its own expression:**

@@ -11,28 +11,32 @@ using SharpDX;
 //   t_<x>_<y>.far.bin           every tile: the SLOD1 models (swapped out up close), the LOD models with no SLOD1 above,
 //                               and the SLOD2 models 4 m lower (the game's distant hills, which SLOD1 leaves out)
 //   t_<x>_<y>.near.bin          up close: the LOD models that replace that tile's SLOD1 ones
-//   tex/<hash>.bc1              64 px textures, BC1 (with 1-bit alpha), decoded by the browser
+//   tex/<hash>.bc1              128 px textures, BC1 (with 1-bit alpha), decoded by the browser
 // A tile file: "GEM1", u32 json length, json {origin, scale, batches[]}, vertices (u16 x3 position, f16 x2 uv,
-// i8 x4 normal: 14 bytes), u16 indices per batch (each batch is at most 65535 vertices).
+// i8 x4 normal: 14 bytes), u16 indices per batch (each batch is at most 65535 vertices). origin and scale span the
+// tile's own vertices, which may reach well past the tile (one SLOD model can cover a whole district).
+// Each batch has a kind, from its shader family: "" solid, "cut" (alpha-tested), "decal", "tree", "glass", "emit"
+// (light panels, drawn as added light) or "water".
 static partial class Map3D
 {
     const float Tile = 1024;
-    const int TexMax = 64;
+    const int TexMax = 128;
 
     sealed class Batch
     {
         public string Tex = "";        // texture hash (hex), "" = untextured
-        public bool Alpha;
+        public string Kind = "";       // shader family (see the top)
+        public bool Alpha => Kind is "cut" or "decal" or "tree";
         public int Layer;              // 0 always (far), 1 far but replaced by the tile's near file, 2 near
         public List<Vector3> P = new(); public List<Vector2> U = new(); public List<Vector3> N = new();
         public List<int> I = new();
     }
 
-    sealed class Mesh { public string Tex = ""; public bool Alpha; public Vector3[] P = Array.Empty<Vector3>(); public Vector2[] U = Array.Empty<Vector2>(); public Vector3[] N = Array.Empty<Vector3>(); public int[] I = Array.Empty<int>(); }
+    sealed class Mesh { public string Tex = ""; public string Kind = ""; public Vector3[] P = Array.Empty<Vector3>(); public Vector2[] U = Array.Empty<Vector2>(); public Vector3[] N = Array.Empty<Vector3>(); public int[] I = Array.Empty<int>(); }
 
     sealed class TileData
     {
-        public Dictionary<(string, bool, int), List<Batch>> Far = new(), Near = new();
+        public Dictionary<(string, string, int), List<Batch>> Far = new(), Near = new();
         public int Ents;
         public float Z0 = float.MaxValue, Z1 = float.MinValue;
     }
@@ -96,10 +100,10 @@ static partial class Map3D
                 foreach (var m in ms)
                 {
                     var dict = layer == 2 ? t.Near : t.Far;
-                    var bk = (m.Tex, m.Alpha, layer);
-                    if (!dict.TryGetValue(bk, out var list)) dict[bk] = list = new List<Batch> { new Batch { Tex = m.Tex, Alpha = m.Alpha, Layer = layer } };
+                    var bk = (m.Tex, m.Kind, layer);
+                    if (!dict.TryGetValue(bk, out var list)) dict[bk] = list = new List<Batch> { new Batch { Tex = m.Tex, Kind = m.Kind, Layer = layer } };
                     var b = list[^1];
-                    if (b.P.Count + m.P.Length > 65535) list.Add(b = new Batch { Tex = m.Tex, Alpha = m.Alpha, Layer = layer });
+                    if (b.P.Count + m.P.Length > 65535) list.Add(b = new Batch { Tex = m.Tex, Kind = m.Kind, Layer = layer });
                     int baseV = b.P.Count;
                     for (int i = 0; i < m.P.Length; i++)
                     {
@@ -164,6 +168,16 @@ static partial class Map3D
     // ---- geometry: the highest-detail model of the archetype's drawable, in its own space, batched by texture
     static readonly uint[] DiffuseNames = { JenkHash.GenHash("diffusesampler"), JenkHash.GenHash("texturesampler_layer0"), JenkHash.GenHash("texturesampler"), JenkHash.GenHash("diffusesampler2") };
 
+    // the shader family decides how the browser draws a batch
+    static string KindOf(string shader) =>
+        shader.Contains("water") ? "water"
+        : shader.Contains("emissive") ? "emit"                 // window lights, signs: separate panels over the walls
+        : shader.StartsWith("glass") ? "glass"
+        : shader.Contains("trees") || shader.Contains("grass") ? "tree"
+        : shader.Contains("decal") ? "decal"
+        : shader.Contains("alpha") || shader.Contains("cutout") || shader.Contains("cable") || shader.Contains("screendoor") ? "cut"
+        : "";
+
     static List<Mesh> LoadMeshes(Index ix, uint arch, Dictionary<string, (uint, uint, DrawableBase)> textures)
     {
         var d = LoadDrawable(ix, arch);
@@ -176,11 +190,13 @@ static partial class Map3D
             {
                 var vd = g.VertexData; var ixs = g.IndexBuffer?.Indices;
                 if (vd?.VertexBytes == null || ixs == null || vd.Info == null) continue;
-                string shader = g.Shader != null ? JenkIndex.GetString(g.Shader.Name).ToLowerInvariant() : "";
-                if (shader.Contains("shadow") || shader.Contains("mirror")) continue;
-                bool isWater = shader.Contains("water");   // rivers, ponds and pools: drawn as water at their own height
+                string shader = ShaderName(g.Shader);
+                if (shader.Contains("shadow") || shader.Contains("mirror")) continue;   // shadow proxies and mirrors draw nothing
+                string kind = KindOf(shader);
+                bool isWater = kind == "water";   // rivers, ponds and pools: drawn as water at their own height
                 // the texture: the first diffuse-like sampler
-                string texKey = ""; bool alpha = shader.Contains("alpha") || shader.Contains("cutout") || shader.Contains("decal") || shader.Contains("trees") || shader.Contains("cable");
+                string texKey = "";
+                Vector4 treeParams = Vector4.Zero, treeUp = Vector4.Zero;
                 var pl = g.Shader?.ParametersList;
                 if (pl?.Parameters != null)
                     foreach (var want in DiffuseNames)
@@ -194,19 +210,32 @@ static partial class Map3D
                             }
                         if (texKey != "") break;
                     }
+                if (pl?.Parameters != null)
+                    for (int i = 0; i < pl.Parameters.Length && i < pl.Hashes.Length; i++)
+                    {
+                        if ((uint)pl.Hashes[i] == (uint)ShaderParamNames.treeLod2Params && pl.Parameters[i].Data is Vector4 tp) treeParams = tp;
+                        if ((uint)pl.Hashes[i] == (uint)ShaderParamNames.treeLod2Normal && pl.Parameters[i].Data is Vector4 tn) treeUp = tn;
+                    }
                 // vertex layout: one bit per component in Flags, 4 bits of type per component in Types
                 ulong flags = vd.Info.Flags, types = (ulong)vd.Info.Types;
-                int stride = vd.VertexStride, off = 0, offN = -1, offT = -1, typeN = 0, typeT = 0;
+                int stride = vd.VertexStride, off = 0;
+                var compOff = new int[16]; var compType = new int[16];
                 for (int c = 0; c < 16; c++)
                 {
+                    compOff[c] = -1;
                     if (((flags >> c) & 1) == 0) continue;
                     var ct = (VertexComponentType)((types >> (c * 4)) & 0xF);
-                    if (c == 3) { offN = off; typeN = (int)ct; }
-                    if (c == 6) { offT = off; typeT = (int)ct; }
+                    compOff[c] = off; compType[c] = (int)ct;
                     off += VertexComponentTypes.GetSizeInBytes(ct);
                 }
+                int offN = compOff[3], typeN = compType[3], offT = compOff[6], typeT = compType[6];
                 int nv = vd.VertexCount;
-                var m = new Mesh { Tex = isWater ? "@water" : texKey, Alpha = !isWater && alpha, P = new Vector3[nv], U = new Vector2[nv], N = new Vector3[nv], I = new int[ixs.Length] };
+                if (shader == "trees_lod2" && compOff[7] >= 0 && compOff[8] >= 0 && treeParams.X > 0)
+                {
+                    list.Add(TreeCards(vd.VertexBytes, stride, nv, ixs, compOff, compType, treeParams, treeUp, texKey));
+                    continue;
+                }
+                var m = new Mesh { Tex = isWater ? "@water" : texKey, Kind = kind, P = new Vector3[nv], U = new Vector2[nv], N = new Vector3[nv], I = new int[ixs.Length] };
                 var vb = vd.VertexBytes;
                 for (int i = 0; i < nv; i++)
                 {
@@ -219,6 +248,31 @@ static partial class Map3D
                 list.Add(m);
             }
         return list;
+    }
+
+    // trees_lod2: every vertex holds the billboard's centre; the game's vertex shader turns each quad to the camera.
+    // Here each quad becomes two crossed upright cards of the same size (texcoord0 = corner, 1 = atlas, 2 = size).
+    static Mesh TreeCards(byte[] vb, int stride, int nv, ushort[] ixs, int[] off, int[] type, Vector4 prm, Vector4 upv, string tex)
+    {
+        var up = new Vector3(upv.X, upv.Y, upv.Z);
+        up = up.LengthSquared() > 0.01f ? Vector3.Normalize(up) : Vector3.UnitZ;
+        var sideA = Vector3.Normalize(Vector3.Cross(up, Vector3.UnitY)); if (!float.IsFinite(sideA.X)) sideA = Vector3.UnitX;
+        var sideB = Vector3.Normalize(Vector3.Cross(up, sideA));
+        var m = new Mesh { Tex = tex, Kind = "tree", P = new Vector3[nv * 2], U = new Vector2[nv * 2], N = new Vector3[nv * 2], I = new int[ixs.Length * 2] };
+        for (int i = 0; i < nv; i++)
+        {
+            int o = i * stride;
+            var c = new Vector3(BitConverter.ToSingle(vb, o), BitConverter.ToSingle(vb, o + 4), BitConverter.ToSingle(vb, o + 8));
+            var corner = ReadVec2(vb, o + off[6], type[6]);
+            var size = ReadVec2(vb, o + off[8], type[8]);
+            float x = prm.X * (0.5f - corner.X) * size.X, y = prm.Y * (0.5f - corner.Y) * size.Y;
+            var uv = ReadVec2(vb, o + off[7], type[7]);
+            m.P[i] = c + sideA * x + up * y; m.P[nv + i] = c + sideB * x + up * y;
+            m.U[i] = m.U[nv + i] = uv;
+            m.N[i] = m.N[nv + i] = up;   // lit like the canopy seen from above
+        }
+        for (int i = 0; i < ixs.Length; i++) { int v = ixs[i] < nv ? ixs[i] : 0; m.I[i] = v; m.I[ixs.Length + i] = nv + v; }
+        return m;
     }
 
     static float Half(byte[] b, int o) => (float)BitConverter.ToHalf(b, o);
@@ -343,8 +397,12 @@ static partial class Map3D
     static long WriteTile(string path, int tx, int ty, TileData t, IEnumerable<Batch> batches, HashSet<string> texNames)
     {
         var list = batches.Where(b => b.I.Count > 0).ToList();
-        float ox = tx * Tile - 64, oy = ty * Tile - 64, oz = MathF.Floor(t.Z0) - 1;   // entities can reach past their tile
-        float span = Tile + 128, zspan = Math.Max(16, t.Z1 - oz + 2);
+        // the box of this file's vertices: big SLOD models reach far past their tile, and nothing may be squashed
+        float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+        foreach (var b in list) foreach (var p in b.P) { x0 = Math.Min(x0, p.X); y0 = Math.Min(y0, p.Y); x1 = Math.Max(x1, p.X); y1 = Math.Max(y1, p.Y); }
+        if (x0 > x1) { x0 = tx * Tile; y0 = ty * Tile; x1 = x0 + Tile; y1 = y0 + Tile; }
+        float ox = MathF.Floor(x0) - 1, oy = MathF.Floor(y0) - 1, oz = MathF.Floor(t.Z0) - 1;
+        float span = Math.Max(16, Math.Max(x1 - ox, y1 - oy) + 2), zspan = Math.Max(16, t.Z1 - oz + 2);
         var meta = new List<object>();
         using var vbuf = new MemoryStream(); using var ibuf = new MemoryStream();
         using (var vw = new BinaryWriter(vbuf, Encoding.UTF8, true)) using (var iw = new BinaryWriter(ibuf, Encoding.UTF8, true))
@@ -361,7 +419,7 @@ static partial class Map3D
                     vw.Write((sbyte)Math.Round(n.X * 127)); vw.Write((sbyte)Math.Round(n.Y * 127)); vw.Write((sbyte)Math.Round(n.Z * 127)); vw.Write((sbyte)0);
                 }
                 foreach (int i in b.I) iw.Write((ushort)i);
-                meta.Add(new { tex = texNames.Contains(b.Tex) || b.Tex == "@water" ? b.Tex : "", alpha = b.Alpha, layer = b.Layer, v0 = vStart, vn = b.P.Count, i0 = iStart, @in = b.I.Count });
+                meta.Add(new { tex = texNames.Contains(b.Tex) || b.Tex == "@water" ? b.Tex : "", alpha = b.Alpha, kind = b.Kind, layer = b.Layer, v0 = vStart, vn = b.P.Count, i0 = iStart, @in = b.I.Count });
                 vStart += b.P.Count; iStart += b.I.Count;
             }
         }

@@ -298,7 +298,9 @@ $("list").addEventListener("pointerdown", (ev) => {
   listDirty = true;
 });
 
+let worldNow = null;   // the game's clock, weather and blackout, for the 3D view's sky (map3d.js)
 function renderWorld(w) {
+  worldNow = w || worldNow;
   if (!w) { $("world").innerHTML = ""; return; }
   const hh = String(w.hour).padStart(2, "0"), mm = String(w.minute).padStart(2, "0");
   const weather = w.weather === w.next ? w.weather : `${w.weather} → ${w.next}`;

@@ -56,7 +56,4 @@ obj/
 godeye/backend/users.json
 godeye/cloudflare/wrangler.toml
 .wrangler/
-# Zorua art (tools/zorua/fetch_zorua.py): community sprites of a Nintendo character, fetched locally, never committed
-godeye/frontend/zorua/
-godeye/launcher/zorua*.ico
 godeye/backend/credits.jsonl
