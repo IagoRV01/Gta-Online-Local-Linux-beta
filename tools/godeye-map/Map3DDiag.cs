@@ -118,4 +118,82 @@ static partial class Map3D
         Console.WriteLine($"{n} dictionaries");
         return 0;
     }
+
+    // GodEyeMap <gta> ents3d <minX> <minY> <maxX> <maxY> [extra dlc.rpf or loose ymap dir...]: every entity standing in the
+    // box, any LOD level, with its ymap, position and LOD distance (to find what is left of a cleared site)
+    public static int Ents(string gta, string[] args)
+    {
+        float[] b = args.Take(4).Select(float.Parse).ToArray();
+        var ix = Scan(gta, args.Skip(4));
+        foreach (var (name, fe) in ix.Ymaps.OrderBy(k => k.Key))
+        {
+            YmapFile y;
+            try { y = ix.Loose.TryGetValue(name, out var loose) ? Load(loose) : RpfFile.GetFile<YmapFile>(fe); } catch { continue; }
+            if (y?.AllEntities == null) continue;
+            foreach (var en in y.AllEntities)
+            {
+                var p = en.Position;
+                if (p.X < b[0] || p.X > b[2] || p.Y < b[1] || p.Y > b[3]) continue;
+                var d = en._CEntityDef;
+                string arch = ix.Ydrs.TryGetValue(d.archetypeName, out var ydr) ? ydr.NameLower : ix.Yfts.TryGetValue(d.archetypeName, out var yft) ? yft.NameLower : JenkIndex.GetString(d.archetypeName);
+                if (ix.Archetypes.TryGetValue(d.archetypeName, out var at))
+                {
+                    uint dd = at._BaseArchetypeDef.drawableDictionary, td = at._BaseArchetypeDef.textureDictionary;
+                    if (dd != 0) arch += " ydd:" + (ix.Ydds.TryGetValue(dd, out var f1) ? f1.NameLower : dd.ToString("x8"));
+                    arch += " txd:" + (ix.Ytds.TryGetValue(td, out var f2) ? f2.NameLower : td.ToString("x8"));
+                }
+                Console.Write($"#{Array.IndexOf(y.AllEntities, en),-4} ");
+                Console.WriteLine($"{name,-34} {d.lodLevel.ToString().Replace("LODTYPES_DEPTH_", ""),-9} {arch,-36} {p.X,8:0.0} {p.Y,8:0.0} {p.Z,8:0.0} lod {d.lodDist,6:0} parent {d.parentIndex}{(ix.Loose.ContainsKey(name) ? " (loose)" : "")}");
+            }
+        }
+        return 0;
+    }
+
+    // GodEyeMap <gta> nodes3d <minX> <minY> <maxX> <maxY>: the path nodes in the box, every flag property that is set
+    public static int Nodes(string gta, string[] args)
+    {
+        float[] b = args.Take(4).Select(float.Parse).ToArray();
+        foreach (var rel in GameRpfs(gta))
+        {
+            RpfFile rpf;
+            try { rpf = new RpfFile(Path.Combine(gta, rel), rel); rpf.ScanStructure(null, null); } catch { continue; }
+            foreach (var e in AllEntriesDeep(rpf).OfType<RpfFileEntry>().Where(e => e.NameLower.StartsWith("nodes") && e.NameLower.EndsWith(".ynd")))
+            {
+                YndFile y;
+                try { y = RpfFile.GetFile<YndFile>(e); } catch { continue; }
+                if (y?.Nodes == null) continue;
+                foreach (var n in y.Nodes)
+                {
+                    var p = n.Position;
+                    if (p.X < b[0] || p.X > b[2] || p.Y < b[1] || p.Y > b[3]) continue;
+                    var on = n.GetType().GetProperties().Where(pp => pp.PropertyType == typeof(bool) && pp.GetIndexParameters().Length == 0 && (bool)pp.GetValue(n)!).Select(pp => pp.Name);
+                    Console.WriteLine($"{e.Path} {n.AreaID}:{n.NodeID} {p.X:0.0} {p.Y:0.0} {p.Z:0.0} links {n.LinkCount} f {n.Flags0.Value:x2} {n.Flags1.Value:x2} {n.Flags2.Value:x2} {n.Flags3.Value:x2} {n.Flags4.Value:x2} {string.Join(",", on)}");
+                }
+            }
+        }
+        return 0;
+    }
+
+    // GodEyeMap <gta> kids3d <parent ymap name> <index...> [extra...]: the entities whose LOD parent is one of those entities
+    public static int Kids(string gta, string[] args)
+    {
+        string parent = Path.GetFileNameWithoutExtension(args[0]).ToLowerInvariant();
+        var want = args.Skip(1).TakeWhile(a => int.TryParse(a, out _)).Select(int.Parse).ToHashSet();
+        var ix = Scan(gta, args.Skip(1 + want.Count));
+        uint ph = JenkHash.GenHash(parent);
+        foreach (var (name, fe) in ix.Ymaps.OrderBy(k => k.Key))
+        {
+            YmapFile y;
+            try { y = ix.Loose.TryGetValue(name, out var loose) ? Load(loose) : RpfFile.GetFile<YmapFile>(fe); } catch { continue; }
+            if (y?.AllEntities == null || y._CMapData.parent != ph) continue;
+            foreach (var en in y.AllEntities)
+            {
+                var d = en._CEntityDef;
+                if (!want.Contains(d.parentIndex)) continue;
+                string arch = ix.Ydrs.TryGetValue(d.archetypeName, out var ydr) ? ydr.NameLower : JenkIndex.GetString(d.archetypeName);
+                Console.WriteLine($"{name,-30} parent {d.parentIndex,-4} {d.lodLevel.ToString().Replace("LODTYPES_DEPTH_", ""),-6} {arch,-36} {en.Position.X,8:0.0} {en.Position.Y,8:0.0} {en.Position.Z,8:0.0} lod {d.lodDist:0}");
+            }
+        }
+        return 0;
+    }
 }
