@@ -29,6 +29,7 @@ function renderAuth() {
   if (!auth.user) {
     who.innerHTML = auth.control === false ? "" : `<button id="loginBtn" class="ghost">Log in</button>`;
     $("control").hidden = true;
+    $("gameBox").hidden = true;
     const b = $("loginBtn");
     if (b) b.onclick = () => { $("loginErr").textContent = ""; $("loginDlg").showModal(); };
     return;
@@ -36,6 +37,7 @@ function renderAuth() {
   who.innerHTML = `<span><b>${esc(auth.user)}</b> · ${esc(auth.role)}</span><button id="logoutBtn" class="ghost">Log out</button>`;
   $("logoutBtn").onclick = async () => { await api("api/logout", {}); auth = { user: null, control: true }; renderAuth(); };
   $("control").hidden = false;
+  if (typeof loadGame === "function") loadGame();   // Phase 14: credits, events, leaderboard
   $("roleTag").textContent = auth.role;
   for (const g of document.querySelectorAll(".ctl")) g.hidden = !g.dataset.need.split(" ").some((a) => auth.can.includes(a));
   for (const b of document.querySelectorAll("[data-act]")) b.hidden = !auth.can.includes(b.dataset.act);
@@ -52,6 +54,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
   renderAuth();
   toast(`Logged in as ${auth.user} (${auth.role})`);
   loadAudit();
+  loadGame();
 });
 $("loginCancel").onclick = () => $("loginDlg").close();
 
@@ -63,10 +66,18 @@ async function act(payload) {
     if (selected == null || !players.get(selected)?.info.playing) { toast("Pick a player who is in the world first.", true); return; }
     payload.target = selected;
   }
-  const r = await api("api/action", payload);
-  if (!r.ok) { toast(r.data.error || "refused", true); if (r.status === 401) { auth = { user: null, control: true }; renderAuth(); } return; }
+  let r = await api("api/action", payload);
+  if (r.status === 202 && r.data.puzzle) {   // Phase 14: a hacking minigame first
+    const answer = await hack(r.data.puzzle, r.data.price);
+    if (answer == null) { toast("Hack aborted.", true); return; }
+    r = await api("api/action", { ...payload, puzzle: { id: r.data.puzzle.id, answer } });
+    hackFlash(r.ok);
+  }
   auth.cooldowns = auth.cooldowns || {};
-  auth.cooldowns[payload.action] = r.data.cooldownUntil;
+  if (r.data.cooldownUntil) auth.cooldowns[payload.action] = r.data.cooldownUntil;
+  if (!r.ok) { toast(r.data.error || "refused", true); updateCooldowns(); if (r.status === 401) { auth = { user: null, control: true }; renderAuth(); } return; }
+  if (r.data.credits != null && typeof onCredits === "function") onCredits(r.data.credits);
+  if (typeof loadGame === "function") loadGame();
   updateCooldowns();
 }
 
@@ -93,8 +104,10 @@ function updateCooldowns() {
     const until = auth.cooldowns?.[b.dataset.act] ?? 0;
     const left = Math.ceil((until - now) / 1000);
     if (!b.dataset.label) b.dataset.label = b.textContent;
+    const price = typeof priceOf === "function" ? priceOf(b.dataset.act, b.dataset.value) : 0;   // Phase 14
     b.disabled = left > 0;
-    b.textContent = left > 0 ? `${b.dataset.label} · ${left}s` : b.dataset.label;
+    b.textContent = left > 0 ? `${b.dataset.label} · ${left}s` : b.dataset.label + (price ? ` ◈${price}` : "");
+    b.title = typeof needsHack === "function" && needsHack(b.dataset.act, b.dataset.value) ? "Needs a hack first" : "";
   }
   const p = selected != null ? players.get(selected)?.info : null;
   $("targetName").textContent = p ? (p.playing ? p.name : `${p.name} (story mode)`) : "pick a player on the list";
@@ -146,6 +159,10 @@ function describe(e) {
     case "weather": return a === "auto" ? "let the weather run on its own" : `changed the weather to ${a}`;
     case "time": return `set the time to ${a} ${rest.join(":")}`;
     case "notify": return `sent a message to ${a === "all" ? "everyone" : name(a)}`;
+    case "event": return a === "manhunt" ? `started a manhunt on ${name(rest[0])}` : `started the event "${EVENT_NAMES[a] ?? a}"`;
+    case "eventEnd": return `"${EVENT_NAMES[a] ?? a}" is over`;
+    case "eventStop": return `stopped "${EVENT_NAMES[a] ?? a}"`;
+    case "bounty": return `collected a ${rest[0]}-credit bounty on ${name(a)}`;
     case "camera": return rest[0] === "cctv" ? `switched ${a === "all" ? "the cameras" : "a camera"} to ${rest[1]}` : `put ${a === "all" ? "the cameras" : "a camera"} on ${name(rest[1])} (${rest[0]})`;
   }
   return e.line;

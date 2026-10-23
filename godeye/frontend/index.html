@@ -8,6 +8,7 @@
 <script src="app.js" defer></script>
 <script src="control.js" defer></script>
 <script src="video.js" defer></script>
+<script src="game.js" defer></script>
 </head>
 <body>
 <header class="bar">
@@ -28,10 +29,18 @@
   </form>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<dialog id="hackDlg" class="dlg hack" aria-labelledby="hackTitle">
+  <div class="hhead"><h3 id="hackTitle">POLICE NETWORK</h3><span id="hackTime" class="htime">00:20</span></div>
+  <p class="hgoal"><span id="hackGoal"></span><span id="hackCost" class="hcost"></span></p>
+  <div id="hackBody" class="hbody"></div>
+  <div class="row"><button type="button" class="ghost" id="hackAbort">Give up</button></div>
+</dialog>
+<div class="hackflash" id="hackFlash" aria-live="assertive"></div>
 <main class="layout">
   <section class="map-wrap" aria-label="Live map">
     <canvas id="map"></canvas>
     <canvas id="map3d" hidden></canvas>
+    <div class="evbanner" id="evBanner" hidden></div>
     <div class="nomap" id="nomap3d" hidden>No 3D map data: run <code>tools/godeye-map map3d</code> (see godeye/README.md).</div>
     <div class="videobox" id="videoBox" hidden>
       <div class="vhead"><span class="rec"></span><span id="vTitle" class="vtitle"></span><span id="vMode" class="vmode"></span>
@@ -56,7 +65,7 @@
   </section>
   <aside class="side" aria-label="Players and control">
     <section id="control" class="control" hidden>
-      <h2>Control <span id="roleTag" class="count"></span></h2>
+      <h2>Control <span><span id="credits" class="credits"></span> <span id="roleTag" class="count"></span></span></h2>
       <div class="ctl" data-need="wanted alert roadblock">
         <h4>Police · <span id="targetName" class="muted">pick a player on the list</span></h4>
         <div class="btns">
@@ -110,9 +119,26 @@
           <button data-cam="cinematic">Cinematic</button>
         </div>
       </div>
+      <div class="ctl" id="eventCtl" data-need="event" hidden>
+        <h4>Events</h4>
+        <div class="btns" id="eventBtns"></div>
+      </div>
       <div class="ctl" data-need="notify">
         <h4>Message</h4>
         <form id="msgForm" class="msg"><input id="msgText" maxlength="100" placeholder="To the selected player, or everyone" aria-label="Message"><button type="submit">Send</button></form>
+      </div>
+    </section>
+    <section id="gameBox" class="gamebox" hidden>
+      <h2>Hack Credits</h2>
+      <div class="gbody">
+        <p class="gnote" id="gameIncome"></p>
+        <p class="gnote" id="gameLimits"></p>
+        <ol class="board" id="board"></ol>
+        <form id="grantForm" class="msg" hidden>
+          <select id="grantUser" aria-label="Who"></select>
+          <input id="grantAmount" type="number" step="50" value="500" aria-label="Credits">
+          <button type="submit">Give</button>
+        </form>
       </div>
     </section>
     <h2>Players <span id="count" class="count">0</span></h2>

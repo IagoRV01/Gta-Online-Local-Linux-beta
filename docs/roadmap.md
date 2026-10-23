@@ -26,7 +26,7 @@
 | 11 3D map (the real map from the player's own files, Cayo Perico, Isla Neón, Wuhu) | **done** (2026-10-23) | `tools/godeye-map map3d`, `godeye/frontend/map3d.js` |
 | 12 Camera Client (a second GTA on the server PC as a GodEye camera; CCTV + follow/heli/drone/cinematic/third/chase) | **built** (2026-10-23) | protocol v13 camera role + CameraSet; `docs/godeye.md` |
 | 13 WebRTC (the camera's picture live in the browser) | **done** (2026-10-23) | FFmpeg gfxcapture → NVENC → mediamtx → WHEP on the LAN, LL-HLS through the tunnel; `docs/godeye.md` |
-| 14 Web game (roles, credits, hacking minigames, cooldowns, events) | not started | roles, cooldowns and the audit log from Phase 10 are its base |
+| 14 Web game (roles, credits, hacking minigames, cooldowns, events) | **done** (2026-10-23) | Hack Credits ledger, sequence and route minigames checked by the backend, daily limits, bounties, OPERATOR events; `docs/godeye.md` |
 
 ### Story-mode protection: what was found and fixed (2026-10-07/08)
 

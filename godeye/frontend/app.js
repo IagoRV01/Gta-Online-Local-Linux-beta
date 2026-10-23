@@ -323,6 +323,7 @@ function connect() {
       listDirty = false;
       renderList();
       if (typeof onCameras === "function") onCameras(m.cameras || [], m.cctv || []);
+      if (typeof onGameEvent === "function") onGameEvent(m.gameEvent || null);
     } else if (m.t === "tel") {
       for (const p of m.players) upsert(p, now);
       for (const id of m.gone) { players.delete(id); if (selected === id) selected = follow = null; }
@@ -330,6 +331,7 @@ function connect() {
       if (m.cameras && typeof onCameras === "function") onCameras(m.cameras, null);
       if (m.players.length || m.gone.length) listDirty = true;
     } else if (m.t === "event" && typeof onGodEyeEvent === "function") onGodEyeEvent(m.entry);
+    else if (m.t === "game" && typeof onGameEvent === "function") onGameEvent(m.event);
   };
   ws.onclose = () => {
     online = false; setStatus("", "GodEye offline, reconnecting…");

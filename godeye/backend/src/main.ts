@@ -1,6 +1,7 @@
 // GodEye backend. Phase 9: reads the game server's telemetry over its loopback admin API, names what it can (zone,
 // vehicle, weapon) and pushes it to browsers over WebSocket, changes only. Serves the web app too.
 // Phase 10: logged-in users act on the game (wanted, police, traffic, world) through checked server commands.
+// Phase 14: the web game on top: Hack Credits, hacking minigames, daily limits, bounties and OPERATOR events.
 //   node src/main.ts [godeye.json]
 // GodEye never talks to GTA, and browsers never talk to the game server.
 import { appendFileSync, createReadStream, existsSync, readFileSync, mkdirSync } from "node:fs";
@@ -11,6 +12,8 @@ import { createGzip, gzipSync } from "node:zlib";
 import { ACTIONS, Limits, allowed, toCommand, type ActionRequest } from "./actions.ts";
 import { AdminLink } from "./admin.ts";
 import { LoginLimiter, Sessions, Users } from "./auth.ts";
+import { EVENTS, GAME_DEFAULTS, Game, eventLines, type GameConfig } from "./game.ts";
+import { Puzzles } from "./puzzles.ts";
 import { loadVehicles, vehicleName, weaponName } from "./names.ts";
 import { Video, VIDEO_DEFAULTS, type VideoConfig } from "./video.ts";
 import { acceptUpgrade, type WsClient } from "./ws.ts";
@@ -30,6 +33,7 @@ interface Config {
   usersFile: string;
   publicMap3d: "login" | "open";   // the 3D map on the public address: login (default) or open
   video: VideoConfig;              // Phase 13: the camera clients as live video
+  game: GameConfig;                // Phase 14: credits, minigames, limits, events
   allowNetworks: string[];
 }
 const cfgPath = resolve(process.argv[2] ?? join(ROOT, "godeye.json"));
@@ -42,12 +46,14 @@ const defaults: Config = {
   usersFile: "users.json",
   publicMap3d: "login",
   video: VIDEO_DEFAULTS,
+  game: GAME_DEFAULTS,
   allowNetworks: ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
 };
 let cfg: Config = defaults;
 if (existsSync(cfgPath)) {
   const c = JSON.parse(readFileSync(cfgPath, "utf8"));
-  cfg = { ...defaults, ...c, http: { ...defaults.http, ...c.http }, admin: { ...defaults.admin, ...c.admin }, video: { ...defaults.video, ...c.video } };
+  cfg = { ...defaults, ...c, http: { ...defaults.http, ...c.http }, admin: { ...defaults.admin, ...c.admin }, video: { ...defaults.video, ...c.video },
+    game: { ...defaults.game, ...c.game, prices: { ...defaults.game.prices, ...c.game?.prices }, daily: { ...defaults.game.daily, ...c.game?.daily }, puzzles: { ...defaults.game.puzzles, ...c.game?.puzzles } } };
 }
 const rel = (p: string) => resolve(dirname(cfgPath), p);
 
@@ -122,7 +128,7 @@ function broadcast(msg: object): void {
   for (const b of browsers) b.send(text);
 }
 function fullState(): object {
-  return { t: "full", online: admin.connected, server: serverInfo, world, players: [...players.values()], cameras, cctv };
+  return { t: "full", online: admin.connected, server: serverInfo, world, players: [...players.values()], cameras, cctv, gameEvent: game?.publicEvent() ?? null };
 }
 
 const admin = new AdminLink(cfg.admin);
@@ -145,6 +151,12 @@ admin.on("msg", (m: any) => {
   const changed: any[] = [];
   for (const p of m.players ?? []) { const e = enrich(p); players.set(p.id, e); changed.push(e); }
   for (const id of m.gone ?? []) players.delete(id);
+  for (const b of game?.checkBounties((id) => players.get(id)?.deaths) ?? []) {   // Phase 14: the police got them
+    const entry: AuditEntry = { at: new Date().toISOString(), user: b.user, role: "", action: "bounty", line: `bounty ${b.target} ${b.reward}`, ok: true };
+    audit.push(entry); if (audit.length > 200) audit.shift();
+    log("INFO", `bounty: ${b.user} earns ${b.reward} credits (player ${b.target} died)`);
+    broadcast({ t: "event", entry });
+  }
   if (m.full) broadcast(fullState());
   else broadcast({ t: "tel", ms: m.ms, world: m.world, cameras: m.cameras, players: changed, gone: m.gone ?? [] });
 });
@@ -160,9 +172,35 @@ const users = new Users(rel(cfg.usersFile));
 const sessions = new Sessions();
 const loginLimit = new LoginLimiter();
 const limits = new Limits();
+// ---- the web game (Phase 14)
+cfg.game.ledgerFile = rel(cfg.game.ledgerFile);
+const game = cfg.game.enabled ? new Game(cfg.game, log) : null;
+const puzzles = new Puzzles();
 log("INFO", `${users.count} GodEye users in ${rel(cfg.usersFile)}${users.count ? "" : " (control off until one is added: node src/users.ts add <name> ADMIN)"}`);
 interface AuditEntry { at: string; user: string; role: string; action: string; line: string; ok: boolean }
 const audit: AuditEntry[] = [];
+function record(user: string, role: string, action: string, line: string, ok: boolean): void {
+  const entry: AuditEntry = { at: new Date().toISOString(), user, role, action, line, ok };
+  audit.push(entry); if (audit.length > 200) audit.shift();
+  if (ok) broadcast({ t: "event", entry: { ...entry, label: ACTIONS[action]?.label ?? action } });
+}
+
+// every minute the open pages earn credits while someone is in the world; every second, a finished event is undone
+if (game) {
+  setInterval(() => game.income([...players.values()].some((p) => p.playing)), 60000);
+  setInterval(async () => {
+    const ev = game.event;
+    if (!ev || Date.now() < ev.endsAt || !admin.connected || endingEvent) return;
+    endingEvent = true;
+    for (const l of ev.end) await admin.command(l);
+    game.endEvent();
+    endingEvent = false;
+    log("INFO", `event "${ev.label}" ended`);
+    record("GodEye", "", "event", `eventEnd ${ev.key}`, true);
+    broadcast({ t: "game", event: null });
+  }, 1000);
+}
+let endingEvent = false;
 
 function readBody(req: IncomingMessage): Promise<any> {
   return new Promise((done) => {
@@ -183,8 +221,8 @@ function sameOrigin(req: IncomingMessage): boolean {
 function me(s: ReturnType<Sessions["get"]>, pub = false): object {
   const map3d = !pub || cfg.publicMap3d === "open" || !!s;
   if (!s) return { user: null, control: users.count > 0, public: pub, map3d };
-  const can = Object.keys(ACTIONS).filter((a) => allowed(s.role, a));
-  return { user: s.user, role: s.role, csrf: s.csrf, can, cooldowns: limits.cooldowns(s.user), public: pub, map3d };
+  const can = Object.keys(ACTIONS).filter((a) => allowed(s.role, a) && (a !== "event" || !!game));
+  return { user: s.user, role: s.role, csrf: s.csrf, can, cooldowns: limits.cooldowns(s.user), public: pub, map3d, game: !!game };
 }
 
 async function handlePost(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
@@ -207,21 +245,77 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
   if (!s || req.headers["x-csrf-token"] !== s.csrf) { json(401, { error: "log in first" }); return; }
   if (path === "/api/logout") { sessions.end(s); json(200, { user: null }, { "Set-Cookie": sessions.cookie(null, pub) }); return; }
   if (path === "/api/action") {
-    const r = body as ActionRequest;
+    const r = body as ActionRequest & { puzzle?: { id?: unknown; answer?: unknown } };
     const action = String(r.action ?? "");
-    if (!allowed(s.role, action)) { json(403, { error: `${s.role} cannot use ${action || "that"}` }); return; }
+    if (!allowed(s.role, action) || (action === "event" && !game)) { json(403, { error: `${s.role} cannot use ${action || "that"}` }); return; }
     const cmd = toCommand(r, (id) => !!players.get(id)?.playing);
     if (!cmd.line) { json(400, { error: cmd.error }); return; }
+    // an event: its own commands, one at a time
+    let ev: { start: string[]; end: string[] } | null = null;
+    const target = r.target == null || r.target === "all" ? null : Number(r.target);
+    if (action === "event" && r.value === "stop") {   // end the running event now: whoever started it, or ADMIN
+      const e = game!.event;
+      if (!e) { json(409, { error: "no event is running" }); return; }
+      if (s.role !== "ADMIN" && e.by.toLowerCase() !== s.user.toLowerCase()) { json(403, { error: `only ${e.by} or an ADMIN can stop it` }); return; }
+      e.endsAt = Date.now();   // the event timer runs its end commands within a second
+      record(s.user, s.role, action, `eventStop ${e.key}`, true);
+      log("INFO", `event "${e.label}" stopped by ${s.user}`);
+      json(200, { ok: true });
+      return;
+    }
     const lim = limits.check(s.user, s.role, action);
     if (!lim.ok) { json(429, { error: `cooling down: ${lim.waitS} s`, waitS: lim.waitS }); return; }
     if (!admin.connected) { json(503, { error: "the game server is offline" }); return; }
-    const ok = await admin.command(cmd.line);
+    if (action === "event") {
+      const def = EVENTS[String(r.value)];
+      if (!def) { json(400, { error: "unknown event" }); return; }
+      if (game!.event) { json(409, { error: `"${game!.event.label}" is still running` }); return; }
+      ev = eventLines(String(r.value), def.target ? target : null, def.target && target != null ? players.get(target)?.name ?? "" : "");
+      if (!ev) { json(400, { error: "pick a player who is in the world first" }); return; }
+    }
+    // the game: credits and daily limits, then a hacking minigame for some actions
+    let price = 0;
+    if (game) {
+      const q = game.quote(s.user, s.role, r);
+      if (q.error) { json(402, { error: q.error }); return; }
+      price = q.price;
+      if (q.puzzle) {
+        if (!r.puzzle) { json(202, { puzzle: puzzles.make(s.user, cmd.line, q.puzzle), price }); return; }
+        const res = puzzles.solve(s.user, cmd.line, r.puzzle.id, r.puzzle.answer);
+        if (res !== "ok") {
+          const until = limits.block(s.user, action, 15);
+          log("INFO", `minigame failed by ${s.user} (${s.role}) for "${cmd.line}": ${res}`);
+          json(403, { error: res === "expired" ? "ACCESS DENIED: too slow" : "ACCESS DENIED", denied: true, cooldownUntil: until });
+          return;
+        }
+      }
+    }
+    let ok: boolean;
+    if (ev) { ok = true; for (const l of ev.start) ok = (await admin.command(l)) && ok; ok = ok || !ev.start.length; }
+    else ok = await admin.command(cmd.line);
     const until = ok ? limits.used(s.user, s.role, action) : 0;
-    const entry: AuditEntry = { at: new Date().toISOString(), user: s.user, role: s.role, action, line: cmd.line, ok };
-    audit.push(entry); if (audit.length > 200) audit.shift();
-    log(ok ? "INFO" : "WARN", `action by ${s.user} (${s.role}): ${cmd.line} -> ${ok ? "ok" : "refused by the game server"}`);
-    if (ok) broadcast({ t: "event", entry: { ...entry, label: ACTIONS[action].label } });
-    json(ok ? 200 : 409, ok ? { ok, cooldownUntil: until } : { error: "the game server refused it" });
+    if (ok && game) {
+      game.charge(s.user, s.role, r, price);
+      if (action === "wanted" && target != null) game.addBounty(s.user, target, players.get(target)?.deaths ?? 0, price);
+      if (ev) {
+        const e = game.startEvent(String(r.value), s.user, target, target != null ? players.get(target)?.name ?? "" : "", ev.end);
+        log("INFO", `event "${e.label}" started by ${s.user}, until ${new Date(e.endsAt).toLocaleTimeString()}`);
+        broadcast({ t: "game", event: game.publicEvent() });
+      }
+    }
+    record(s.user, s.role, action, cmd.line, ok);
+    log(ok ? "INFO" : "WARN", `action by ${s.user} (${s.role}): ${cmd.line}${price ? ` for ${price} credits` : ""} -> ${ok ? "ok" : "refused by the game server"}`);
+    json(ok ? 200 : 409, ok ? { ok, cooldownUntil: until, credits: game?.balance(s.user) } : { error: "the game server refused it" });
+    return;
+  }
+  if (path === "/api/game/grant") {   // ADMIN: give (or take) credits
+    if (!game || s.role !== "ADMIN") { json(403, { error: "ADMIN only" }); return; }
+    const who = users.list().find((u) => u.name.toLowerCase() === String(body.user ?? "").toLowerCase());
+    const amount = Number(body.amount);
+    if (!who || !Number.isInteger(amount) || amount === 0 || Math.abs(amount) > 100000) { json(400, { error: "a GodEye user and a whole amount up to 100000" }); return; }
+    game.grant(who.name, amount, s.user);
+    log("INFO", `${s.user} granted ${amount} credits to ${who.name}`);
+    json(200, { ok: true, user: who.name, credits: game.balance(who.name) });
     return;
   }
   json(404, { error: "not found" });
@@ -235,6 +329,7 @@ const STATIC: Record<string, [string, string]> = {
   "/control.js": ["control.js", "text/javascript; charset=utf-8"],
   "/map3d.js": ["map3d.js", "text/javascript; charset=utf-8"],
   "/video.js": ["video.js", "text/javascript; charset=utf-8"],
+  "/game.js": ["game.js", "text/javascript; charset=utf-8"],
   "/vendor/three/three.module.min.js": ["vendor/three/three.module.min.js", "text/javascript; charset=utf-8"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
 };
@@ -293,6 +388,16 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
   if (path === "/api/me") { send(res, 200, "application/json", JSON.stringify(me(sessions.get(req.headers["cookie"]), isPublic(req)))); return; }
+  if (path === "/api/game") {   // Phase 14: this user's credits, prices, limits; the event; the leaderboard
+    const s = sessions.get(req.headers["cookie"]);
+    if (!s) { send(res, 401, "application/json", JSON.stringify({ error: "log in first" })); return; }
+    if (!game) { send(res, 200, "application/json", JSON.stringify({ enabled: false })); return; }
+    game.touch(s.user);
+    const can = Object.keys(ACTIONS).filter((a) => allowed(s.role, a));
+    const roles = new Map(users.list().map((u) => [u.name.toLowerCase(), u.role]));
+    send(res, 200, "application/json", JSON.stringify({ enabled: true, ...game.status(s.user, s.role, can), event: game.publicEvent(), board: game.board((k) => roles.get(k)) }));
+    return;
+  }
   if (path === "/api/audit") {
     const s = sessions.get(req.headers["cookie"]);
     if (!s) { send(res, 401, "application/json", JSON.stringify({ error: "log in first" })); return; }

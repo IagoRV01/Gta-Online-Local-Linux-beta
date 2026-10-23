@@ -8,10 +8,11 @@ Built so far (running it: [../godeye/README.md](../godeye/README.md)):
 
 - **Phase 12, Camera Client:** a second GTA on the server PC, logged in as a camera, showing what GodEye picks.
 - **Phase 13, live video:** the camera client's picture in the browser (WebRTC on the LAN, HLS over the internet).
+- **Phase 14, web game:** Hack Credits, hacking minigames, daily limits, bounties and OPERATOR events.
 - **GodEye.exe** (open and close from the desktop, on one chosen GPU) and an optional **public address**
   (Cloudflare Tunnel): [../godeye/README.md](../godeye/README.md).
 
-Phase 14 (web game) follows the design below.
+All the phases of the brief are built.
 
 ## Placement
 
@@ -216,6 +217,53 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   - WebRTC 1280×720 playing in the browser.
   - HLS through hls.js about 2.2 s behind.
   - The camera GTA's own window (the landing page) live at https://godeye.goricito.cc over HLS through the tunnel.
+
+## Phase 14: the web game
+
+- **Files:**
+  - `godeye/backend/src/game.ts`: credits, prices, limits, bounties, events;
+  - `godeye/backend/src/puzzles.ts`: the minigames;
+  - `godeye/frontend/game.js`: the page.
+- **The flow of a priced action** (`POST /api/action`):
+  1. role → checked values (`toCommand`) → cooldown;
+  2. `game.quote`: the price (× the event's price factor), today's uses against `daily`, the balance;
+  3. when `puzzles[action]` applies and nothing is being put back, the answer is **202 `{puzzle, price}`**;
+  4. the page plays it and sends the same action again with `puzzle: {id, answer}`;
+  5. `Puzzles.solve` takes the puzzle out (single use), checks the user, the exact command line and the time, then the
+     answer;
+  6. wrong or late: **403 ACCESS DENIED**, and `Limits.block` locks the action for 15 s;
+  7. then the game server command. Only if it is accepted: `game.charge` (and `addBounty` for "+n wanted").
+- **Puzzles:**
+  - `sequence`, three levels: +k; +p+q, ×m, +d+2d+3d; a+b, ×m+c, squares, with a middle term hidden. Four options.
+  - `route`: a 4×4 to 5×5 grid on a random spanning tree plus extra links, with 2–4 locked nodes. The generator
+    rejects grids with no way through, or a shortest way shorter than the width. The answer must be a simple path of
+    real links from IN to OUT.
+  - The browser never gets an answer.
+- **Ledger** (`game.ledgerFile`, JSON lines):
+  - `{at,user,delta,why,action?,day?}` for every balance change: why = start, daily, income, bounty, grant by X, or
+    the action;
+  - `{t:"event",…}` and `{t:"eventEnd",id}`.
+  - Each line is `fsync`ed. A damaged last line (power cut) is skipped at load.
+- **Income:** a minute timer pays `incomePerMinute` to users whose page asked `/api/game` in the last 2 minutes (the
+  page polls every 15 s), only while a player is in the world.
+- **Bounties:** in memory. Each telemetry update compares the target's `deaths` with the value when the stars were
+  bought.
+- **Events:**
+  - `EVENTS` in game.ts: start commands, end commands, length, and optionally a target, `priceX` or `bountyX`.
+  - A 1 s timer runs the end commands once `endsAt` passes and the game server is connected. That includes an event
+    that was running when GodEye stopped.
+  - `event stop` (the starter or ADMIN) sets `endsAt` to now.
+  - Browsers get `{t:"game",event}` and `gameEvent` in the full state.
+- **API:**
+  - `GET /api/game`: credits, prices, limits left, puzzle actions, events, the running event, the top-10 board.
+  - `POST /api/game/grant {user, amount}`: ADMIN only, ±100000.
+- **Verified 2026-10-23** against the isolated test server, with a netprobe player:
+  - the e2e (scratchpad `e2e14.mjs`) passes 30 of 30;
+  - balances and daily uses are identical after a GodEye restart;
+  - an Electrical storm survived a restart mid-event, and stopping it brought the power back;
+  - the page (desktop and 375 px) showed both minigames, ACCESS GRANTED, the event banner, halved prices and the
+    board;
+  - 21 unit tests pass.
 
 ## Security baseline
 

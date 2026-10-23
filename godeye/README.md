@@ -6,6 +6,7 @@ The web view of GTA Local Online. It runs on the Windows server PC next to `Loca
 - **Phase 11 (3D):** the real map in 3D, streamed from tiles made from your own game files.
 - **Phase 12 (cameras):** a second GTA on the server PC as a camera client; GodEye picks what it shows.
 - **Phase 13 (live video):** that camera's picture in the browser: WebRTC on the LAN, HLS from the internet.
+- **Phase 14 (web game):** people without GTA play too: Hack Credits, hacking minigames, daily limits, bounties, events.
 - **GodEye.exe:** opens and closes everything from the desktop, on the graphics card you choose.
 - Design and the later phases: [../docs/godeye.md](../docs/godeye.md), [../docs/cameras.md](../docs/cameras.md).
 
@@ -183,6 +184,59 @@ CCTV cameras live in `cameras.json` next to `LocalOnlineServer.exe`:
 - Without the file there are four defaults: Legion Square, Airport, Vinewood, Vespucci.
 - In GodEye, OPERATOR and HACKER (and ADMIN) get a **Cameras** panel: pick a camera client (or all), then a CCTV
   camera, or a mode for the selected player.
+
+## The web game (Phase 14)
+
+GodEye users play against the people in GTA, without GTA. All of it is fictional and stays inside GodEye and the game
+server.
+
+- **Roles**:
+  - HACKER: traffic lights, power, cameras.
+  - DISPATCH: wanted level, police alerts, roadblocks.
+  - OPERATOR: world, cameras, messages, events.
+  - ADMIN: everything.
+- **Hack Credits:** every action has a price. Putting things back is free: lights on, normal traffic, clearing stars.
+
+  | Action | Credits |
+  |---|---|
+  | Traffic hack | 50 |
+  | Police alert | 100 |
+  | +1 wanted | 150 per star |
+  | Roadblock | 250 |
+  | Blackout | 500 |
+  | Weather, time | 25 |
+  | Message | 10 |
+
+- **Earning credits:**
+  - 500 to start;
+  - a 250 bonus on the first visit of each day;
+  - +10 a minute while the page is open and someone is in the world;
+  - **bounties:** when DISPATCH raises someone's wanted level and that player dies within 3 minutes, DISPATCH earns 1.5×
+    what it paid.
+  - An ADMIN can also give or take credits (the form under Hack Credits).
+- **Hacking minigames** stand before the bigger hacks:
+  - a number sequence (`POLICE NETWORK · 4 → 7 → 10 → ?`) for traffic and wanted;
+  - a node route around firewalls (`TRAFFIC GRID`) for roadblocks and blackouts.
+
+  The backend makes each puzzle and keeps its answer. A puzzle has a timer, is single-use, and is bound to that user and
+  that exact action. A wrong answer is ACCESS DENIED and locks that action for 15 s. Nothing is charged until the
+  game server accepts the action.
+- **Daily limits** per user: 3 blackouts, 5 roadblocks, 10 wanted, 10 traffic hacks, 10 alerts and 5 events.
+- **Cooldowns:** the Phase 10 ones still apply.
+- **Events (OPERATOR):** one at a time, with a banner over the map for every viewer.
+
+  | Event | Credits | Length | Effect |
+  |---|---|---|---|
+  | Electrical storm | 600 | 5 min | thunder and a citywide blackout |
+  | Gridlock | 400 | 3 min | every light red |
+  | Manhunt | 500 | 5 min | 3 stars and an alert on the selected player; bounties pay double |
+  | Happy hour | 300 | 10 min | every hack half price |
+
+  When the time is up, GodEye puts things back. Whoever started an event, or an ADMIN, can stop it early.
+- **Settings:** prices, limits, income and `adminPlays` are in the `game` block of `godeye.json` (see
+  `godeye.example.json`). With `"adminPlays": false`, ADMIN acts free, without puzzles or limits.
+- **The ledger:** credits live in `game.ledgerFile`, one JSON line per change, written to disk before the change
+  counts. Balances, today's uses and a running event come back after a restart or a power cut.
 
 ## Security
 

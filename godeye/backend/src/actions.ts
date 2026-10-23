@@ -15,6 +15,7 @@ export const ACTIONS: Record<string, ActionDef> = {
   time:      { roles: ["OPERATOR"], cooldownS: 10, label: "Time of day", player: false },
   notify:    { roles: ["OPERATOR"], cooldownS: 5, label: "Message", player: false },
   camera:    { roles: ["OPERATOR", "HACKER"], cooldownS: 2, label: "Camera", player: false },
+  event:     { roles: ["OPERATOR"], cooldownS: 120, label: "Event", player: false },   // Phase 14: game.ts EVENTS
 };
 
 export const WEATHERS = ["CLEAR", "EXTRASUNNY", "CLOUDS", "OVERCAST", "RAIN", "CLEARING", "THUNDER", "SMOG", "FOGGY", "XMAS", "SNOW", "SNOWLIGHT", "BLIZZARD", "HALLOWEEN", "NEUTRAL", "auto"];
@@ -82,6 +83,14 @@ export function toCommand(r: ActionRequest, playing: (id: number) => boolean): {
       if (!Number.isInteger(id) || !playing(id)) return { error: "that player is not in the world" };
       return { line: `camera ${cam} ${mode} ${id}` };
     }
+    case "event": {   // not a server command itself: main.ts runs the event's commands (game.ts)
+      const key = String(r.value ?? "");
+      if (!/^[a-z]{1,16}$/.test(key)) return { error: "unknown event" };
+      if (r.target == null) return { line: `event ${key}` };
+      const id = Number(r.target);
+      if (!Number.isInteger(id) || !playing(id)) return { error: "that player is not in the world" };
+      return { line: `event ${key} ${id}` };
+    }
     case "notify": {
       const text = cleanText(r.text);
       if (!text) return { error: "the message is empty" };
@@ -112,6 +121,13 @@ export class Limits {
     this.next.set(user + "|" + action, now + cd);
     this.recent.get(user)?.push(now) ?? this.recent.set(user, [now]);
     return now + cd;
+  }
+
+  // a failed hacking minigame locks that action for a while
+  block(user: string, action: string, seconds: number): number {
+    const until = Math.max(this.next.get(user + "|" + action) ?? 0, Date.now() + seconds * 1000);
+    this.next.set(user + "|" + action, until);
+    return until;
   }
 
   cooldowns(user: string): Record<string, number> {

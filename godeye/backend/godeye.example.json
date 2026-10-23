@@ -29,5 +29,32 @@
         "window": "^Grand Theft Auto V$"
       }
     ]
+  },
+  "game": {
+    "enabled": true,
+    "ledgerFile": "credits.jsonl",
+    "startCredits": 500,
+    "dailyBonus": 250,
+    "incomePerMinute": 10,
+    "prices": {
+      "traffic": 50,
+      "alert": 100,
+      "wanted": 150,
+      "roadblock": 250,
+      "blackout": 500,
+      "weather": 25,
+      "time": 25,
+      "notify": 10,
+      "camera": 0
+    },
+    "daily": {
+      "blackout": 3,
+      "roadblock": 5,
+      "wanted": 10,
+      "traffic": 10,
+      "alert": 10,
+      "event": 5
+    },
+    "adminPlays": true
   }
 }
