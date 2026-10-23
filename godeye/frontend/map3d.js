@@ -5,7 +5,7 @@ import * as THREE from "./vendor/three/three.module.min.js";
 
 const BASE = "data/map3d/";
 let renderer, scene, camera, root, waterGroup, playerGroup, canvas, index = null, running = false;
-let hemi, sun, sky, seaMat, waterMat, maxAniso = 4;   // the light and sky follow the game's clock and weather
+let hemi, sun, sky, skyCanvas, skyTex, seaMat, waterMat, maxAniso = 4;   // the light and sky follow the game's clock and weather
 const emitMats = new Set();         // window lights: brighter at night, off in a blackout
 const tiles = new Map();            // "x,y" -> {info, far: {group, layer1: []} | null, near: group | null, loading}
 const materials = new Map();        // tex key + kind -> material
@@ -14,6 +14,10 @@ const markers = new Map();          // player id -> {group, label}
 const ver = () => (index?.built ? "?v=" + index.built : "");   // a new export never mixes with cached old tiles
 const orbit = { tx: 0, ty: -900, tz: 30, dist: 5200, yaw: -0.35, pitch: 0.95 };
 let lastStream = 0, inflight = 0;
+// frames are drawn only when something changed (the camera, a tile, a texture, the sky, a player): a still view
+// costs nothing, instead of thousands of draw calls 60 times a second
+let dirty = true;
+const redraw = () => { dirty = true; };
 
 // ---------------------------------------------------------------- data
 const HALF = (() => {   // half float -> float lookup for the UVs
@@ -67,6 +71,7 @@ function texture(key) {
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = maxAniso;
     t.needsUpdate = true;
+    redraw();
   }).catch(() => {});
   return t;
 }
@@ -150,18 +155,21 @@ async function loadTile(t, kind) {
     if (kind === "far") { t.far = parsed; root.add(parsed.group); }
     else { t.near = parsed.group; root.add(parsed.group); }
     applyNear(t);
+    redraw();
   } catch (e) { console.warn("tile", t.info.x, t.info.y, kind, e); }
   finally { t.loading--; inflight--; }
 }
 
 function applyNear(t) {
   const swap = !!(t.near && t.nearWanted);
+  if (t.near && t.near.visible !== swap) redraw();
   if (t.near) t.near.visible = swap;
   if (t.far) for (const m of t.far.layer1) m.visible = !swap;
 }
 
 function dispose(group) {
   if (!group) return;
+  redraw();
   group.removeFromParent();
   group.traverse((o) => o.geometry?.dispose());
 }
@@ -190,7 +198,7 @@ function stream() {
 function build() {
   canvas = document.getElementById("map3d");
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));   // sharp enough, and far cheaper on 4K screens
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;   // keeps the colours; ACES washed the map out
   renderer.toneMappingExposure = 1.05;
@@ -205,11 +213,14 @@ function build() {
   sun = new THREE.DirectionalLight(0xfff2dd, 1.8);
   sun.position.set(-3000, -2000, 5000);
   scene.add(sun);
-  // the sky: a dome shaded from the horizon to the zenith, following the camera
-  const dome = new THREE.SphereGeometry(20000, 32, 16);
-  dome.rotateX(Math.PI / 2);   // poles on z
-  dome.setAttribute("color", new THREE.BufferAttribute(new Float32Array(dome.attributes.position.count * 3), 3));
-  sky = new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  // the sky: a dome with a smooth gradient texture from the horizon to the zenith, following the camera
+  const dome = new THREE.SphereGeometry(20000, 48, 24);
+  dome.rotateX(Math.PI / 2);   // poles on z; the texture's v still runs from the bottom pole to the top one
+  skyCanvas = document.createElement("canvas");
+  skyCanvas.width = 4; skyCanvas.height = 256;
+  skyTex = new THREE.CanvasTexture(skyCanvas);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  sky = new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false }));
   sky.renderOrder = -1;
   scene.add(sky);
   // the sea is opaque: through a see-through sea the earth backdrop below showed as dark wedges over open water
@@ -283,14 +294,16 @@ function updateSky() {
   cTop.copy(c1.setHex(a[1])).lerp(c2.setHex(b[1]), f).lerp(cg, grey * (1 - night) * 0.8);
   cHor.copy(c1.setHex(a[2])).lerp(c2.setHex(b[2]), f).lerp(cg, grey * (1 - night));
   if (night > 0.5) cHor.multiplyScalar(1 - grey * 0.4);   // a cloudy night has no glow on the horizon
-  // the dome: horizon colour low down, zenith colour above
-  const pos = sky.geometry.attributes.position, col = sky.geometry.attributes.color;
-  for (let i = 0; i < pos.count; i++) {
-    const t = Math.min(1, Math.max(0, pos.getZ(i) / 20000 * 2.2));
-    c1.copy(cHor).lerp(cTop, t);
-    col.setXYZ(i, c1.r, c1.g, c1.b);
-  }
-  col.needsUpdate = true;
+  // the dome: the horizon colour up to the horizon (the canvas's middle), then a smooth blend to the zenith
+  const g = skyCanvas.getContext("2d"), grad = g.createLinearGradient(0, 0, 0, 256);
+  const css = (c) => "#" + c.getHexString(THREE.SRGBColorSpace);
+  grad.addColorStop(0, css(cTop));
+  grad.addColorStop(0.3, css(c1.copy(cTop).lerp(cHor, 0.45)));
+  grad.addColorStop(0.47, css(cHor));
+  grad.addColorStop(1, css(cHor));
+  g.fillStyle = grad; g.fillRect(0, 0, 4, 256);
+  skyTex.needsUpdate = true;
+  redraw();
   scene.background.copy(cHor);
   const [fn, ff] = FOG[weather] ?? [9000, 22000];
   scene.fog.color.copy(cHor);
@@ -312,6 +325,9 @@ function updateSky() {
   for (const m of emitMats) { m.opacity = glow; m.visible = glow > 0; }
 }
 
+// a cheap fingerprint of what the players look like this frame: any change redraws
+let playerKey = "", playersMoved = false, lastRender = 0;
+
 // ---------------------------------------------------------------- players
 function label(text, color) {
   const c = document.createElement("canvas");
@@ -329,6 +345,7 @@ function label(text, color) {
 function updatePlayers(now) {
   const t = now - 150;
   const seen = new Set();
+  let key = "";
   for (const [id, e] of players) {
     if (!e.info.playing) continue;
     const p = sampleAt(e, t);
@@ -362,8 +379,10 @@ function updatePlayers(now) {
     mk.label.position.set(0, 0, 9 * k);
     mk.label.scale.set(16 * k, 4 * k, 1);
     mk.group.visible = true;
+    key += `${id}:${p.x.toFixed(1)},${p.y.toFixed(1)},${Math.round(p.h)},${k.toFixed(2)};`;
   }
   for (const [id, mk] of markers) if (!seen.has(id)) { mk.group.removeFromParent(); markers.delete(id); }
+  if (key !== playerKey) { playerKey = key; playersMoved = true; }
 }
 
 // ---------------------------------------------------------------- camera
@@ -386,6 +405,7 @@ function bindInput() {
     if (!p) return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
+    redraw();
     if (pts.size === 2) {
       const [a, b] = [...pts.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -404,7 +424,7 @@ function bindInput() {
       orbit.pitch = Math.min(1.5, Math.max(0.08, orbit.pitch + dy * 0.004));
     }
   });
-  canvas.addEventListener("wheel", (e) => { e.preventDefault(); orbit.dist = Math.min(14000, Math.max(30, orbit.dist * Math.exp(e.deltaY * 0.0012))); }, { passive: false });
+  canvas.addEventListener("wheel", (e) => { e.preventDefault(); redraw(); orbit.dist = Math.min(14000, Math.max(30, orbit.dist * Math.exp(e.deltaY * 0.0012))); }, { passive: false });
 }
 
 function resize3d() {
@@ -413,6 +433,7 @@ function resize3d() {
   renderer.setSize(r.width, r.height, false);
   camera.aspect = r.width / r.height;
   camera.updateProjectionMatrix();
+  redraw();
 }
 
 function frame(now) {
@@ -426,11 +447,16 @@ function frame(now) {
   sky.position.copy(camera.position);
   updateSky();
   updatePlayers(now);
-  renderer.render(scene, camera);
+  const cam = `${orbit.tx.toFixed(1)},${orbit.ty.toFixed(1)},${orbit.tz.toFixed(1)},${orbit.dist.toFixed(1)},${orbit.yaw.toFixed(4)},${orbit.pitch.toFixed(4)}`;
+  if (cam !== camKey) { camKey = cam; dirty = true; }   // following a player moves the camera too
+  // players alone redraw at most 20 times a second: the whole map is drawn again for a moving marker
+  if (dirty || (playersMoved && now - lastRender > 50)) { dirty = playersMoved = false; lastRender = now; renderer.render(scene, camera); renders++; }
   requestAnimationFrame(frame);
 }
 
 // ---------------------------------------------------------------- entry points used by app.js
+let camKey = "", renders = 0;
+
 export async function start() {
   if (!renderer) {
     build();
@@ -451,6 +477,7 @@ export async function start() {
     }
   }
   running = true;
+  redraw();
   // tiles stream on a timer, not per frame: frames stop in a background tab, loading should not
   if (!lastStream) lastStream = setInterval(() => { if (running) { placeCamera(); stream(); } }, 300);
   resize3d();
@@ -459,12 +486,12 @@ export async function start() {
 
 export function stop() { running = false; }
 
-export function focus(x, y, z, dist = 400) { orbit.tx = x; orbit.ty = y; orbit.tz = z; orbit.dist = dist; }
+export function focus(x, y, z, dist = 400) { orbit.tx = x; orbit.ty = y; orbit.tz = z; orbit.dist = dist; redraw(); }
 
 export function stats() {
   let far = 0, near = 0, meshes = 0;
   for (const t of tiles.values()) { if (t.far) { far++; meshes += t.far.group.children.length; } if (t.near) { near++; meshes += t.near.children.length; } }
-  return { far, near, meshes, textures: texCache.size, calls: renderer?.info.render.calls, tris: renderer?.info.render.triangles, orbit: { ...orbit } };
+  return { far, near, meshes, renders, textures: texCache.size, calls: renderer?.info.render.calls, tris: renderer?.info.render.triangles, orbit: { ...orbit } };
 }
 
 // for debugging from the console: the scene, the water and the tiles

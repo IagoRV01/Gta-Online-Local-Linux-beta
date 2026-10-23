@@ -71,8 +71,9 @@ GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1
   put a shortcut on the desktop.
 - Apps installed from the Store or as MSIX packages see a private copy of `AppData`. Files they write there are not
   where a double-clicked GodEye.exe looks for them, so set GodEye up from a normal Explorer or terminal window.
-- GodEye stays on while any process of its window is alive: Edge sometimes hands the window to a new process (on a
-  fresh profile, for instance), and that no longer closes GodEye.
+- GodEye stays on while its window is open. Edge sometimes hands the window to a new process: on a fresh profile,
+  and when it restarts after an update. So GodEye goes off only after 2 s with neither a process of the window's job
+  nor a "GodEye" window of the browser.
 
 **Choosing the graphics card.** GodEye draws on one card only: the 3D map, and later the camera client and the
 encoder.

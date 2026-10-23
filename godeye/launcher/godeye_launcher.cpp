@@ -193,6 +193,28 @@ bool Start(const std::string &exe, const std::string &args, const std::string &c
     return true;
 }
 
+// a visible top-level window titled "GodEye" that belongs to the browser: the page is still open. The browser can
+// move the window to a process we did not start (Edge restarting itself after an update), so the process list alone
+// is not enough to know.
+bool GodEyeWindowOpen(const std::string &browserExe) {
+    struct Ctx { std::string exe; bool found; } ctx{Lower(browserExe), false};
+    EnumWindows([](HWND h, LPARAM p) -> BOOL {
+        auto *c = reinterpret_cast<Ctx *>(p);
+        if (!IsWindowVisible(h)) return TRUE;
+        wchar_t title[64] = L"";
+        GetWindowTextW(h, title, 64);
+        if (wcscmp(title, L"GodEye") != 0) return TRUE;
+        DWORD pid = 0;
+        GetWindowThreadProcessId(h, &pid);
+        char path[MAX_PATH] = "";
+        DWORD n = MAX_PATH;
+        if (HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) { QueryFullProcessImageNameA(ph, 0, path, &n); CloseHandle(ph); }
+        if (Lower(path) == c->exe) { c->found = true; return FALSE; }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&ctx));
+    return ctx.found;
+}
+
 std::string ReadFirstLine(const std::string &path) {
     FILE *f = std::fopen(path.c_str(), "rb");
     if (!f) return "";
@@ -286,13 +308,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
     if (!Start(browser, bargs, "", "", false, &win, first ? winJob : nullptr)) Fail("Could not open the GodEye window with " + browser);
     if (!first) return 0;
     // GodEye stays on while its window is open. The browser we started may hand the window to a new process of its own
-    // (Edge does on a fresh profile), so wait until none of the window's processes is left, not just the first one.
+    // (Edge does on a fresh profile, and when it restarts after an update), so GodEye goes off only after 2 s with
+    // neither a process of the window's job nor a "GodEye" window of the browser.
     WaitForSingleObject(win, INFINITE);
     CloseHandle(win);
-    for (;;) {
+    for (int gone = 0; gone < 4; Sleep(500)) {
         JOBOBJECT_BASIC_ACCOUNTING_INFORMATION ai{};
-        if (!QueryInformationJobObject(winJob, JobObjectBasicAccountingInformation, &ai, sizeof ai, nullptr) || ai.ActiveProcesses == 0) break;
-        Sleep(500);
+        bool procs = QueryInformationJobObject(winJob, JobObjectBasicAccountingInformation, &ai, sizeof ai, nullptr) && ai.ActiveProcesses > 0;
+        gone = procs || GodEyeWindowOpen(browser) ? 0 : gone + 1;
     }
     CloseHandle(winJob);
     if (camera) {   // close the camera GTA first (it is not in our job: Steam started it)

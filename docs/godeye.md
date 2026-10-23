@@ -157,6 +157,14 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
     - a dome, sun, ambient light and fog follow the server's clock and weather (`worldNow` in app.js);
     - rain, thunder and fog grey the sky and bring the fog closer;
     - neutral tone mapping, anisotropic filtering, alpha-to-coverage on cut-outs.
+  - **Frames are drawn on demand:**
+    - only when the camera, a tile, a texture, the sky or a player changed;
+    - players alone redraw at most 20 times a second;
+    - the pixel ratio is capped at 1.5.
+    - Before, every frame redrew some 4,000 draw calls 60 times a second, even on a still view. Measured: 0 frames
+      in 5 s on a still view.
+  - The sky dome takes a gradient texture, so its faces no longer show.
+  - The 2D map also draws only when something changed.
   - A backdrop under everything: the lowest ground of each 25 m cell (`zmin` in map.json) 3 m lower. The few spots the
     far models leave open show earth, not the sea, and it never rises above real ground.
   - Tile and texture URLs carry the export's `built` stamp, so a new export is never mixed with cached old tiles.

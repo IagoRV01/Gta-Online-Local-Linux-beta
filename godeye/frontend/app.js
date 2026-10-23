@@ -327,6 +327,7 @@ function connect() {
       if (typeof onCameras === "function") onCameras(m.cameras || [], m.cctv || []);
       if (typeof onGameEvent === "function") onGameEvent(m.gameEvent || null);
     } else if (m.t === "tel") {
+      need2d = true;
       for (const p of m.players) upsert(p, now);
       for (const id of m.gone) { players.delete(id); if (selected === id) selected = follow = null; }
       if (m.world) renderWorld(m.world);
@@ -391,9 +392,14 @@ function fitAll() {
 }
 
 // ---------------------------------------------------------------- frame loop
+// the 2D map draws only when it changed: a new base (pan, zoom, layers), players to animate, or a telemetry update
+let need2d = true;
 function frame(now) {
   requestAnimationFrame(frame);
   if (is3d) return;   // map3d.js draws while the 3D view is on
+  const moving = [...players.values()].some((e) => e.info.playing);
+  if (!baseDirty && !need2d && !moving && follow == null) return;
+  need2d = false;
   if (follow != null) {
     const e = players.get(follow);
     if (e?.drawn) {
