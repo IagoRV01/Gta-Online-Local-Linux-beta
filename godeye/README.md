@@ -5,6 +5,7 @@ The web view of GTA Local Online. It runs on the Windows server PC next to `Loca
 - **Phase 10 (Control):** logged-in users act on the game by role: police, traffic lights, power, world, messages.
 - **Phase 11 (3D):** the real map in 3D, streamed from tiles made from your own game files.
 - **Phase 12 (cameras):** a second GTA on the server PC as a camera client; GodEye picks what it shows.
+- **Phase 13 (live video):** that camera's picture in the browser: WebRTC on the LAN, HLS from the internet.
 - **GodEye.exe:** opens and closes everything from the desktop, on the graphics card you choose.
 - Design and the later phases: [../docs/godeye.md](../docs/godeye.md), [../docs/cameras.md](../docs/cameras.md).
 
@@ -17,7 +18,8 @@ GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1
 | `backend/` | Node.js 24, TypeScript run directly (`node src/main.ts`), no npm packages. Reads the server's telemetry, adds zone/vehicle/weapon names, pushes changes to browsers, serves the web app. |
 | `frontend/` | The web app: canvas map (terrain, roads, zone names, traffic lights), player markers interpolated at 60 FPS with a one-minute trail, player panel. Works on phones. |
 | `data/map.json` | **Made on your PC from your own GTA files, never committed.** Without it the map is a plain grid. |
-| `streaming/` | Phase 13 (Camera Client → NVENC → WebRTC), not started. |
+| `camera/` | Phase 12: starts and stops the camera GTA (`camera_client.py`). |
+| `video/` | Phase 13: the mediamtx config for the live video (WebRTC on the LAN, HLS over the internet). |
 
 ## Running it
 
@@ -138,6 +140,38 @@ Phase 13 streams its picture to browsers.
    - `stop` closes it.
 4. **Steam allows one game at a time per account.** While someone plays with the same account elsewhere, put this PC's
    Steam in offline mode, or use a second account that owns GTA V.
+
+## Live video (Phase 13)
+
+The camera client's window becomes live video in GodEye (the **LIVE** button, over the 2D or 3D map):
+```
+GTA window --FFmpeg gfxcapture--> NVENC H.264 (your chosen card) --RTSP--> mediamtx (127.0.0.1)
+mediamtx --WebRTC (WHEP), ~0.2 s--> browsers on your LAN
+mediamtx --low-latency HLS, ~2-4 s--> everyone else (the public address)
+```
+- **The software**, both downloaded from GitHub and left in their own folders:
+  - [mediamtx](https://github.com/bluenviron/mediamtx) (MIT);
+  - [FFmpeg 8.0 or newer](https://github.com/BtbN/FFmpeg-Builds) (GPL builds), for the `gfxcapture` source.
+- **godeye.json:**
+  ```
+  "video": { "enabled": true, "mediamtx": "C:/.../mediamtx.exe", "ffmpeg": "C:/.../ffmpeg.exe",
+             "gpu": "RTX 5060 Ti 8GB",
+             "streams": [{ "path": "cam1", "name": "Camera 1", "window": "^Grand Theft Auto V$" }] }
+  ```
+  - `gpu` picks the NVIDIA card NVENC encodes on: words of its name plus its memory (as `nvidia-smi` shows it),
+    `uuid:GPU-...`, or `auto`. GodEye sets `CUDA_VISIBLE_DEVICES` for its FFmpeg only.
+  - With two cards of the same model, the card order inside CUDA programs differs from nvidia-smi's, so a bare index
+    would pick the wrong one.
+- **The GodEye backend does the rest**:
+  - starts mediamtx with [video/mediamtx.yml](video/mediamtx.yml) (everything on 127.0.0.1);
+  - starts FFmpeg on the window, retrying every 10 s while it does not exist, and restarting it when it stops
+    delivering frames;
+  - relays WHEP and HLS on its own origin, at `/video/<stream>/...`.
+- **Windows Graphics Capture** records the window even while it sits on another virtual desktop.
+- **Firewall:** viewers on other LAN devices need UDP 8189 for WebRTC; without it they fall back to HLS. Run
+  `setup-firewall.ps1 -GodEye`.
+- **Public address:** the video is HLS through the tunnel (WebRTC media cannot cross it), so it is a few seconds
+  behind.
 
 CCTV cameras live in `cameras.json` next to `LocalOnlineServer.exe`:
 ```

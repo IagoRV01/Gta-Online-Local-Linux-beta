@@ -1,0 +1,48 @@
+# GodEye video (Phase 13): mediamtx (github.com/bluenviron/mediamtx) as the WebRTC / HLS server for the camera
+# clients. FFmpeg publishes each camera here over RTSP; browsers never talk to mediamtx directly: the GodEye backend
+# relays WHEP (WebRTC signalling) and HLS on its own origin, with its own access rules.
+# Only the WebRTC media itself (UDP 8189) leaves this PC: on the LAN, browsers reach it directly.
+logLevel: info
+logDestinations: [stdout]
+
+# everything comes from this PC (FFmpeg publishing, the GodEye backend reading)
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1']
+    permissions:
+      - action: publish
+      - action: read
+
+api: false
+metrics: false
+pprof: false
+playback: false
+rtmp: false
+srt: false
+moq: false
+
+rtsp: true
+rtspTransports: [tcp]
+rtspAddress: 127.0.0.1:8554
+rtspEncryption: "no"
+
+# HLS: what visitors on the public address get (through the tunnel); ready before anyone asks
+hls: true
+hlsAddress: 127.0.0.1:8888
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsAlwaysRemux: true
+
+# WebRTC: what the LAN gets (about 0.2 s behind the game)
+webrtc: true
+webrtcAddress: 127.0.0.1:8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: ""
+webrtcIPsFromInterfaces: true
+
+paths:
+  all_others:

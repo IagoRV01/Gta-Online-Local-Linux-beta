@@ -7,12 +7,14 @@
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
 <script src="control.js" defer></script>
+<script src="video.js" defer></script>
 </head>
 <body>
 <header class="bar">
   <div class="brand"><span class="eye" aria-hidden="true"></span>GOD&nbsp;EYE</div>
   <div class="status"><span id="dot" class="dot"></span><span id="server">connecting…</span></div>
   <div class="viewsw" role="group" aria-label="Map view"><button id="v2d" class="on">2D</button><button id="v3d">3D</button></div>
+  <button id="liveBtn" class="live" hidden title="The camera's live picture"><span class="rec"></span>LIVE</button>
   <div class="world" id="world"></div>
   <div class="who" id="who"><button id="loginBtn" class="ghost">Log in</button></div>
 </header>
@@ -31,6 +33,12 @@
     <canvas id="map"></canvas>
     <canvas id="map3d" hidden></canvas>
     <div class="nomap" id="nomap3d" hidden>No 3D map data: run <code>tools/godeye-map map3d</code> (see godeye/README.md).</div>
+    <div class="videobox" id="videoBox" hidden>
+      <div class="vhead"><span class="rec"></span><span id="vTitle" class="vtitle"></span><span id="vMode" class="vmode"></span>
+        <select id="vPick" aria-label="Which camera" hidden></select><button id="vClose" aria-label="Close the video">×</button></div>
+      <video id="vid" muted playsinline autoplay></video>
+      <div class="vstate" id="vState">Connecting…</div>
+    </div>
     <div class="hint3d" id="hint3d" hidden>Drag to turn · right-drag or Shift+drag to move · wheel to zoom · pick a player to follow</div>
     <div class="map-tools">
       <button id="zin" title="Zoom in" aria-label="Zoom in">+</button>

@@ -7,10 +7,11 @@ Built so far (running it: [../godeye/README.md](../godeye/README.md)):
 - **Phase 11, 3D map:** the real map, Cayo Perico and our own islands, streamed from the player's own game files.
 
 - **Phase 12, Camera Client:** a second GTA on the server PC, logged in as a camera, showing what GodEye picks.
+- **Phase 13, live video:** the camera client's picture in the browser (WebRTC on the LAN, HLS over the internet).
 - **GodEye.exe** (open and close from the desktop, on one chosen GPU) and an optional **public address**
   (Cloudflare Tunnel): [../godeye/README.md](../godeye/README.md).
 
-Phases 13–14 (WebRTC, web game) follow the design below.
+Phase 14 (web game) follows the design below.
 
 ## Placement
 
@@ -180,6 +181,41 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   - the camera got CAM_001 by default and saw the player;
   - it followed FOLLOW / HELI / CAM_003 on command; an unknown target was refused;
   - the player saw 0 other players.
+
+## Phase 13: live video
+
+- **Pipeline:**
+  - FFmpeg 8 `gfxcapture` (Windows Graphics Capture) on the camera window, a regex of its title;
+  - `hwdownload`, then `h264_nvenc` (baseline, no B-frames, `-tune ll -zerolatency`, GOP = 1 s, 4 Mbit/s, 720p30);
+  - RTSP to mediamtx on 127.0.0.1:8554;
+  - mediamtx serves WebRTC (WHEP, 127.0.0.1:8889; media on UDP 8189) and low-latency HLS (127.0.0.1:8888, 1 s
+    segments, 200 ms parts, always remuxed). MoQ, RTMP, SRT and the API are off. Publishing and reading are allowed
+    from 127.0.0.1 only.
+- **GPU:**
+  - The encode runs on the card named in `video.gpu`. godeye/backend `pickGpuUuid` matches it in
+    `nvidia-smi --query-gpu=index,name,memory.total,uuid` and passes its UUID in `CUDA_VISIBLE_DEVICES` to that FFmpeg
+    only.
+  - The capture itself happens on the card that composites the desktop (the one with the monitor). That is
+    inherent to Windows Graphics Capture.
+- **Backend** (`godeye/backend/src/video.ts`):
+  - It starts and restarts mediamtx and one FFmpeg per stream.
+  - A stream is live once FFmpeg reports frames; 12 s without a new frame restarts the capture.
+  - `/api/video` lists the streams.
+  - `/video/<path>/whep[/<session>]` relays WHEP (POST offer / PATCH / DELETE, `Location` rewritten). Non-GET
+    requests must come from the same origin.
+  - `/video/<path>/index.m3u8` and its parts relay HLS, and `/video/<path>/hls.min.js` relays the hls.js that
+    mediamtx ships.
+  - CSP: `media-src 'self' blob:; worker-src 'self' blob:`.
+- **Page** (`godeye/frontend/video.js`):
+  - The LIVE button opens a panel over the map, labelled with what the camera shows (the camera telemetry).
+  - On a LAN or loopback address it tries WebRTC first (6 s to connect), else HLS: native where the browser has it,
+    else hls.js.
+- **Verified 2026-10-23:**
+  - A window on virtual desktop 2: about 21 fps captured; encoded on the RTX 5060 Ti 8 GB (nvidia-smi shows the
+    FFmpeg CUDA context on GPU 0).
+  - WebRTC 1280×720 playing in the browser.
+  - HLS through hls.js about 2.2 s behind.
+  - The camera GTA's own window (the landing page) live at https://godeye.goricito.cc over HLS through the tunnel.
 
 ## Security baseline
 

@@ -12,6 +12,7 @@ import { ACTIONS, Limits, allowed, toCommand, type ActionRequest } from "./actio
 import { AdminLink } from "./admin.ts";
 import { LoginLimiter, Sessions, Users } from "./auth.ts";
 import { loadVehicles, vehicleName, weaponName } from "./names.ts";
+import { Video, VIDEO_DEFAULTS, type VideoConfig } from "./video.ts";
 import { acceptUpgrade, type WsClient } from "./ws.ts";
 import { Zones } from "./zones.ts";
 
@@ -28,6 +29,7 @@ interface Config {
   logFile: string;
   usersFile: string;
   publicMap3d: "login" | "open";   // the 3D map on the public address: login (default) or open
+  video: VideoConfig;              // Phase 13: the camera clients as live video
   allowNetworks: string[];
 }
 const cfgPath = resolve(process.argv[2] ?? join(ROOT, "godeye.json"));
@@ -39,12 +41,13 @@ const defaults: Config = {
   logFile: "D:/GTALocalOnline/logs/godeye.log",
   usersFile: "users.json",
   publicMap3d: "login",
+  video: VIDEO_DEFAULTS,
   allowNetworks: ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
 };
 let cfg: Config = defaults;
 if (existsSync(cfgPath)) {
   const c = JSON.parse(readFileSync(cfgPath, "utf8"));
-  cfg = { ...defaults, ...c, http: { ...defaults.http, ...c.http }, admin: { ...defaults.admin, ...c.admin } };
+  cfg = { ...defaults, ...c, http: { ...defaults.http, ...c.http }, admin: { ...defaults.admin, ...c.admin }, video: { ...defaults.video, ...c.video } };
 }
 const rel = (p: string) => resolve(dirname(cfgPath), p);
 
@@ -147,6 +150,11 @@ admin.on("msg", (m: any) => {
 });
 admin.start();
 
+// ---- live video of the camera clients (Phase 13)
+for (const k of ["mediamtx", "mediamtxConfig", "ffmpeg"] as const) if (cfg.video[k]) cfg.video[k] = rel(cfg.video[k]);
+const video = new Video(cfg.video, log);
+video.start();
+
 // ---- accounts and control (Phase 10)
 const users = new Users(rel(cfg.usersFile));
 const sessions = new Sessions();
@@ -226,11 +234,12 @@ const STATIC: Record<string, [string, string]> = {
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
   "/control.js": ["control.js", "text/javascript; charset=utf-8"],
   "/map3d.js": ["map3d.js", "text/javascript; charset=utf-8"],
+  "/video.js": ["video.js", "text/javascript; charset=utf-8"],
   "/vendor/three/three.module.min.js": ["vendor/three/three.module.min.js", "text/javascript; charset=utf-8"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
 };
 const SECURITY_HEADERS = {
-  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   "Cache-Control": "no-store",
@@ -244,6 +253,13 @@ function send(res: ServerResponse, code: number, type: string, body: string | Bu
 const http = createServer((req: IncomingMessage, res: ServerResponse) => {
   if (!lanAllowed(req.socket.remoteAddress)) { send(res, 403, "text/plain", "LAN only\n"); return; }
   const path = new URL(req.url ?? "/", "http://x").pathname;
+  if (path.startsWith("/video/")) {   // Phase 13: WHEP signalling and HLS, relayed to mediamtx
+    if (req.method !== "GET" && !sameOrigin(req)) { send(res, 403, "text/plain", "cross-site request refused\n"); return; }
+    if (video.handle(req, res, path, SECURITY_HEADERS)) return;
+    send(res, 404, "text/plain", "not found\n");
+    return;
+  }
+  if (path === "/api/video") { send(res, 200, "application/json", JSON.stringify(video.streams)); return; }
   if (req.method === "POST" && path.startsWith("/api/")) { handlePost(req, res, path).catch((e) => { log("ERROR", `POST ${path}: ${e}`); send(res, 500, "text/plain", "error\n"); }); return; }
   if (req.method !== "GET" && req.method !== "HEAD") { send(res, 405, "text/plain", "method not allowed\n"); return; }
   const st = STATIC[path];

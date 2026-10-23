@@ -1,7 +1,33 @@
 {
-  "http": { "bind": "0.0.0.0", "port": 8080 },
-  "admin": { "host": "127.0.0.1", "port": 4500, "secretFile": "D:/GTALocalOnline/data/admin.secret" },
+  "http": {
+    "bind": "0.0.0.0",
+    "port": 8080
+  },
+  "admin": {
+    "host": "127.0.0.1",
+    "port": 4500,
+    "secretFile": "D:/GTALocalOnline/data/admin.secret"
+  },
   "mapFile": "../data/map.json",
   "logFile": "D:/GTALocalOnline/logs/godeye.log",
-  "allowNetworks": ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  "allowNetworks": [
+    "127.0.0.0/8",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16"
+  ],
+  "video": {
+    "enabled": false,
+    "mediamtx": "C:/path/to/mediamtx/mediamtx.exe",
+    "mediamtxConfig": "../video/mediamtx.yml",
+    "ffmpeg": "C:/path/to/ffmpeg/ffmpeg.exe",
+    "gpu": "auto",
+    "streams": [
+      {
+        "path": "cam1",
+        "name": "Camera 1",
+        "window": "^Grand Theft Auto V$"
+      }
+    ]
+  }
 }

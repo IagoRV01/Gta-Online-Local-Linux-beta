@@ -13,6 +13,8 @@ The graphics card is GTA's own setting (AdapterIndex in Documents\\Rockstar Game
 import ctypes, ctypes.wintypes as wt, os, subprocess, sys, time, winreg
 
 u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+try: ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except OSError: pass
 GAME_EXES = {"gta5.exe", "playgtav.exe", "launcher.exe", "launcherpatcher.exe", "rockstarerrorhandler.exe", "socialclubhelper.exe"}
 
 
@@ -67,23 +69,29 @@ def gta_memory_mb(pid):
 
 
 def click_story_mode(hwnd):
-    """Rockstar's landing page waits for STORY MODE (bottom right). GTA reads the mouse as raw input, so this needs a
-    real click: only when nobody has touched the PC for a minute; focus goes back where it was."""
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    """Rockstar's landing page waits for STORY MODE (bottom right). GTA reads the mouse as raw input, and only while it
+    has the focus, so this needs a real click on a focused window: only when nobody has touched the PC for a minute;
+    the window goes back to its desktop and the focus back where it was."""
     from pyvda import AppView, VirtualDesktop
     view = AppView(hwnd)
     desk = view.desktop.number
-    if desk != VirtualDesktop.current().number: view.move(VirtualDesktop.current())
+    if desk != VirtualDesktop.current().number:
+        view.move(VirtualDesktop.current())
+        time.sleep(1.5)   # let the desktop take it before asking for the focus
     prev = u32.GetForegroundWindow()
-    u32.keybd_event(0x12, 0, 0, 0); u32.keybd_event(0x12, 0, 2, 0)   # an Alt tap lets SetForegroundWindow through
-    u32.SetForegroundWindow(hwnd); time.sleep(0.6)
+    for _ in range(5):   # an Alt tap lets SetForegroundWindow through; check that GTA really has the focus
+        u32.keybd_event(0x12, 0, 0, 0); u32.keybd_event(0x12, 0, 2, 0)
+        u32.SetForegroundWindow(hwnd)
+        time.sleep(0.5)
+        if u32.GetForegroundWindow() == hwnd: break
     r = wt.RECT(); u32.GetClientRect(hwnd, ctypes.byref(r))
     pt = wt.POINT(int(r.right * 1167 / 1280), int(r.bottom * 684 / 720))   # "STORY MODE" on a 16:9 landing page
     u32.ClientToScreen(hwnd, ctypes.byref(pt))
-    u32.SetCursorPos(pt.x, pt.y); time.sleep(0.3)
-    u32.mouse_event(0x0002, 0, 0, 0, 0); time.sleep(0.08); u32.mouse_event(0x0004, 0, 0, 0, 0)
-    time.sleep(1.0)
-    if prev: u32.SetForegroundWindow(prev)
+    u32.SetCursorPos(pt.x - 4, pt.y); time.sleep(0.2)
+    u32.SetCursorPos(pt.x, pt.y); time.sleep(0.4)   # GTA needs to see the cursor arrive (hover) before the click
+    u32.mouse_event(0x0002, 0, 0, 0, 0); time.sleep(0.12); u32.mouse_event(0x0004, 0, 0, 0, 0)
+    time.sleep(1.5)
+    if prev and prev != hwnd: u32.SetForegroundWindow(prev)
     view.move(VirtualDesktop(desk))
     print("clicked STORY MODE on the landing page", flush=True)
 
