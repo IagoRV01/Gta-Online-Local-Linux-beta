@@ -16,7 +16,12 @@ GORI_DIR="${GORI_DIR:-$( [ -d gori-online ] && echo gori-online || echo ../gta-m
 if [ "${1:-}" = godeye ]; then   # GodEye.exe, the desktop launcher (godeye/launcher)
   export PATH="$TC:$PATH"
   mkdir -p build/obj
-  "$TC/windres" godeye/launcher/godeye.rc -O coff -o build/obj/godeye_rc.o
+  # with the Zorua icons from tools/zorua/fetch_zorua.py (never committed), else the plain eye
+  if [ -f godeye/launcher/zorua.ico ]; then
+    sed 's/godeye.ico/zorua.ico/' godeye/launcher/godeye.rc > build/obj/godeye.rc
+    [ -f godeye/launcher/zorua-error.ico ] && echo '2 ICON "zorua-error.ico"' >> build/obj/godeye.rc
+  else cp godeye/launcher/godeye.rc build/obj/godeye.rc; fi
+  "$TC/windres" -I godeye/launcher build/obj/godeye.rc -O coff -o build/obj/godeye_rc.o
   "$TC/g++" -std=c++20 -O2 -Wall -mwindows -static -s -o build/GodEye.exe godeye/launcher/godeye_launcher.cpp build/obj/godeye_rc.o -ldxgi -lws2_32 -lshell32
   ls -l build/GodEye.exe | awk '{print "[godeye] GodEye.exe ok, " $5 " bytes"}'
   exit 0

@@ -71,6 +71,22 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 var(--sans); di
 .meter .ar { background: var(--accent); }
 .barrow span:last-child { font-family: var(--mono); text-align: right; color: var(--text); }
 
+/* ---- Zorua (zorua.js): pixel art, never smoothed */
+.zport { width: 40px; height: 40px; flex: none; image-rendering: pixelated; border-radius: 8px; }
+.zrole { width: 30px; height: 30px; flex: none; border-radius: 50%; border: 1px solid var(--line); }
+.zbrand { display: inline-block; flex: none; image-rendering: pixelated; background-repeat: no-repeat; transform: scale(2); margin: 0 16px 0 12px; }
+.dlg h3 { display: flex; align-items: center; gap: 10px; }
+.hhead { align-items: center !important; }
+.hhead h3 { flex: 1; }
+.toast { display: flex; align-items: center; gap: 10px; }
+.toast .zport { width: 32px; height: 32px; image-rendering: auto; }
+.hackflash { display: flex; align-items: center; gap: 16px; }
+.hackflash .zport { width: 80px; height: 80px; }
+.evbanner { display: flex; align-items: center; gap: 8px; padding-left: 8px; }
+.evbanner .zport { width: 28px; height: 28px; image-rendering: auto; border-radius: 6px; }
+.zcredits { margin: 0; padding: 4px 14px 14px; font-size: 11px; color: var(--muted); }
+.zcredits a { color: var(--muted); }
+
 /* ---- Phase 14: the web game */
 .credits { color: var(--star); font-family: var(--mono); letter-spacing: 0; }
 .gamebox { border-bottom: 1px solid var(--line); }

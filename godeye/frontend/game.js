@@ -58,7 +58,7 @@ function renderGame() {
 $("grantForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const r = await api("api/game/grant", { user: $("grantUser").value, amount: Number($("grantAmount").value) });
-  toast(r.ok ? `${r.data.user} now has ◈ ${fmt(r.data.credits)}` : r.data.error || "refused", !r.ok);
+  toast(r.ok ? `${r.data.user} now has ◈ ${fmt(r.data.credits)}` : r.data.error || "refused", !r.ok, r.ok ? "ok" : "error");
   if (r.ok) loadGame();
 });
 
@@ -76,13 +76,14 @@ function onGameEvent(e) {
   gameEvent = e;
   const b = $("evBanner");
   b.hidden = !e;
+  $("evZ").innerHTML = e ? zEvent(e.key) : "";
   if (e) tickEvent();
 }
 function tickEvent() {
   if (!gameEvent) return;
   const s = Math.max(0, Math.round((gameEvent.endsAt - Date.now()) / 1000));
   const extra = gameEvent.priceX < 1 ? " · hacks half price" : gameEvent.bountyX > 1 ? ` · bounties ×${gameEvent.bountyX}` : "";
-  $("evBanner").textContent = `⚡ ${gameEvent.label.toUpperCase()}${gameEvent.targetName ? ` · ${gameEvent.targetName}` : ""}${extra} · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  $("evText").textContent = `⚡ ${gameEvent.label.toUpperCase()}${gameEvent.targetName ? ` · ${gameEvent.targetName}` : ""}${extra} · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 setInterval(tickEvent, 1000);
 
@@ -90,7 +91,8 @@ setInterval(tickEvent, 1000);
 function hack(p, price) {
   return new Promise((done) => {
     const dlg = $("hackDlg"), body = $("hackBody");
-    let over = false, timer = 0;
+    let over = false, timer = 0, low = false;
+    zSet("hackZ", "hack");
     const end = (answer) => {
       if (over) return;
       over = true; clearInterval(timer); dlg.close(); done(answer);
@@ -102,6 +104,7 @@ function hack(p, price) {
       const left = Math.max(0, p.seconds - (Date.now() - t0) / 1000);
       $("hackTime").textContent = `00:${String(Math.ceil(left)).padStart(2, "0")}`;
       $("hackTime").classList.toggle("low", left < 6);
+      if (left < 6 && !low) { low = true; zSet("hackZ", "hackLow"); }
       if (left <= 0) end(null);
     };
     tick(); timer = setInterval(tick, 200);
@@ -157,9 +160,9 @@ function route(p, body, end) {
   draw();
 }
 
-function hackFlash(ok) {
+function hackFlash(ok, mood = ok ? "granted" : "denied") {
   const f = $("hackFlash");
-  f.textContent = ok ? "ACCESS GRANTED" : "ACCESS DENIED";
+  f.innerHTML = zMood(mood, "zport") + `<span>${ok ? "ACCESS GRANTED" : "ACCESS DENIED"}</span>`;
   f.className = "hackflash show " + (ok ? "ok" : "bad");
   clearTimeout(hackFlash.t);
   hackFlash.t = setTimeout(() => { f.className = "hackflash"; }, 1400);

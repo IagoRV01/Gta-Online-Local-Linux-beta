@@ -108,9 +108,49 @@ std::string LocalAppData() {
 
 bool Exists(const std::string &p) { return GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES; }
 
+// errors show the worried Zorua when the exe was built with it (icon 2, tools/zorua), else the system's error icon
 void Fail(const std::string &msg) {
-    MessageBoxW(nullptr, Wide(msg).c_str(), L"GodEye", MB_ICONERROR | MB_OK);
+    MSGBOXPARAMSW mb{};
+    mb.cbSize = sizeof(mb);
+    mb.hInstance = GetModuleHandleW(nullptr);
+    std::wstring text = Wide(msg);
+    mb.lpszText = text.c_str();
+    mb.lpszCaption = L"GodEye";
+    mb.dwStyle = MB_OK;
+    if (FindResourceW(mb.hInstance, MAKEINTRESOURCEW(2), MAKEINTRESOURCEW(14))) {   // 14: RT_GROUP_ICON
+        mb.dwStyle |= MB_USERICON;
+        mb.lpszIcon = MAKEINTRESOURCEW(2);
+    } else mb.dwStyle |= MB_ICONERROR;
+    MessageBoxIndirectW(&mb);
     ExitProcess(1);
+}
+
+std::string ErrorText(DWORD e) {
+    char buf[256] = "";
+    FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, e, MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT), buf, sizeof buf, nullptr);
+    std::string s = buf;
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ')) s.pop_back();
+    return s.empty() ? "error " + std::to_string(e) : s + " (" + std::to_string(e) + ")";
+}
+
+// GodEye.ini: next to the exe, else in Local AppData (asked of the shell, then of the environment). Windows can refuse
+// a file for a moment right after logon or while it is scanned, so each place is tried a few times before giving up.
+std::string FindSettings() {
+    std::vector<std::string> where = { ExeDir() + "GodEye.ini", LocalAppData() + "\\GodEye.ini" };
+    char env[MAX_PATH];
+    if (GetEnvironmentVariableA("LOCALAPPDATA", env, MAX_PATH)) where.push_back(std::string(env) + "\\GodEye\\GodEye.ini");
+    if (GetEnvironmentVariableA("USERPROFILE", env, MAX_PATH)) where.push_back(std::string(env) + "\\AppData\\Local\\GodEye\\GodEye.ini");
+    std::string why;
+    for (int attempt = 0; attempt < 8; attempt++) {
+        why.clear();
+        for (const auto &p : where) {
+            if (Exists(p)) return p;
+            if (why.find(p) == std::string::npos) why += p + "\n    " + ErrorText(GetLastError()) + "\n";
+        }
+        Sleep(400);
+    }
+    Fail("Settings not found. Looked for GodEye.ini in:\n" + why + "\nCopy godeye\\launcher\\GodEye.example.ini to one of them and edit it.");
+    return "";
 }
 
 bool PortOpen(int port) {
@@ -127,7 +167,8 @@ bool PortOpen(int port) {
 
 // a child that dies with this launcher (the job closes when we exit, even on a crash)
 HANDLE g_job = nullptr;
-bool Start(const std::string &exe, const std::string &args, const std::string &cwd, const std::string &extraEnv, bool tied, HANDLE *proc) {
+// tied: in g_job, so it ends with us. job: also put it in that job (followed, not killed).
+bool Start(const std::string &exe, const std::string &args, const std::string &cwd, const std::string &extraEnv, bool tied, HANDLE *proc, HANDLE job = nullptr) {
     std::string cmd = "\"" + exe + "\" " + args;
     STARTUPINFOA si{};
     si.cb = sizeof si;
@@ -140,11 +181,13 @@ bool Start(const std::string &exe, const std::string &args, const std::string &c
         env.append(extraEnv).push_back('\0');
         env.push_back('\0');
     }
-    DWORD flags = tied ? CREATE_NO_WINDOW | CREATE_SUSPENDED : 0;
+    DWORD flags = tied ? CREATE_NO_WINDOW | CREATE_SUSPENDED : job ? CREATE_SUSPENDED : 0;
     if (!CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE, flags, env.empty() ? nullptr : env.data(),
                         cwd.empty() ? nullptr : cwd.c_str(), &si, &pi))
         return false;
-    if (tied) { AssignProcessToJobObject(g_job, pi.hProcess); ResumeThread(pi.hThread); }
+    if (tied) AssignProcessToJobObject(g_job, pi.hProcess);
+    if (job) AssignProcessToJobObject(job, pi.hProcess);
+    if (tied || job) ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     if (proc) *proc = pi.hProcess; else CloseHandle(pi.hProcess);
     return true;
@@ -184,8 +227,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
     }
 
     Ini ini;
-    ini.path = Exists(ExeDir() + "GodEye.ini") ? ExeDir() + "GodEye.ini" : LocalAppData() + "\\GodEye.ini";
-    if (!Exists(ini.path)) Fail("Settings not found:\n" + ini.path + "\n\nCopy godeye\\launcher\\GodEye.example.ini there and edit it.");
+    ini.path = FindSettings();
     std::string backend = ini.Get("backend", ""), node = ini.Get("node", "C:\\Program Files\\nodejs\\node.exe");
     std::string url = ini.Get("url", "http://127.0.0.1:8080/");
     int port = std::atoi(ini.Get("port", "8080").c_str());
@@ -240,11 +282,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
     CreateDirectoryA(LocalAppData().c_str(), nullptr);
     std::string bargs = "--app=" + url + " --user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check --window-size=1500,920";
     if (gpu) bargs += " --use-angle=d3d11 --use-adapter-luid=" + std::to_string(gpu->luidHigh) + "," + std::to_string(gpu->luidLow);
-    HANDLE win = nullptr;
-    if (!Start(browser, bargs, "", "", false, &win)) Fail("Could not open the GodEye window with " + browser);
+    HANDLE win = nullptr, winJob = CreateJobObjectA(nullptr, nullptr);   // every process of the window, followed
+    if (!Start(browser, bargs, "", "", false, &win, first ? winJob : nullptr)) Fail("Could not open the GodEye window with " + browser);
     if (!first) return 0;
-    WaitForSingleObject(win, INFINITE);   // the window's browser process: GodEye stays on while it is open
+    // GodEye stays on while its window is open. The browser we started may hand the window to a new process of its own
+    // (Edge does on a fresh profile), so wait until none of the window's processes is left, not just the first one.
+    WaitForSingleObject(win, INFINITE);
     CloseHandle(win);
+    for (;;) {
+        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION ai{};
+        if (!QueryInformationJobObject(winJob, JobObjectBasicAccountingInformation, &ai, sizeof ai, nullptr) || ai.ActiveProcesses == 0) break;
+        Sleep(500);
+    }
+    CloseHandle(winJob);
     if (camera) {   // close the camera GTA first (it is not in our job: Steam started it)
         HANDLE stop = nullptr;
         if (Start(py, "\"" + camScript + "\" stop", "", "", false, &stop)) { WaitForSingleObject(stop, 20000); CloseHandle(stop); }

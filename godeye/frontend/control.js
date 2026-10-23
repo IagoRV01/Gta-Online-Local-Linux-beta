@@ -4,9 +4,10 @@
 
 let auth = { user: null };
 
-function toast(text, bad = false) {
+// mood: which Zorua says it (zorua.js); nothing without the sprites
+function toast(text, bad = false, mood = bad ? "error" : "") {
   const t = $("toast");
-  t.textContent = text;
+  t.innerHTML = (mood ? zMood(mood, "zport") : "") + `<span>${esc(text)}</span>`;
   t.className = "toast show" + (bad ? " bad" : "");
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => { t.className = "toast"; }, 3500);
@@ -31,10 +32,10 @@ function renderAuth() {
     $("control").hidden = true;
     $("gameBox").hidden = true;
     const b = $("loginBtn");
-    if (b) b.onclick = () => { $("loginErr").textContent = ""; $("loginDlg").showModal(); };
+    if (b) b.onclick = () => { $("loginErr").textContent = ""; zSet("loginZ", "login"); $("loginDlg").showModal(); };
     return;
   }
-  who.innerHTML = `<span><b>${esc(auth.user)}</b> · ${esc(auth.role)}</span><button id="logoutBtn" class="ghost">Log out</button>`;
+  who.innerHTML = `${zRole(auth.role)}<span><b>${esc(auth.user)}</b> · ${esc(auth.role)}</span><button id="logoutBtn" class="ghost">Log out</button>`;
   $("logoutBtn").onclick = async () => { await api("api/logout", {}); auth = { user: null, control: true }; renderAuth(); };
   $("control").hidden = false;
   if (typeof loadGame === "function") loadGame();   // Phase 14: credits, events, leaderboard
@@ -47,12 +48,12 @@ $("loginForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = new FormData(ev.target);
   const r = await api("api/login", { name: f.get("name"), password: f.get("password") });
-  if (!r.ok) { $("loginErr").textContent = r.data.error || "login failed"; return; }
+  if (!r.ok) { $("loginErr").textContent = r.data.error || "login failed"; zSet("loginZ", "loginBad"); return; }
   auth = r.data;
   ev.target.reset();
   $("loginDlg").close();
   renderAuth();
-  toast(`Logged in as ${auth.user} (${auth.role})`);
+  toast(`Logged in as ${auth.user} (${auth.role})`, false, "welcome");
   loadAudit();
   loadGame();
 });
@@ -69,13 +70,14 @@ async function act(payload) {
   let r = await api("api/action", payload);
   if (r.status === 202 && r.data.puzzle) {   // Phase 14: a hacking minigame first
     const answer = await hack(r.data.puzzle, r.data.price);
-    if (answer == null) { toast("Hack aborted.", true); return; }
+    if (answer == null) { toast("Hack aborted.", true, "aborted"); return; }
     r = await api("api/action", { ...payload, puzzle: { id: r.data.puzzle.id, answer } });
-    hackFlash(r.ok);
+    hackFlash(r.ok, r.ok ? "granted" : /slow/.test(r.data.error || "") ? "slow" : "denied");
   }
   auth.cooldowns = auth.cooldowns || {};
   if (r.data.cooldownUntil) auth.cooldowns[payload.action] = r.data.cooldownUntil;
-  if (!r.ok) { toast(r.data.error || "refused", true); updateCooldowns(); if (r.status === 401) { auth = { user: null, control: true }; renderAuth(); } return; }
+  const mood = { 402: "credits", 429: "cooldown", 503: "offline", 403: r.data.denied ? "denied" : "error" }[r.status] ?? "error";
+  if (!r.ok) { toast(r.data.error || "refused", true, mood); updateCooldowns(); if (r.status === 401) { auth = { user: null, control: true }; renderAuth(); } return; }
   if (r.data.credits != null && typeof onCredits === "function") onCredits(r.data.credits);
   if (typeof loadGame === "function") loadGame();
   updateCooldowns();

@@ -12,3 +12,9 @@ routes = [{ pattern = "godeye.example.com", custom_domain = true }]
 [[vpc_services]]
 binding = "GODEYE"
 service_id = "<vpc service id>"
+
+# Optional: a sprite on the "GodEye is closed" page (an https URL to a strip of square frames), and its credit line.
+# [vars]
+# OFF_SPRITE_URL = "https://example.com/sleeping.png"
+# OFF_SPRITE_FRAMES = "2"
+# OFF_SPRITE_CREDIT = "Sprite by ... (license)"

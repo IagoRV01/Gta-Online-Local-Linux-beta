@@ -330,6 +330,7 @@ const STATIC: Record<string, [string, string]> = {
   "/map3d.js": ["map3d.js", "text/javascript; charset=utf-8"],
   "/video.js": ["video.js", "text/javascript; charset=utf-8"],
   "/game.js": ["game.js", "text/javascript; charset=utf-8"],
+  "/zorua.js": ["zorua.js", "text/javascript; charset=utf-8"],
   "/vendor/three/three.module.min.js": ["vendor/three/three.module.min.js", "text/javascript; charset=utf-8"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
 };
@@ -360,6 +361,15 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
   const st = STATIC[path];
   if (st) {
     try { send(res, 200, st[1], readFileSync(join(FRONT, st[0]))); } catch { send(res, 500, "text/plain", "missing file\n"); }
+    return;
+  }
+  // the Zorua art (tools/zorua/fetch_zorua.py; optional, never committed): fixed names only
+  const zr = /^\/zorua\/([A-Za-z]{1,12}(?:-[A-Za-z]{1,12})?\.png|manifest\.json|CREDITS\.md)$/.exec(path);
+  if (zr) {
+    const file = join(FRONT, "zorua", zr[1]);
+    if (!existsSync(file)) { send(res, 404, "text/plain", "not found\n"); return; }
+    const type = zr[1].endsWith(".png") ? "image/png" : zr[1].endsWith(".json") ? "application/json" : "text/plain; charset=utf-8";
+    send(res, 200, type, readFileSync(file), { "Cache-Control": "max-age=86400" });
     return;
   }
   if (path === "/data/map.json") {

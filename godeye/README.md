@@ -66,6 +66,13 @@ GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1
 
 **Settings:** `GodEye.ini` next to the exe, or `%LOCALAPPDATA%\GodEye\GodEye.ini`. Start from
 [launcher/GodEye.example.ini](launcher/GodEye.example.ini).
+- If it cannot find or read the file, it says where it looked and what Windows answered.
+- Keep GodEye's folder (the exe, `GodEye.ini`, cloudflared, mediamtx, FFmpeg) somewhere plain, e.g. `D:\GodEye`, and
+  put a shortcut on the desktop.
+- Apps installed from the Store or as MSIX packages see a private copy of `AppData`. Files they write there are not
+  where a double-clicked GodEye.exe looks for them, so set GodEye up from a normal Explorer or terminal window.
+- GodEye stays on while any process of its window is alive: Edge sometimes hands the window to a new process (on a
+  fresh profile, for instance), and that no longer closes GodEye.
 
 **Choosing the graphics card.** GodEye draws on one card only: the 3D map, and later the camera client and the
 encoder.
@@ -86,6 +93,39 @@ How it works: the window is Edge (or Chrome) in app mode with its own profile, s
 - With your monitor on another card, the finished frame is also presented there. That is normal.
 
 The camera GTA picks its card in its own settings (below).
+
+## Zorua (optional art)
+
+GodEye can show Zorua, as community sprites from [PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab)
+(CC BY-NC 4.0; the artists are named in the `CREDITS.md` the script writes). This repository does not carry them:
+Zorua belongs to Nintendo / Game Freak. Fetch them yourself:
+```
+python tools/zorua/fetch_zorua.py
+```
+- **What it does:**
+  - downloads 18 portraits and 2 animations from one pinned SpriteCollab commit, each checked against its SHA-256,
+    into `godeye/frontend/zorua/` (git-ignored);
+  - writes `manifest.json` and `CREDITS.md` there;
+  - with Pillow installed, makes `godeye/launcher/zorua.ico` and `zorua-error.ico`.
+- **Each moment has its own expression:**
+
+  | Where | Zorua |
+  |---|---|
+  | Header | Idle animation; asleep while the game server is offline |
+  | Favicon, GodEye.exe icon | Normal |
+  | Launcher error dialogs | Worried |
+  | Login, wrong password, welcome | Normal, Angry, Happy |
+  | Role badge | HACKER: Hisuian Zorua (Determined); DISPATCH: Shouting; OPERATOR: Inspired; ADMIN: shiny Zorua |
+  | Hacking minigame | Determined; Worried in the last 6 s |
+  | Access granted, denied, too slow | Joyous, Pain, Dizzy |
+  | Messages | no credits or daily limit: Sad; cooldown: Sigh; game server offline: Crying; other errors: Stunned |
+  | Event banners | storm: Surprised; gridlock: Stunned; manhunt: Shouting; happy hour: Joyous |
+
+- **Afterwards:**
+  - rebuild GodEye.exe (`./build.sh godeye`) for the icons;
+  - the page picks the sprites up on its next load. Without them it keeps the plain eye.
+- **The public "GodEye is closed" page** shows a sprite only when `wrangler.toml` sets `OFF_SPRITE_URL`,
+  `OFF_SPRITE_FRAMES` and `OFF_SPRITE_CREDIT` (see `wrangler.example.toml`).
 
 ## Public address (optional)
 

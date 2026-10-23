@@ -2,14 +2,23 @@
 // backend on the server PC (VPC service binding GODEYE). Requests are marked public, so the backend applies its public
 // rules: viewing is open, the 3D map and the controls need a GodEye login. While GodEye is closed the tunnel is down
 // and visitors get a short "GodEye is off" page instead of an error.
-const OFF_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+// An optional mascot on that page (wrangler.toml [vars]): OFF_SPRITE_URL, a strip of OFF_SPRITE_FRAMES square frames,
+// shown four times larger, with OFF_SPRITE_CREDIT under it (its artists and license).
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function offPage(env) {
+  const n = Math.max(1, Math.min(16, parseInt(env.OFF_SPRITE_FRAMES ?? "1", 10) || 1));
+  const sprite = env.OFF_SPRITE_URL && /^https:\/\//.test(env.OFF_SPRITE_URL)
+    ? `<div class="s" role="img" aria-label="asleep"></div>` : "";
+  const css = sprite ? `.s{width:96px;height:96px;margin:0 auto 16px;background:url("${esc(env.OFF_SPRITE_URL)}") 0 0/${n * 96}px 96px no-repeat;image-rendering:pixelated;animation:z ${(n * 0.55).toFixed(2)}s steps(${n}) infinite}@keyframes z{to{background-position:-${n * 96}px 0}}small{display:block;margin-top:18px;color:var(--muted);font-size:11px}` : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GodEye</title><style>
 :root{--bg:#070b10;--text:#d6e2ee;--muted:#7d8fa3;--accent:#39d0ff}
 @media (prefers-color-scheme: light){:root{--bg:#f2f5f8;--text:#14202b;--muted:#5b6b7b;--accent:#0a84b8}}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,sans-serif;padding:16px;box-sizing:border-box}
 main{text-align:center;max-width:420px}h1{font:700 18px ui-monospace,Consolas,monospace;letter-spacing:.3em;color:var(--accent);margin:0 0 12px}
-p{color:var(--muted);margin:0}</style></head><body><main><h1>GOD EYE</h1>
-<p>GodEye is closed right now. It is on while its owner has it open; try again later.</p></main></body></html>`;
+p{color:var(--muted);margin:0}${css}</style></head><body><main>${sprite}<h1>GOD EYE</h1>
+<p>GodEye is closed right now. It is on while its owner has it open; try again later.</p>${sprite && env.OFF_SPRITE_CREDIT ? `<small>${esc(env.OFF_SPRITE_CREDIT)}</small>` : ""}</main></body></html>`;
+}
 
 export default {
   async fetch(req, env) {
@@ -28,7 +37,7 @@ export default {
     } catch {
       if (req.headers.get("upgrade") === "websocket" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/data/"))
         return new Response(JSON.stringify({ error: "GodEye is closed" }), { status: 503, headers: { "content-type": "application/json" } });
-      return new Response(OFF_PAGE, { status: 503, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      return new Response(offPage(env), { status: 503, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     }
   },
 };

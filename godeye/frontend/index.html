@@ -9,10 +9,11 @@
 <script src="control.js" defer></script>
 <script src="video.js" defer></script>
 <script src="game.js" defer></script>
+<script src="zorua.js" defer></script>
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><span class="eye" aria-hidden="true"></span>GOD&nbsp;EYE</div>
+  <div class="brand"><span class="eye" aria-hidden="true"></span><span id="zbrand" class="zbrand" hidden aria-hidden="true"></span>GOD&nbsp;EYE</div>
   <div class="status"><span id="dot" class="dot"></span><span id="server">connecting…</span></div>
   <div class="viewsw" role="group" aria-label="Map view"><button id="v2d" class="on">2D</button><button id="v3d">3D</button></div>
   <button id="liveBtn" class="live" hidden title="The camera's live picture"><span class="rec"></span>LIVE</button>
@@ -21,7 +22,7 @@
 </header>
 <dialog id="loginDlg" class="dlg">
   <form id="loginForm" method="dialog">
-    <h3>GodEye access</h3>
+    <h3><img id="loginZ" class="zport" alt="" hidden>GodEye access</h3>
     <label>Name <input name="name" autocomplete="username" required maxlength="24"></label>
     <label>Password <input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
     <p class="err" id="loginErr"></p>
@@ -30,7 +31,7 @@
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <dialog id="hackDlg" class="dlg hack" aria-labelledby="hackTitle">
-  <div class="hhead"><h3 id="hackTitle">POLICE NETWORK</h3><span id="hackTime" class="htime">00:20</span></div>
+  <div class="hhead"><img id="hackZ" class="zport" alt="" hidden><h3 id="hackTitle">POLICE NETWORK</h3><span id="hackTime" class="htime">00:20</span></div>
   <p class="hgoal"><span id="hackGoal"></span><span id="hackCost" class="hcost"></span></p>
   <div id="hackBody" class="hbody"></div>
   <div class="row"><button type="button" class="ghost" id="hackAbort">Give up</button></div>
@@ -40,7 +41,7 @@
   <section class="map-wrap" aria-label="Live map">
     <canvas id="map"></canvas>
     <canvas id="map3d" hidden></canvas>
-    <div class="evbanner" id="evBanner" hidden></div>
+    <div class="evbanner" id="evBanner" hidden><span id="evZ"></span><span id="evText"></span></div>
     <div class="nomap" id="nomap3d" hidden>No 3D map data: run <code>tools/godeye-map map3d</code> (see godeye/README.md).</div>
     <div class="videobox" id="videoBox" hidden>
       <div class="vhead"><span class="rec"></span><span id="vTitle" class="vtitle"></span><span id="vMode" class="vmode"></span>
@@ -145,6 +146,7 @@
     <div id="list" class="list"></div>
     <h2>Events</h2>
     <div id="events" class="events"><div class="empty">No GodEye actions yet.</div></div>
+    <p class="zcredits" id="zcredits" hidden>Zorua art: <a href="zorua/CREDITS.md" target="_blank" rel="noopener">community sprites from PMDCollab, CC BY-NC 4.0</a></p>
   </aside>
 </main>
 </body>
