@@ -170,6 +170,9 @@ mediamtx --low-latency HLS, ~2-4 s--> everyone else (the public address)
 - **Windows Graphics Capture** records the window even while it sits on another virtual desktop.
 - **Firewall:** viewers on other LAN devices need UDP 8189 for WebRTC; without it they fall back to HLS. Run
   `setup-firewall.ps1 -GodEye`.
+  - The first time mediamtx starts, Windows asks whether MediaMTX may use the network. Answer it once, either way.
+  - While that prompt is open, its dimmed screen covers every window, so the camera client cannot click STORY
+    MODE. It says so instead of clicking.
 - **Public address:** the video is HLS through the tunnel (WebRTC media cannot cross it), so it is a few seconds
   behind.
 

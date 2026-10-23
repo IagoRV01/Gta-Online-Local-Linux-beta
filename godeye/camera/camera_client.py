@@ -89,11 +89,18 @@ def click_story_mode(hwnd):
     u32.ClientToScreen(hwnd, ctypes.byref(pt))
     u32.SetCursorPos(pt.x - 4, pt.y); time.sleep(0.2)
     u32.SetCursorPos(pt.x, pt.y); time.sleep(0.4)   # GTA needs to see the cursor arrive (hover) before the click
-    u32.mouse_event(0x0002, 0, 0, 0, 0); time.sleep(0.12); u32.mouse_event(0x0004, 0, 0, 0, 0)
-    time.sleep(1.5)
+    # never click blind: a Windows prompt (e.g. the firewall's "allow this app?" with its dimmed screen) can cover GTA
+    under = u32.GetAncestor(u32.WindowFromPoint(pt), 2)
+    if under == hwnd:
+        u32.mouse_event(0x0002, 0, 0, 0, 0); time.sleep(0.12); u32.mouse_event(0x0004, 0, 0, 0, 0)
+        time.sleep(1.5)
     if prev and prev != hwnd: u32.SetForegroundWindow(prev)
     view.move(VirtualDesktop(desk))
-    print("clicked STORY MODE on the landing page", flush=True)
+    if under == hwnd:
+        print("clicked STORY MODE on the landing page", flush=True)
+    else:
+        cls = ctypes.create_unicode_buffer(256); u32.GetClassNameW(under, cls, 256)
+        print(f"not clicking: another window covers GTA ({cls.value}); a pending Windows prompt needs an answer", flush=True)
 
 
 def gta_pids():
