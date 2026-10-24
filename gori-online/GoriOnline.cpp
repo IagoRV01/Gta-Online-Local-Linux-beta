@@ -214,6 +214,8 @@ static void JobSkyUp();
 static void JobSkyDown();
 static void JobEnter();
 static bool Freemode();
+static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash);
+static bool JobCelebrating();
 static int AddBlip(int ent, int sprite, int colour, const char *name) {
     int b = N<int>(N_ADD_BLIP_FOR_ENTITY, ent);
     if (InActivity()) g_jobBlips.insert(b);
@@ -5033,6 +5035,7 @@ static void ScriptMain() {
         RankTick();
         if (!g_menuOpen) DrawRank(false);
         DrawShard();
+        JobCelebrationTick();
         MissionTick();
         CoopTick();
         RaceTick();

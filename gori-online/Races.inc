@@ -472,11 +472,16 @@ static void RaceFollowJob() {
 }
 
 // ---- the HUD (bottom right, like Online's timer bars)
+// Online's own timer bar: the "all_black_bg" gradient of the timerbars dictionary, the label right-aligned in the middle,
+// the value at the right edge (races, deathmatches, survival and Arena War all use it)
 static void RaceBar(int row, const std::string &label, const std::string &value, bool big = false) {
-    float y = 0.885f - row * 0.042f;
-    Rect(0.905f, y, 0.15f, 0.036f, 0, 0, 0, 150);
-    Text(label, 0.836f, y - 0.013f, 0.3f, 0, 220, 220, 220, 255, 1);
-    Text(value, 0.977f, y - (big ? 0.021f : 0.016f), big ? 0.55f : 0.42f, big ? 4 : 0, 255, 255, 255, 255, 2, 0.977f);
+    static bool asked = false;
+    if (!asked) { N(N_REQUEST_STREAMED_TEXTURE_DICT, "timerbars", 1); asked = true; }
+    float y = 0.885f - row * 0.0399f;
+    if (NB(N<int>(N_HAS_STREAMED_TEXTURE_DICT_LOADED, "timerbars"))) N(N_DRAW_SPRITE, "timerbars", "all_black_bg", 0.918f, y, 0.165f, 0.0355f, 0.f, 255, 255, 255, 160, 0, 0);
+    else Rect(0.918f, y, 0.165f, 0.0355f, 0, 0, 0, 140);
+    Text(label, 0.80f, y - 0.0115f, 0.288f, 0, 240, 240, 240, 255, 2, 0.905f);
+    Text(value, 0.80f, y - (big ? 0.0205f : 0.0165f), big ? 0.55f : 0.43f, 0, 255, 255, 255, 255, 2, 0.993f);
 }
 static void RaceHud() {
     RaceRun &r = g_race;
@@ -484,11 +489,12 @@ static void RaceHud() {
     int t = r.phase >= RP_FINISHED ? r.finishMs : r.phase == RP_RACING ? Now() - r.startAt : 0;
     int lapCps = (int)r.def.cps.size();
     int lap = std::min(r.laps, r.cp / std::max(1, lapCps) + 1);
-    int row = 0;
+    if (JobCelebrating()) return;
+    int row = 0;   // like Online's: the time at the bottom, the lap (a sprint: the checkpoints), the position on top
     RaceBar(row++, "TIME", RaceTime(t));
     if (r.def.laps && r.laps > 1) RaceBar(row++, "LAP", std::to_string(lap) + "/" + std::to_string(r.laps));
-    RaceBar(row++, "CHECKPOINT", std::to_string(std::min(r.cp, r.total)) + "/" + std::to_string(r.total));
-    if (r.online) RaceBar(row++, "POSITION", std::to_string(pos) + "/" + std::to_string(count), true);
+    else RaceBar(row++, "CHECKPOINT", std::to_string(std::min(r.cp, r.total)) + "/" + std::to_string(r.total));
+    RaceBar(row++, "POSITION", std::to_string(pos) + "/" + std::to_string(std::max(1, count)), true);
 }
 static void RaceResults() {
     std::vector<RaceStanding> st = RaceStandings();
@@ -652,19 +658,25 @@ static void RaceTick() {
         } else { r.phase = RP_RESULTS; }
         if (r.phase == RP_RESULTS) {
             int count = 1, pos = MyRacePosition(&count);
-            GiveRP(std::max(100, (r.online ? 1200 / pos : 300) + 10 * r.total), "race");
+            int rpBefore = g_rp, rp = std::max(100, (r.online ? 1200 / pos : 300) + 10 * r.total);
+            GiveRP(rp, nullptr);
+            long long cash = 0;
             if (!r.online) {   // online races are paid by the server, into the bank
-                int cash = RaceSoloPay(r);
-                AddCash(cash);
+                cash = RaceSoloPay(r);
+                AddCash((int)cash);
                 Save();
-                Notify("~g~" + Money(cash) + "~s~ for finishing " + r.def.name + ".");
-                Log("race: solo payout %d", cash);
+                Log("race: solo payout %lld", cash);
+            } else if (r.finishMs) {
+                static const double share[8] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};
+                cash = (long long)(r.payout * share[std::min(7, std::max(0, pos - 1))]);
             }
+            JobCelebrate(r.def.name, r.finishMs ? pos : count, true, r.finishMs, rpBefore, rp, cash);
+            r.resultsUntil = Now() + 9000 + 9000;   // the celebration, then the board
         }
         return;
     }
     if (r.phase == RP_RESULTS) {
-        RaceResults();
+        if (!JobCelebrating()) RaceResults();
         if (Now() > r.resultsUntil) RaceCleanup();
     }
 }
