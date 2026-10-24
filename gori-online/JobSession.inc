@@ -37,6 +37,7 @@ static void JobShowFreemode() {
 static void JobEnter() {   // the job starts: freemode goes
     if (g_jobOn) return;
     g_jobOn = true;
+    g_jobStartedAt = Now();
     JobHideFreemode();
 }
 // Online's transition, part one: up into the sky from where you are; the caller then sets the job up (or takes you back)
@@ -85,8 +86,9 @@ static void CelCall(const char *method, const std::vector<CelArg> &args) {   // 
         N(N_END_SCALEFORM_MOVIE_METHOD);
     }
 }
-// position > 0: a race / deathmatch place; 0: a mission (passed or failed). rpBefore: RP before this job's RP was given.
-static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash) {
+// position > 0: a race / deathmatch place; 0: a mission (passed or failed, why: the line under it). rpBefore: RP before
+// this job's RP was given.
+static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash, const std::string &why) {
     const char *names[3] = {"MP_CELEBRATION_BG", "MP_CELEBRATION_FG", "MP_CELEBRATION"};
     for (int k = 0; k < 3; ++k) g_cel.mv[k] = N<int>(N_REQUEST_SCALEFORM_MOVIE, names[k]);
     for (int i = 0; i < 60; ++i) {
@@ -99,7 +101,7 @@ static void JobCelebrate(const std::string &job, int position, bool passed, int 
     CelCall("CLEANUP", {CelS(w)});
     CelCall("CREATE_STAT_WALL", {CelS(w), CelS("HUD_COLOUR_BLACK"), CelI(-1)});
     if (position > 0) CelCall("ADD_POSITION_TO_WALL", {CelS(w), CelI(position), CelS(job), CelB(true), CelB(false)});
-    else CelCall("ADD_MISSION_RESULT_TO_WALL", {CelS(w), CelS(job), CelS(passed ? "PASSED" : "FAILED"), CelS(""), CelB(true), CelB(true), CelB(true)});
+    else CelCall("ADD_MISSION_RESULT_TO_WALL", {CelS(w), CelS(job), CelS(passed ? "PASSED" : "FAILED"), CelS(why), CelB(true), CelB(true), CelB(true)});
     if (timeMs > 0) CelCall("ADD_TIME_TO_WALL", {CelS(w), CelI(timeMs), CelS("TIME"), CelI(0)});
     int lvl = LevelOf(rpBefore);
     if (rpGained > 0)
@@ -110,7 +112,8 @@ static void JobCelebrate(const std::string &job, int position, bool passed, int 
     CelCall("SHOW_STAT_WALL", {CelS(w)});
     g_cel.on = true;
     g_cel.until = Now() + 9000;
-    Sound(position == 1 || (position == 0 && passed) ? "FIRST_PLACE" : "CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET");
+    if (position > 0) Sound(position == 1 ? "FIRST_PLACE" : "CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET");
+    else Sound(passed ? "Mission_Pass_Notify" : "ScreenFlash", passed ? "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS" : "MissionFailedSounds");
     Log("celebration: %s, position %d, %s, %d ms, +%d RP, $%lld", job.c_str(), position, passed ? "passed" : "failed", timeMs, rpGained, cash);
 }
 static bool JobCelebrating() { return g_cel.on; }

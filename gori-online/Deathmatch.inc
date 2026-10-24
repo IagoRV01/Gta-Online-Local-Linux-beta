@@ -209,14 +209,16 @@ static void DmTick() {
                 std::vector<DmScore> sc = DmScores();
                 int pos = 1, kills = 0;
                 for (size_t i = 0; i < sc.size(); ++i) if (sc[i].me) { pos = (int)i + 1; kills = sc[i].kills; }
-                Shard(pos == 1 ? "~y~WINNER" : "~y~" + Ordinal(pos), std::to_string(kills) + " kills");
-                GiveRP(std::max(100, 1000 / pos + 50 * kills), "deathmatch");
+                int rpBefore = g_rp, rp = std::max(100, 1000 / pos + 50 * kills);
+                GiveRP(rp, nullptr);
+                JobCelebrate(DM_ARENAS[g_dm.arena].name, pos, true, g_dm.minutes * 60000, rpBefore, rp, 0, "");   // online: the server pays
+                g_dm.resultsUntil += 9000;
             }
         }
         return;
     }
     if (g_dm.phase == DP_RESULTS) {
-        DmResults();
+        if (!JobCelebrating()) DmResults();
         if (Now() > g_dm.resultsUntil) DmCleanup();
     }
 }

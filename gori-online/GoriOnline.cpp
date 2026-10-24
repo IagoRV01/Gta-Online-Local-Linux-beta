@@ -214,7 +214,8 @@ static void JobSkyUp();
 static void JobSkyDown();
 static void JobEnter();
 static bool Freemode();
-static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash);
+static int g_jobStartedAt = 0;   // when the current job's session began
+static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash, const std::string &why = "");
 static bool JobCelebrating();
 static int AddBlip(int ent, int sprite, int colour, const char *name) {
     int b = N<int>(N_ADD_BLIP_FOR_ENTITY, ent);

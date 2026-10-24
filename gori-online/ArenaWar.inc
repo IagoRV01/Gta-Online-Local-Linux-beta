@@ -465,7 +465,7 @@ static void AwCleanup() {
 static int AwApGet() { return AcidGet("arena_ap"); }   // the Arena Points total (Gori's per-character custom store)
 static void AwFinish() {
     if (g_aw.phase == AWP_RESULTS) return;
-    g_aw.phase = AWP_RESULTS; g_aw.resultsUntil = Now() + 12000;
+    g_aw.phase = AWP_RESULTS; g_aw.resultsUntil = Now() + 12000 + 9000;
     AwCpClear(); AwFlagClear(); AwTrapsClear();
     int ap = 20 + 10 * g_aw.kills, cash = std::min(60000, 5000 + 1500 * g_aw.kills);
     std::string line = std::to_string(g_aw.kills) + " kills, " + std::to_string(g_aw.deaths) + " deaths";
@@ -481,10 +481,13 @@ static void AwFinish() {
         line = std::string(won ? "You won " : g_aw.score == g_aw.botScore ? "A draw, " : "The bots won ") + std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore);
     }
     AcidSet("arena_ap", AwApGet() + ap);
-    if (g_aw.solo) { AddCash(cash); Notify("~g~" + Money(cash) + "~s~ for the show."); }
-    GiveRP(300 + 50 * (g_aw.kills + g_aw.score), "Arena War");
+    if (g_aw.solo) AddCash(cash);
+    int rpBefore = g_rp, rp = 300 + 50 * (g_aw.kills + g_aw.score);
+    GiveRP(rp, nullptr);
     Save();
-    Shard("~o~ARENA WAR", line + "  +" + std::to_string(ap) + " AP");
+    bool lost = g_aw.mode == AWM_FLAGWAR && g_aw.score < g_aw.botScore;
+    JobCelebrate(std::string("Arena War - ") + AW_MODES[g_aw.mode].name, 0, !lost, g_jobStartedAt ? Now() - g_jobStartedAt : 0, rpBefore, rp,
+                 g_aw.solo ? cash : 0, line + "  +" + std::to_string(ap) + " AP");
 }
 
 // ---- host / join (online: a deathmatch job, kind 2, text "A|...")
@@ -711,7 +714,7 @@ static void ArenaWarTick() {
         return;
     }
     if (g_aw.phase == AWP_RESULTS) {
-        AwResults();
+        if (!JobCelebrating()) AwResults();
         if (Now() > g_aw.resultsUntil) AwCleanup();
     }
 }

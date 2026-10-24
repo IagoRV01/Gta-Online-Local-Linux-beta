@@ -236,10 +236,13 @@ static void SvFinish() {   // over for everyone: the results, RP (and the cash w
     if (g_sv.phase == SVP_RESULTS) return;
     SvClearEnemies();
     int waves = g_sv.cleared;
-    g_sv.phase = SVP_RESULTS; g_sv.resultsUntil = Now() + 12000;
-    if (g_sv.solo && waves) AddCash(g_sv.payout * waves / SV_WAVES);
-    if (waves || g_sv.kills) GiveRP(150 * waves + 10 * g_sv.kills, "survival");
-    Shard(waves >= SV_WAVES ? "~g~SURVIVAL PASSED" : "~y~SURVIVAL OVER", std::to_string(waves) + "/" + std::to_string(SV_WAVES) + " waves, " + std::to_string(g_sv.kills) + " kills");
+    g_sv.phase = SVP_RESULTS; g_sv.resultsUntil = Now() + 12000 + 9000;
+    long long cash = g_sv.solo && waves ? (long long)g_sv.payout * waves / SV_WAVES : 0;
+    if (cash) AddCash((int)cash);
+    int rpBefore = g_rp, rp = 150 * waves + 10 * g_sv.kills;
+    if (rp) GiveRP(rp, nullptr);
+    JobCelebrate("Survival - " + std::string(SV_LOCS[g_sv.loc].name), 0, waves >= SV_WAVES, g_jobStartedAt ? Now() - g_jobStartedAt : 0, rpBefore, rp, cash,
+                 std::to_string(waves) + "/" + std::to_string(SV_WAVES) + " waves, " + std::to_string(g_sv.kills) + " kills");
     Save();
 }
 
@@ -398,7 +401,7 @@ static void SvTick() {
         return;
     }
     if (g_sv.phase == SVP_RESULTS) {
-        SvResults();
+        if (!JobCelebrating()) SvResults();
         if (Now() > g_sv.resultsUntil) SvCleanup();
         return;
     }

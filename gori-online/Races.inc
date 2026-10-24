@@ -670,7 +670,7 @@ static void RaceTick() {
                 static const double share[8] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};
                 cash = (long long)(r.payout * share[std::min(7, std::max(0, pos - 1))]);
             }
-            JobCelebrate(r.def.name, r.finishMs ? pos : count, true, r.finishMs, rpBefore, rp, cash);
+            JobCelebrate(r.def.name, r.finishMs ? pos : count, true, r.finishMs, rpBefore, rp, cash, "");
             r.resultsUntil = Now() + 9000 + 9000;   // the celebration, then the board
         }
         return;

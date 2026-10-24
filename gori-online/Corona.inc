@@ -120,8 +120,11 @@ static void CoronaResults(const std::string &title, bool passed, const std::stri
     g_cor = CoronaState();
     g_cor.def.title = title;
     g_cor.page = CRP_RESULTS; g_cor.passed = passed; g_cor.why = why; g_cor.results = rows;
-    g_cor.resultsUntil = Now() + 15000;
-    Sound(passed ? "Mission_Pass_Notify" : "ScreenFlash", passed ? "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS" : "MissionFailedSounds");
+    int rp = 0; long long cash = 0;
+    for (const CoronaResultRow &r : rows) if (r.me) { rp = r.rp; cash = r.cash; }
+    // Online's end screen first (MISSION PASSED / FAILED, the time, the RP and the cash), then this board
+    JobCelebrate(title, 0, passed, g_jobStartedAt ? Now() - g_jobStartedAt : 0, g_rp - rp, rp, cash, why);
+    g_cor.resultsUntil = Now() + 9000 + 15000;
 }
 
 // ---- drawing
@@ -167,6 +170,7 @@ static std::vector<std::pair<std::string, int>> CoronaPlayers() {   // name, ran
     return out;
 }
 static void CoronaDraw() {
+    if (g_cor.page == CRP_RESULTS && JobCelebrating()) return;   // the end screen first
     N(N_HIDE_HUD_AND_RADAR_THIS_FRAME);
     const int *tc = COR_THEME[std::max(0, std::min(3, g_cor.def.theme))];
     const float L = 0.162f, W = 0.225f, G = 0.002f, top = 0.185f;
