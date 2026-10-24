@@ -3528,7 +3528,11 @@ static void ToggleAccessory(int k) {
     else N(N_SET_PED_PROP_INDEX, me, k, g_accSaved[k][0], g_accSaved[k][1], 1, 0);
 }
 
+static void HbOpen();
+static void HbFrame();
+static bool HbUsing();
 #include "AptActs.inc"   // GTA Online's apartment activities in our own interiors
+#include "HeistBoard.inc"   // GTA Online's heist planning board (HEIST_MP) on the apartment wall
 
 static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     items.clear();
@@ -4352,6 +4356,7 @@ static void CommandTick() {
             for (auto &d : g_raceList) Log("race %s: \"%s\" %d cps, %d grid, %d vehicles, laps %d", d.file.c_str(), d.name.c_str(), (int)d.cps.size(), (int)d.grid.size(), (int)d.vehicles.size(), (int)d.laps);
             Log("races: %d installed; current phase %d cp %d/%d", (int)g_raceList.size(), g_race.phase, g_race.cp, g_race.total);
         }
+        else if (a[0] == "hbtune" && a.size() > 4) { g_hbRot = F(1); g_hbAhead = F(2); g_hbUp = F(3); g_hbW = F(4); g_hbMode = (int)F(5); g_hbRotX = F(6); g_hbCorner = (int)F(7); Log("hbtune %.0f %.2f %.2f %.2f", g_hbRot, g_hbAhead, g_hbUp, g_hbW); }   // the heist board's placement (test)
         else if (a[0] == "racesolo") RaceStartSolo(a.size() > 1 ? a[1] : "", a.size() > 2 ? std::atoi(a[2].c_str()) : 1, a.size() > 3 ? a[3] : "");   // racesolo <file.xml> [laps] [vehicle]
         else if (a[0] == "racehost") RaceHostOnline(a.size() > 1 ? a[1] : "", a.size() > 2 ? std::atoi(a[2].c_str()) : 1, a.size() > 3 ? a[3] : "");
         else if (a[0] == "racestart") RaceHostStart();

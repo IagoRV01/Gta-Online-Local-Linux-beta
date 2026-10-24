@@ -242,7 +242,7 @@ static void ActStart(int i) {
         N(N_SET_ENTITY_HEADING, me, a.h);
         Vec3 p = V3(a.x, a.y, a.z);
         ActCam(ActAhead(ActAhead(p, a.h, -1.1f, 1.95f), a.h + 90.f, 0.7f), ActAhead(p, a.h, 1.3f, 1.55f), 50.f);   // over the shoulder
-        g_menuOpen = true; g_stack.clear(); Open(M_HEISTS);
+        HbOpen();   // Online's planning board on the wall (HeistBoard.inc)
         break;
     }
     }
@@ -375,7 +375,8 @@ static void AptActsFrame() {
     DrunkTick();
     if (g_tvOn && (g_inside < 0 || !AptIdInside())) TvOff();
     TvDraw();
-    if ((g_actKind == 'W' || g_actKind == 'P') && !g_menuOpen) {
+    HbFrame();
+    if ((g_actKind == 'W' || (g_actKind == 'P' && !HbUsing())) && !g_menuOpen) {
         bool w = g_actKind == 'W';
         ActEnd(false);
         if (w) {
