@@ -94,6 +94,7 @@ static uint32_t Joaat(const char *s) {
 }
 static uint32_t ModelHash(const std::string &m) {
     if (m.rfind("0x", 0) == 0) return (uint32_t)std::strtoul(m.c_str() + 2, nullptr, 16);
+    if (!m.empty() && m.find_first_not_of("0123456789") == std::string::npos) return (uint32_t)std::strtoul(m.c_str(), nullptr, 10);   // Rockstar's race files
     return Joaat(m.c_str());
 }
 

@@ -196,4 +196,42 @@ static partial class Map3D
         }
         return 0;
     }
+
+    // GodEyeMap <gta> vcol3d <shader> <minX> <minY> <maxX> <maxY>: the vertex colours (Colour0) of the models in the box that
+    // use that shader, any LOD level (how Rockstar sets per-vertex alpha on glass_pv and the like)
+    public static int VCol(string gta, string[] args)
+    {
+        string want = args[0];
+        float[] b = args.Skip(1).Take(4).Select(float.Parse).ToArray();
+        var ix = Scan(gta, args.Skip(5));
+        int shown = 0; var seen = new HashSet<uint>();
+        foreach (var (name, fe) in ix.Ymaps.OrderBy(k => k.Key))
+        {
+            YmapFile y;
+            try { y = RpfFile.GetFile<YmapFile>(fe); } catch { continue; }
+            if (y?.AllEntities == null) continue;
+            foreach (var en in y.AllEntities)
+            {
+                var p = en.Position;
+                if (p.X < b[0] || p.X > b[2] || p.Y < b[1] || p.Y > b[3]) continue;
+                uint arch = en._CEntityDef.archetypeName;
+                if (!seen.Add(arch)) continue;
+                var d = LoadDrawable(ix, arch);
+                if (d?.DrawableModels?.High == null) continue;
+                foreach (var model in d.DrawableModels.High)
+                    foreach (var g in model.Geometries ?? Array.Empty<DrawableGeometry>())
+                    {
+                        if (ShaderName(g.Shader) != want || g.VertexData?.VertexBytes == null) continue;
+                        var vd = g.VertexData;
+                        var cols = Enumerable.Range(0, Math.Min(6, vd.VertexCount)).Select(i => vd.GetString(i, 4, " "));
+                        var texs = new List<string>();
+                        var pl = g.Shader.ParametersList;
+                        if (pl != null) for (int i = 0; i < pl.Count; i++) if (pl.Parameters[i].Data is TextureBase tb) texs.Add(tb.Name);
+                        Console.WriteLine($"{JenkIndex.GetString(arch)} in {name}: {vd.VertexCount} verts, tex {string.Join(",", texs)}; colour0 {string.Join(" | ", cols)}");
+                        if (++shown >= 25) return 0;
+                    }
+            }
+        }
+        return 0;
+    }
 }

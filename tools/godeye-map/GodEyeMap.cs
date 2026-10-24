@@ -23,6 +23,7 @@ static class MapExport
         if (args[1] == "ents3d") return Map3D.Ents(args[0], args.Skip(2).ToArray());
         if (args[1] == "nodes3d") return Map3D.Nodes(args[0], args.Skip(2).ToArray());
         if (args[1] == "kids3d") return Map3D.Kids(args[0], args.Skip(2).ToArray());
+        if (args[1] == "vcol3d") return Map3D.VCol(args[0], args.Skip(2).ToArray());
         if (args[1] == "findytd") return Map3D.FindYtd(args[0], args[2]);
         if (args[1] == "map3d") return Map3D.Export(args[0], args[2], args.Skip(3).ToArray());
         Run(args[0], args[1]);

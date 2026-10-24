@@ -14,7 +14,7 @@ static void OpenRaceCorona(int idx) {
     Vec3 t = r.trigger.x != 0.f ? r.trigger : (r.grid.empty() ? Pos(Me()) : r.grid[0].first);
     d.at = t;
     bool transform = !r.transforms.empty();
-    if (r.laps) { CoronaOpt o{"Laps", {}, 2, "How many laps."}; for (int i = 1; i <= 10; ++i) o.values.push_back(std::to_string(i)); d.opts.push_back(o); }
+    if (r.laps) { CoronaOpt o{"Laps", {}, std::clamp(r.defLaps > 0 ? r.defLaps - 1 : 2, 0, 9), "How many laps."}; for (int i = 1; i <= 10; ++i) o.values.push_back(std::to_string(i)); d.opts.push_back(o); }
     if (!transform) { CoronaOpt o{"Vehicle Class", {}, 0, "The class everyone races in."}; for (int i = 0; i < NRACE_CLASSES; ++i) o.values.push_back(RACE_CLASSES[i].name); d.opts.push_back(o); }
     d.opts.push_back({transform ? "Start Vehicle" : "Vehicle", {"elegy"}, 0, "Your vehicle."});
     std::string file = r.file;

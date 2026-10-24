@@ -8,7 +8,12 @@
 // Transform races: an optional <Transforms><Transform><Checkpoint>i</Checkpoint><VehicleHash>m</VehicleHash></Transform>
 // list; passing checkpoint i (0-based) swaps you into vehicle m at the same speed. Those checkpoints are purple.
 // Vehicle classes: the host can swap a race's own vehicles for GTA Online's special vehicles or Hotring cars.
-struct RaceProp { Vec3 pos, rot; uint32_t hash = 0; bool dyn = false; int tex = -1; };
+// Rockstar Created races: GTA Online's own 254 races, downloaded by the player from Rockstar's cloud and converted by
+// tools/rockstar-races/convert.py into GoriOnline\Races\Rockstar (never shipped): they add each checkpoint's size and
+// kind (air rings), split checkpoints (two routes, either counts), the stunt pads (boost / slow down), random transforms
+// (Known Unknowns) and the race's own lap count, type and default vehicle.
+struct RaceProp { Vec3 pos, rot; uint32_t hash = 0; bool dyn = false; int tex = -1, speed = 0; };
+struct RaceCpExt { float size = 1.f, spSize = 1.f; bool air = false, split = false, spAir = false; Vec3 sp{}; };
 struct RaceDef {
     std::string file, name, desc;
     std::vector<Vec3> cps;
@@ -17,7 +22,11 @@ struct RaceDef {
     bool laps = true;
     std::vector<RaceProp> props;
     Vec3 trigger{};
-    std::map<int, std::string> transforms;   // checkpoint index -> the vehicle you turn into there
+    std::map<int, std::string> transforms;   // checkpoint index -> the vehicle you turn into there ("random": one of tfVehicles)
+    std::string type;                         // Rockstar Created: "Stunt Race", "Land Race"...; empty: a community race
+    int defLaps = 0;                          // the race's own lap count (Rockstar's)
+    std::vector<RaceCpExt> ext;               // per checkpoint (Rockstar's), may be empty
+    std::vector<std::string> tfVehicles;
 };
 struct RaceClass { const char *name, *desc; std::vector<const char *> models; };
 static const RaceClass RACE_CLASSES[] = {
@@ -30,7 +39,8 @@ static const int NRACE_CLASSES = (int)(sizeof RACE_CLASSES / sizeof *RACE_CLASSE
 // what the Race Creator offers for a transform checkpoint
 static const char *TRANSFORM_VEHICLES[] = {"elegy", "bati", "blazer", "trophytruck", "bmx", "seashark", "dinghy", "buzzard2", "duster", "besra"};
 static const int NTRANSFORM_VEHICLES = (int)(sizeof TRANSFORM_VEHICLES / sizeof *TRANSFORM_VEHICLES);
-enum { RM_LIST = 210, RM_RACE, RM_LOBBY };
+enum { RM_LIST = 210, RM_RACE, RM_LOBBY, RM_RTYPE = 218 };   // RM_RTYPE: one kind of race (param: g_raceTypes index, -1 community)
+static std::vector<std::string> g_raceTypes;
 enum RacePhase { RP_NONE, RP_LOBBY, RP_COUNTDOWN, RP_RACING, RP_FINISHED, RP_RESULTS };
 struct RaceRun {
     RaceDef def;
@@ -38,6 +48,9 @@ struct RaceRun {
     std::string vehicle, startVehicle;   // vehicle: the current one (transforms change it)
     bool online = false, host = false, air = false;
     int startAt = 0, cp = 0, total = 0, finishMs = 0, lastCpAt = 0, resultsUntil = 0, hostEndAt = 0, respawnHold = 0;
+    int cpHandle2 = 0, blip3 = 0;                       // a split checkpoint's other route
+    std::vector<std::pair<int, int>> pads;              // stunt pads: object, strength (+ boost, - slow down)
+    std::map<int, int> padAt;                           // object -> when it last fired
     std::vector<int> props;
     int veh = 0, cpHandle = 0, blip = 0, blip2 = 0, countdownMovie = 0, lastCount = -1;
     Vec3 back{}; float backH = 0.f;
@@ -98,6 +111,24 @@ static std::vector<std::string> XmlAll(const std::string &s, const std::string &
 static Vec3 XmlVec(const std::string &s) {
     return V3((float)std::atof(XmlInner(s, "X").c_str()), (float)std::atof(XmlInner(s, "Y").c_str()), (float)std::atof(XmlInner(s, "Z").c_str()));
 }
+static std::string RaceVehLabel(const std::string &m) {   // what the menus show: GTA's own name for a model name or hash
+    const char *dn = N<const char *>(N_GET_DISPLAY_NAME_FROM_VEHICLE_MODEL, ModelHash(m));
+    if (!dn || !*dn || !std::strcmp(dn, "CARNOTFOUND")) return m;
+    std::string l = Label(dn);
+    return l.empty() ? std::string(dn) : l;
+}
+static RaceCpExt RaceCpKind(const std::string &s) {
+    RaceCpExt e;
+    e.size = (float)std::atof(XmlInner(s, "Size").c_str()); if (e.size <= 0.f) e.size = 1.f;
+    e.air = XmlInner(s, "Kind").find("air") != std::string::npos;
+    std::string sp = XmlInner(s, "Split");
+    if (!sp.empty()) {
+        e.split = true; e.sp = XmlVec(sp);
+        e.spSize = (float)std::atof(XmlInner(sp, "Size").c_str()); if (e.spSize <= 0.f) e.spSize = e.size;
+        e.spAir = XmlInner(sp, "Kind").find("air") != std::string::npos;
+    }
+    return e;
+}
 static bool LoadRaceFile(const std::string &file, RaceDef &d, bool withProps) {
     std::string s;
     if (!ReadUtf8File(g_dir + "GoriOnline\\Races\\" + file, s)) return false;
@@ -111,6 +142,12 @@ static bool LoadRaceFile(const std::string &file, RaceDef &d, bool withProps) {
         d.grid.push_back({XmlVec(XmlInner(sp, "Position")), (float)std::atof(XmlInner(sp, "Heading").c_str())});
     for (const std::string &v : XmlAll(XmlInner(s, "AvailableVehicles"), "VehicleHash")) d.vehicles.push_back(v);
     d.laps = XmlInner(s, "LapsAvailable") != "false";
+    d.type = XmlInner(s, "Type");
+    d.defLaps = std::atoi(XmlInner(s, "Laps").c_str());
+    std::string dv = XmlInner(s, "DefaultVehicle");
+    if (!dv.empty()) { d.vehicles.erase(std::remove(d.vehicles.begin(), d.vehicles.end(), dv), d.vehicles.end()); d.vehicles.insert(d.vehicles.begin(), dv); }
+    for (const std::string &v : XmlAll(XmlInner(s, "TransformVehicles"), "VehicleHash")) d.tfVehicles.push_back(v);
+    if (withProps) for (const std::string &c : XmlAll(XmlInner(s, "CheckpointData"), "Cp")) d.ext.push_back(RaceCpKind(c));
     d.trigger = XmlVec(XmlInner(s, "Trigger"));
     for (const std::string &t : XmlAll(XmlInner(s, "Transforms"), "Transform")) {
         std::string m = XmlInner(t, "VehicleHash"), c = XmlInner(t, "Checkpoint");
@@ -125,6 +162,7 @@ static bool LoadRaceFile(const std::string &file, RaceDef &d, bool withProps) {
             rp.dyn = XmlInner(p, "Dynamic") == "true";
             std::string t = XmlInner(p, "Texture");
             rp.tex = t.empty() ? -1 : std::atoi(t.c_str());
+            rp.speed = std::atoi(XmlInner(p, "Speed").c_str());
             d.props.push_back(rp);
         }
     return !d.cps.empty() && !d.grid.empty();
@@ -133,14 +171,20 @@ static void RefreshRaceList() {
     if (Now() - g_raceListAt < 10000) return;
     g_raceListAt = Now();
     g_raceList.clear();
-    WIN32_FIND_DATAW fd;
-    HANDLE h = FindFirstFileW(Widen(g_dir + "GoriOnline\\Races\\*.xml").c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
-    do {
-        RaceDef d;
-        if (LoadRaceFile(Narrow(fd.cFileName), d, false)) g_raceList.push_back(d);
-    } while (FindNextFileW(h, &fd));
-    FindClose(h);
+    std::set<std::string> rockstar;
+    for (const char *sub : {"Rockstar\\", ""}) {
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW(Widen(g_dir + "GoriOnline\\Races\\" + sub + "*.xml").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        do {
+            RaceDef d;
+            if (!LoadRaceFile(sub + Narrow(fd.cFileName), d, false)) continue;
+            if (*sub) { if (d.type.empty()) d.type = "Race"; rockstar.insert(d.name); }
+            else { d.type.clear(); if (rockstar.count(d.name)) continue; }   // Rockstar's own version wins
+            g_raceList.push_back(d);
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
     std::sort(g_raceList.begin(), g_raceList.end(), [](const RaceDef &a, const RaceDef &b) { return a.name < b.name; });
 }
 // the races on the map (GTA Online's race flag blip, short range) and "press E" at their start
@@ -209,7 +253,26 @@ static int MyRacePosition(int *count) {
 // ---- the track: props, checkpoints, blips
 static void RaceClearMarkers() {
     if (g_race.cpHandle) { N(N_DELETE_CHECKPOINT, g_race.cpHandle); g_race.cpHandle = 0; }
-    RemoveBlip(g_race.blip); RemoveBlip(g_race.blip2);
+    if (g_race.cpHandle2) { N(N_DELETE_CHECKPOINT, g_race.cpHandle2); g_race.cpHandle2 = 0; }
+    RemoveBlip(g_race.blip); RemoveBlip(g_race.blip2); RemoveBlip(g_race.blip3);
+}
+static RaceCpExt RaceCpInfo(int i) {   // Rockstar's per-checkpoint data, or the defaults
+    const auto &e = g_race.def.ext;
+    return e.empty() ? RaceCpExt() : e[(size_t)i % e.size()];
+}
+static float RaceCpRadius(int i, bool split = false) {   // how close counts as through it
+    RaceCpExt e = RaceCpInfo(i);
+    bool air = g_race.air || (split ? e.spAir : e.air);
+    return (air ? 22.f : 13.f) * std::clamp(split ? e.spSize : e.size, 0.6f, 3.f);
+}
+static int RaceMarker(const Vec3 &p, const Vec3 &nx, bool last, bool air, float size, int cr, int cg, int cb) {
+    int h;
+    if (air) h = N<int>(N_CREATE_CHECKPOINT, last ? 9 : 6, p.x, p.y, p.z, nx.x, nx.y, nx.z, 20.f * size, cr, cg, cb, 160, 0);
+    else {
+        h = N<int>(N_CREATE_CHECKPOINT, last ? 4 : 1, p.x, p.y, p.z - 1.0f, nx.x, nx.y, nx.z, 12.f * size, cr, cg, cb, 160, 0);
+        N(N_SET_CHECKPOINT_CYLINDER_HEIGHT, h, 9.f * size, 9.f * size, 12.f * size);
+    }
+    return h;
 }
 static Vec3 RaceCp(int i) { return g_race.def.cps[(size_t)i % g_race.def.cps.size()]; }
 static const std::string *RaceTransformAt(int i) {   // the vehicle checkpoint i turns you into, if any
@@ -223,11 +286,12 @@ static void RaceShowCheckpoint() {
     Vec3 p = RaceCp(g_race.cp), nx = last ? p : RaceCp(g_race.cp + 1);
     bool tf = !last && RaceTransformAt(g_race.cp);   // transform checkpoints are purple, like Online's
     int cr = tf ? 180 : 254, cg = tf ? 110 : 235, cb = tf ? 255 : 169;
-    if (g_race.air)   // air races: rings, like Online's
-        g_race.cpHandle = N<int>(N_CREATE_CHECKPOINT, last ? 9 : 6, p.x, p.y, p.z, nx.x, nx.y, nx.z, 20.f, cr, cg, cb, 160, 0);
-    else {
-        g_race.cpHandle = N<int>(N_CREATE_CHECKPOINT, last ? 4 : 1, p.x, p.y, p.z - 1.0f, nx.x, nx.y, nx.z, 12.f, cr, cg, cb, 160, 0);
-        N(N_SET_CHECKPOINT_CYLINDER_HEIGHT, g_race.cpHandle, 9.f, 9.f, 12.f);
+    RaceCpExt e = RaceCpInfo(g_race.cp);
+    // air races and Rockstar's air checkpoints: rings, like Online's
+    g_race.cpHandle = RaceMarker(p, nx, last, g_race.air || e.air, std::clamp(e.size, 0.6f, 3.f), cr, cg, cb);
+    if (e.split) {   // the other route of a split: either one counts
+        g_race.cpHandle2 = RaceMarker(e.sp, nx, last, g_race.air || e.spAir, std::clamp(e.spSize, 0.6f, 3.f), cr, cg, cb);
+        g_race.blip3 = CoordBlip(e.sp, last ? 38 : 1, tf ? 27 : 5, "Checkpoint", false);
     }
     g_race.blip = CoordBlip(p, last ? 38 : 1, tf ? 27 : 5, last ? "Finish" : tf ? "Transform" : "Checkpoint", false);
     N(N_SET_BLIP_ROUTE, g_race.blip, 1);
@@ -249,12 +313,13 @@ static void RaceSpawnProps() {
         if (!p.dyn) N(N_FREEZE_ENTITY_POSITION, o, 1);
         N(N_SET_ENTITY_LOD_DIST, o, 3000);
         g_race.props.push_back(o);
+        if (p.speed) g_race.pads.push_back({o, p.speed});
         if (++made % 25 == 0) Wait(0);
     }
     for (const RaceProp &p : g_race.def.props) N(N_SET_MODEL_AS_NO_LONGER_NEEDED, p.hash);
 }
 static int RaceVehicleAt(const Vec3 &p, float h) {
-    uint32_t m = Joaat(g_race.vehicle.c_str());
+    uint32_t m = ModelHash(g_race.vehicle);
     if (!LoadModel(m)) { m = Joaat("elegy"); if (!LoadModel(m)) return 0; }
     int v = N<int>(N_CREATE_VEHICLE, m, p.x, p.y, p.z, h, 0, 0, 0);
     N(N_SET_MODEL_AS_NO_LONGER_NEEDED, m);
@@ -272,7 +337,7 @@ static void RaceTransform(const std::string &model) {   // into the new vehicle 
     int from = old && Exists(old) ? old : me;
     Vec3 p = Pos(from), vel = N<Vec3>(N_GET_ENTITY_VELOCITY, from);
     float h = N<float>(N_GET_ENTITY_HEADING, from), speed = std::sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
-    uint32_t m = Joaat(model.c_str());
+    uint32_t m = ModelHash(model);
     if (!LoadModel(m)) { Log("race: transform model %s not found", model.c_str()); return; }
     int newCls = N<int>(N_GET_VEHICLE_CLASS_FROM_NAME, m);
     float up = newCls == 15 ? 8.f : newCls == 16 ? 30.f : 0.5f;   // aircraft appear in the air: on water they sink and throw you out
@@ -460,6 +525,34 @@ static void RaceCountdownDraw(int left) {
 }
 
 // ---- the race itself, every frame
+// Online's stunt pads: driving over a boost pad (1..5) throws you forward, a slow-down pad (-1..-3) brakes you
+static void RacePadsTick() {
+    RaceRun &r = g_race;
+    if (r.pads.empty() || !Exists(r.veh) || MyVehicle() != r.veh) return;
+    Vec3 vp = Pos(r.veh);
+    for (auto &[o, s] : r.pads) {
+        if (!Exists(o) || Dist(vp, Pos(o)) > 14.f) continue;
+        if (!NB(N<int>(N_IS_ENTITY_TOUCHING_ENTITY, r.veh, o))) continue;
+        int &last = r.padAt[o];
+        if (Now() - last < 1200) continue;
+        last = Now();
+        float v = N<float>(N_GET_ENTITY_SPEED, r.veh);
+        if (s > 0) {
+            N(N_SET_VEHICLE_FORWARD_SPEED, r.veh, std::min(95.f, std::max(v, 20.f) + 7.f + 4.f * s));
+            N(N_ANIMPOSTFX_PLAY, "RaceTurbo", 0, 0);
+            Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET");
+        } else {
+            N(N_SET_VEHICLE_FORWARD_SPEED, r.veh, v * std::max(0.3f, 1.f + 0.2f * s));
+            Sound("CHECKPOINT_MISSED", "HUD_MINI_GAME_SOUNDSET");
+        }
+    }
+}
+static std::string RaceRandomVehicle() {   // a random transform (Known Unknowns): one of the race's transform vehicles
+    const std::vector<std::string> &l = g_race.def.tfVehicles.empty() ? g_race.def.vehicles : g_race.def.tfVehicles;
+    if (l.empty()) return "elegy";
+    for (int k = 0; k < 8; ++k) { const std::string &m = l[(size_t)Rand((int)l.size())]; if (m != g_race.vehicle) return m; }
+    return l[0];
+}
 static void RaceRespawn() {
     RaceRun &r = g_race;
     Vec3 p = r.cp > 0 ? RaceCp(r.cp - 1) : r.def.grid[0].first;
@@ -506,10 +599,13 @@ static void RaceTick() {
     if (r.phase == RP_RACING) {
         RaceCountdownDraw(r.startAt - Now());
         N(N_DISABLE_CONTROL_ACTION, 0, 75, 1);   // F/Y: hold to respawn instead of getting out
+        RacePadsTick();
         Vec3 p = Pos(me), c = RaceCp(r.cp);
-        if (Dist(p, c) < (r.air ? 22.f : 13.f)) {
+        RaceCpExt ce = RaceCpInfo(r.cp);
+        if (Dist(p, c) < RaceCpRadius(r.cp) || (ce.split && Dist(p, ce.sp) < RaceCpRadius(r.cp, true))) {
             const std::string *tf = r.cp + 1 < r.total ? RaceTransformAt(r.cp) : nullptr;
-            if (tf && *tf != r.vehicle) RaceTransform(*tf);
+            if (tf && *tf == "random") RaceTransform(RaceRandomVehicle());
+            else if (tf && *tf != r.vehicle) RaceTransform(*tf);
             ++r.cp;
             r.lastCpAt = Now();
             bool done = r.cp >= r.total;
@@ -767,14 +863,31 @@ static bool RacesMenu(const Frame &f, std::string &title, std::string &sub, std:
             }});
             return true;
         }
-        for (int i = 0; i < (int)g_raceList.size(); ++i) {
-            const RaceDef &d = g_raceList[i];
-            items.push_back({d.name, (d.transforms.empty() ? "" : "Transform  ") + std::to_string(d.cps.size()) + " CP >", d.desc.empty() ? "A race." : d.desc,
-                             [i] { g_raceSelLaps = 3; g_raceSelVeh = 0; g_raceSelClass = 0; Open((MenuId)RM_RACE, i); }});
+        // GTA Online's own races by kind (Rockstar Created), then the community ones
+        std::map<std::string, int> kinds; int community = 0;
+        for (const RaceDef &d : g_raceList) { if (d.type.empty()) ++community; else ++kinds[d.type]; }
+        g_raceTypes.clear();
+        for (auto &[k, n] : kinds) {
+            int ti = (int)g_raceTypes.size(); g_raceTypes.push_back(k);
+            items.push_back({"Rockstar Created: " + k + "s", std::to_string(n) + " >", "GTA Online's own " + k + "s, made by Rockstar Games.", [ti] { Open((MenuId)RM_RTYPE, ti); }});
         }
+        if (community) items.push_back({"Community Races", std::to_string(community) + " >", "Races from GoriOnline\\Races: Community Races files and the ones you made.", [] { Open((MenuId)RM_RTYPE, -1); }});
         if (items.empty()) items.push_back({"No races installed", "", "Put Community Races .xml files in GoriOnline\\Races next to GTA5.exe.", nullptr});
         items.insert(items.begin(), {"Race Creator", g_cr.on ? "On >" : ">", "Turn a stunt track (GoriOnline\\Tracks) into a race: drive it and drop the checkpoints.",
                                      [] { Open((MenuId)(g_cr.on ? RM_CREATOR : RM_TRACKS)); }});
+        return true;
+    }
+    case RM_RTYPE: {
+        std::string kind = f.param >= 0 && f.param < (int)g_raceTypes.size() ? g_raceTypes[f.param] : "";
+        title = f.param < 0 ? "Community Races" : kind + "s"; sub = f.param < 0 ? "COMMUNITY" : "ROCKSTAR CREATED";
+        for (int i = 0; i < (int)g_raceList.size(); ++i) {
+            const RaceDef &d = g_raceList[i];
+            if (f.param < 0 ? !d.type.empty() : d.type != kind) continue;
+            int laps = d.defLaps > 0 ? d.defLaps : 3;
+            items.push_back({d.name, (d.transforms.empty() ? "" : "Transform  ") + (d.laps ? std::to_string(laps) + " laps" : std::string("Point to point")) + " >",
+                             d.desc.empty() ? "A race." : d.desc,
+                             [i, laps] { g_raceSelLaps = laps; g_raceSelVeh = 0; g_raceSelClass = 0; Open((MenuId)RM_RACE, i); }});
+        }
         return true;
     }
     case RM_TRACKS: {
@@ -824,7 +937,7 @@ static bool RacesMenu(const Frame &f, std::string &title, std::string &sub, std:
         if (!transform)
             items.push_back({"Vehicle Class", std::string("< ") + RACE_CLASSES[g_raceSelClass].name + " >", RACE_CLASSES[g_raceSelClass].desc,
                              [] { g_raceSelClass = (g_raceSelClass + 1) % NRACE_CLASSES; g_raceSelVeh = 0; }});
-        items.push_back({transform ? "Start Vehicle" : "Vehicle", "< " + veh + " >", "Select to change.", [] { ++g_raceSelVeh; }});
+        items.push_back({transform ? "Start Vehicle" : "Vehicle", "< " + RaceVehLabel(veh) + " >", "Select to change.", [] { ++g_raceSelVeh; }});
         int idx = f.param;
         items.push_back({"Play", "", "The race's lobby: its settings, alone or with the other players.", [idx] { CloseMenu(); OpenRaceCorona(idx); }});
         items.push_back({"Set GPS to the start", "", "", [d] {
