@@ -206,8 +206,17 @@ static void NameBlip(int b, const std::string &name) {
     N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, name.c_str());
     N(N_END_TEXT_COMMAND_SET_BLIP_NAME, b);
 }
+// the job session (JobSession.inc): blips made while in a job are the job's; the transition in and out
+static bool InActivity();
+static std::set<int> g_jobBlips;
+static bool g_jobSky = false;   // Online's flight up/down is on: no fades meanwhile
+static void JobSkyUp();
+static void JobSkyDown();
+static void JobEnter();
+static bool Freemode();
 static int AddBlip(int ent, int sprite, int colour, const char *name) {
     int b = N<int>(N_ADD_BLIP_FOR_ENTITY, ent);
+    if (InActivity()) g_jobBlips.insert(b);
     N(N_SET_BLIP_SPRITE, b, sprite);
     N(N_SET_BLIP_COLOUR, b, colour);
     NameBlip(b, name);
@@ -215,6 +224,7 @@ static int AddBlip(int ent, int sprite, int colour, const char *name) {
 }
 static int CoordBlip(const Vec3 &p, int sprite, int colour, const std::string &name, bool shortRange) {
     int b = N<int>(N_ADD_BLIP_FOR_COORD, p.x, p.y, p.z);
+    if (InActivity()) g_jobBlips.insert(b);
     N(N_SET_BLIP_SPRITE, b, sprite);
     N(N_SET_BLIP_COLOUR, b, colour);
     N(N_SET_BLIP_AS_SHORT_RANGE, b, shortRange ? 1 : 0);
@@ -851,8 +861,8 @@ static void DrawRank(bool force) {
 static void Teleport(float x, float y, float z, float heading) {
     int me = Me();
     int mover = InAnyVehicle() ? MyVehicle() : me;
-    N(N_DO_SCREEN_FADE_OUT, 500);
-    Wait(600);
+    bool sky = g_jobSky;   // in the middle of Online's job transition: the flight hides the move
+    if (!sky) { N(N_DO_SCREEN_FADE_OUT, 500); Wait(600); }
     N(N_SET_ENTITY_COORDS, mover, x, y, z + 50.f, 0, 0, 0, 0);
     N(N_REQUEST_COLLISION_AT_COORD, x, y, z);
     float gz = z;
@@ -864,7 +874,7 @@ static void Teleport(float x, float y, float z, float heading) {
     N(N_SET_ENTITY_COORDS, mover, x, y, gz + 0.5f, 0, 0, 0, 0);
     N(N_SET_ENTITY_HEADING, mover, heading);
     Wait(300);
-    N(N_DO_SCREEN_FADE_IN, 500);
+    if (!sky) N(N_DO_SCREEN_FADE_IN, 500);
 }
 // GTA Online's points carry the right height (doors under canopies, garages under buildings): only
 // snap to the floor right below them, never to whatever is highest above.
@@ -2310,6 +2320,7 @@ static Vec3 ReachableSpot(Vec3 p) {
 static void StartMission(const Mission &m) {
     if (g_mActive) { Notify("~r~Finish or quit your current job first."); return; }
     g_m = m; g_mActive = true; g_mStep = 0; g_stepInit = false; g_mVeh = 0; g_mAlly = 0; g_mKills = 0;
+    JobEnter();
     g_mEnds = m.timeLimitMs ? Now() + m.timeLimitMs : 0;
     Shard("~y~" + m.name, m.steps.empty() ? "" : m.steps[0].text);
     Log("mission start: %s (%d steps)", m.name.c_str(), (int)m.steps.size());
@@ -3443,6 +3454,7 @@ static bool InActivity() {
     return g_mActive || (g_race.phase != RP_NONE && g_race.phase != RP_LOBBY) || (g_aw.phase != AWP_NONE && g_aw.phase != AWP_LOBBY) ||
            (g_sv.phase != SVP_NONE && g_sv.phase != SVP_LOBBY) || (g_dm.phase != DP_NONE && g_dm.phase != DP_LOBBY);
 }
+#include "JobSession.inc"   // a job is played in its own session: no freemode on the map, Online's transition in and out
 static void TogglePassive() {
     if (!g_passive && InActivity()) { Notify("~r~Passive Mode is not available during a job."); return; }
     if (Now() - g_passiveAt < 5000) { Notify("Wait a moment before changing Passive Mode again."); return; }
@@ -4998,13 +5010,14 @@ static void ScriptMain() {
         if (mpMapAt && Now() > mpMapAt && !NB(N<int>(N_GET_IS_LOADING_SCREEN_ACTIVE))) { mpMapAt = 0; ApplyOnlineMap(false); }
         ProfileTick();
         if (!g_profileYou) TrackCharacter();
+        JobSessionTick();
         LivingWorld();
         if (YouActive()) N(N_DISABLE_CONTROL_ACTION, 0, 244, 1);   // INPUT_INTERACTION_MENU: story mode's own menu (Quick GPS / Director Mode) stays shut
         PlayerInfoTick();
         PassiveTick();
-        DoorsTick();
+        if (Freemode()) DoorsTick();
         CoronaTick();
-        ContactInviteTick();
+        if (Freemode()) ContactInviteTick();
         if (CoronaActive()) { g_wantMenu = false; g_backSince = 0x3fffffff; if (g_menuOpen) CloseMenu(); }   // the lobby has the screen
         // Controller: hold Back/Select like Online's interaction menu
         bool pad = !NB(N<int>(N_IS_USING_KEYBOARD_AND_MOUSE, 2));
@@ -5027,32 +5040,25 @@ static void ScriptMain() {
         DmTick();
         SvTick();
         ArenaWarTick();
-        ArenaWarWorldTick();
-        PropertiesTick();
-        DcDoorTick();
-        PlazaTick();
-        GardensTick();
-        GardensValetTick();
+        // freemode only (a job is played in its own session, JobSession.inc); production and the phone go on
+        bool fm = Freemode();
+        if (fm) ArenaWarWorldTick();
+        if (fm || g_inside >= 0) PropertiesTick();   // inside a property (a heist from the planning board) it still runs
+        if (fm) { DcDoorTick(); PlazaTick(); GardensTick(); GardensValetTick(); }
         NaptHideTick();
         BusinessTick();
-        IslandLifeTick();
-        GarageTick();
+        if (fm) { IslandLifeTick(); GarageTick(); }
         PersonalSyncTick();
         CommandTick();
         CayoTick();
-        CasinoTick();
-        IslandMapTick();
+        if (fm) { CasinoTick(); IslandMapTick(); }
         PhoneTick();
-        SpecialVehiclesTick();
-        ShopsTick();
-        ModShopTick();
+        if (fm) { SpecialVehiclesTick(); ShopsTick(); ModShopTick(); }
         InternetTick();
         SfDebugTick();
         BizAppTick();
         TrafficTick();
-        KnowayTick();
-        Events();
-        SellCars();
+        if (fm) { KnowayTick(); Events(); SellCars(); }
         Progress();
         Wait(0);
     }

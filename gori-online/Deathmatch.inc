@@ -80,7 +80,7 @@ static void DmBegin(int startsInMs) {
     g_dm.endAt = g_dm.startAt + g_dm.minutes * 60000;
     g_dm.back = Pos(Me()); g_dm.backH = N<float>(N_GET_ENTITY_HEADING, Me());
     g_dm.given.clear();
-    N(N_DO_SCREEN_FADE_OUT, 400); Wait(450);
+    JobSkyUp();
     const DmArena &a = DM_ARENAS[g_dm.arena];
     N(N_REQUEST_COLLISION_AT_COORD, a.x, a.y, a.z);
     DmPlaceInArena();
@@ -89,7 +89,7 @@ static void DmBegin(int startsInMs) {
     N(N_FREEZE_ENTITY_POSITION, Me(), 1);
     g_dm.countdownMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "COUNTDOWN");
     g_dm.lastCount = -1;
-    N(N_DO_SCREEN_FADE_IN, 500);
+    JobSkyDown();
     Log("dm: %s, %d min, %s, starts in %d ms", a.name, g_dm.minutes, DM_LOADOUT_NAMES[g_dm.loadout], startsInMs);
 }
 static void DmCleanup() {
@@ -99,7 +99,9 @@ static void DmCleanup() {
     if (g_dm.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_dm.countdownMovie);
     Vec3 b = g_dm.back; float h = g_dm.backH;
     g_dm = DmRun();
+    JobSkyUp();
     Teleport(b.x, b.y, b.z, h);
+    JobSkyDown();
 }
 static void DmHost(int arena, int minutes, int loadout) {
     if (g_mActive || g_race.phase != RP_NONE) { Notify("~r~Finish your race or job first."); return; }

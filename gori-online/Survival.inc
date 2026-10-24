@@ -207,7 +207,7 @@ static void SvBegin(int startsInMs) {
     g_sv.back = Pos(Me()); g_sv.backH = N<float>(N_GET_ENTITY_HEADING, Me());
     g_sv.given.clear();
     g_sv.wave = 0; g_sv.cleared = 0; g_sv.kills = 0; g_sv.lastV = g_sv.lastK = -1;
-    N(N_DO_SCREEN_FADE_OUT, 400); Wait(450);
+    JobSkyUp();
     const SvLoc &l = SV_LOCS[g_sv.loc];
     N(N_REQUEST_COLLISION_AT_COORD, l.x, l.y, l.z);
     SvPlaceInArea();
@@ -216,7 +216,8 @@ static void SvBegin(int startsInMs) {
     N(N_FREEZE_ENTITY_POSITION, Me(), 1);
     g_sv.countdownMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "COUNTDOWN");
     g_sv.lastCount = -1;
-    N(N_DO_SCREEN_FADE_IN, 500);
+    JobSkyDown();
+    if (g_sv.solo) g_sv.startAt = std::max(g_sv.startAt, Now() + 3200);   // alone: the countdown once you have landed
     Log("survival: %s, starts in %d ms%s", l.name, startsInMs, g_sv.solo ? " (solo)" : "");
 }
 static void SvCleanup() {
@@ -227,7 +228,9 @@ static void SvCleanup() {
     if (g_sv.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_sv.countdownMovie);
     Vec3 b = g_sv.back; float h = g_sv.backH;
     g_sv = SvRun();
+    JobSkyUp();
     Teleport(b.x, b.y, b.z, h);
+    JobSkyDown();
 }
 static void SvFinish() {   // over for everyone: the results, RP (and the cash when solo: the server pays online)
     if (g_sv.phase == SVP_RESULTS) return;

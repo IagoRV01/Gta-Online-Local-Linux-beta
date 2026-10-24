@@ -191,7 +191,7 @@ static void RefreshRaceList() {
 static std::vector<int> g_raceBlips;
 static int g_raceBlipsAt = -100000;
 static void RaceBlipsTick() {
-    bool want = YouActive() && g_race.phase == RP_NONE;
+    bool want = YouActive() && g_race.phase == RP_NONE && Freemode();
     if (!want) { for (int &b : g_raceBlips) RemoveBlip(b); g_raceBlips.clear(); return; }
     if (g_raceBlips.empty() && Now() - g_raceBlipsAt > 30000) {
         g_raceBlipsAt = Now();
@@ -363,15 +363,15 @@ static void RaceCleanup() {
     RaceClearMarkers();
     N(N_ANIMPOSTFX_STOP_ALL);
     if (g_race.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_race.countdownMovie);
-    N(N_DO_SCREEN_FADE_OUT, 400); Wait(450);
+    JobSkyUp();   // back to freemode: up from the finish...
     int me = Me();
     if (InAnyVehicle()) N(N_SET_ENTITY_COORDS, me, g_race.back.x, g_race.back.y, g_race.back.z, 0, 0, 0, 0);   // out of the race car
     if (Exists(g_race.veh)) DeleteEntity(g_race.veh);
     for (int &o : g_race.props) DeleteEntity(o);
     g_race.props.clear();
     Teleport(g_race.back.x, g_race.back.y, g_race.back.z, g_race.backH);
-    N(N_DO_SCREEN_FADE_IN, 500);
     g_race = RaceRun();
+    JobSkyDown();   // ...down where you were
 }
 
 // ---- start: everyone (solo, host and members) gets here with the start time
@@ -391,7 +391,7 @@ static void RaceBegin(int startsInMs) {
     r.vehicle = r.startVehicle.empty() ? r.vehicle : r.startVehicle;   // transforms start over
     r.phase = RP_COUNTDOWN;
     r.payout = RacePayout(r);
-    N(N_DO_SCREEN_FADE_OUT, 500); Wait(550);
+    JobSkyUp();   // Online's transition: up from here...
     if (InAnyVehicle()) N(N_SET_ENTITY_COORDS, Me(), r.back.x, r.back.y, r.back.z + 1.f, 0, 0, 0, 0);
     int slot = RaceGridSlot();
     const auto &g = r.def.grid[(size_t)slot % r.def.grid.size()];
@@ -411,7 +411,8 @@ static void RaceBegin(int startsInMs) {
     RaceShowCheckpoint();   // after the vehicle: its class picks the checkpoint style
     r.countdownMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "COUNTDOWN");
     r.lastCount = -1;
-    N(N_DO_SCREEN_FADE_IN, 600);
+    JobSkyDown();   // ...and down onto the grid
+    if (!r.online) r.startAt = std::max(r.startAt, Now() + 3200);   // alone: the 3-2-1 once you have landed, like Online's
     Log("race: %s, %d laps, %d checkpoints, slot %d, %s, starts in %d ms", r.def.name.c_str(), r.laps, r.total, slot, r.online ? "online" : "solo", startsInMs);
 }
 static bool RaceLoad(const std::string &file, int laps, const std::string &vehicle) {

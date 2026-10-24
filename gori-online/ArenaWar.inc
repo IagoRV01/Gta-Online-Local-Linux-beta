@@ -408,7 +408,7 @@ static void AwBegin(int startsInMs) {
     g_aw.endAt = g_aw.startAt + g_aw.minutes * 60000;
     g_aw.back = Pos(Me()); g_aw.backH = N<float>(N_GET_ENTITY_HEADING, Me());
     g_aw.kills = g_aw.deaths = 0;
-    N(N_DO_SCREEN_FADE_OUT, 500); Wait(550);
+    JobSkyUp();
     if (InAnyVehicle()) N(N_SET_ENTITY_COORDS, Me(), g_aw.back.x, g_aw.back.y, g_aw.back.z + 1.f, 0, 0, 0, 0);
     N(N_SET_ENTITY_COORDS, Me(), AW_CENTRE.x, AW_CENTRE.y, 150.f, 0, 0, 0, 0);
     N(N_FREEZE_ENTITY_POSITION, Me(), 1);
@@ -439,7 +439,11 @@ static void AwBegin(int startsInMs) {
     }
     if (g_aw.mode == AWM_FLAGWAR) AwFlagSetup();
     AwTrapsSpawn();
-    N(N_DO_SCREEN_FADE_IN, 600);
+    JobSkyDown();
+    if (g_aw.solo) {   // alone: the countdown once you have landed, the match as long as chosen
+        int late = Now() + 3200 - g_aw.startAt;
+        if (late > 0) { g_aw.startAt += late; g_aw.endAt += late; }
+    }
     Shard("~o~ARENA WAR", std::string(AW_MODES[g_aw.mode].name) + " - " + AW_THEMES[g_aw.theme].name);
     Log("arena war: %s, %s map %d (floor %.1f), %s, %d min, %d bots, %d traps, %s", AW_MODES[g_aw.mode].name, AW_THEMES[g_aw.theme].name, g_aw.map + 1, g_aw.floorZ, AwModel(g_aw.theme, g_aw.veh).c_str(),
         g_aw.minutes, (int)g_aw.botList.size(), (int)g_aw.trapList.size(), g_aw.solo ? "solo" : "online");
@@ -449,14 +453,14 @@ static void AwCleanup() {
     AwCpClear(); AwFlagClear(); AwTrapsClear();
     for (auto &b : g_aw.botList) AwRemoveBot(b);
     if (g_aw.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_aw.countdownMovie);
-    N(N_DO_SCREEN_FADE_OUT, 500); Wait(550);
+    JobSkyUp();
     if (InAnyVehicle()) N(N_SET_ENTITY_COORDS, Me(), g_aw.back.x, g_aw.back.y, g_aw.back.z + 1.f, 0, 0, 0, 0);
     if (Exists(g_aw.myVeh)) DeleteEntity(g_aw.myVeh);
     N(N_CLEAR_ROOM_FOR_ENTITY, Me());
     Vec3 b = g_aw.back; float h = g_aw.backH;
     g_aw = AwRun();
     Teleport(b.x, b.y, b.z, h);
-    N(N_DO_SCREEN_FADE_IN, 500);
+    JobSkyDown();
 }
 static int AwApGet() { return AcidGet("arena_ap"); }   // the Arena Points total (Gori's per-character custom store)
 static void AwFinish() {
