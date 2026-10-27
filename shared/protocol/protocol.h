@@ -21,7 +21,7 @@
 namespace proto {
 
 constexpr uint8_t kMagic = 0x4C;
-constexpr uint8_t kProtocolVersion = 13;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions; v13 camera clients
+constexpr uint8_t kProtocolVersion = 14;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions; v13 camera clients; v14 player messages
 constexpr uint8_t kChanControl = 0, kChanState = 1, kChanEvents = 2, kNumChannels = 3;
 constexpr size_t kMaxPacket = 64 * 1024;       // anything bigger is dropped before parsing
 constexpr size_t kMaxProfileJson = 48 * 1024;
@@ -74,6 +74,9 @@ enum class MsgType : uint16_t {
     JobState = 74,       // S  {u32 jobId, u16 host, u8 status, u16 step, vec3 objective, str text, u32 payout, u8 count, count x u16, u8 kind, u32 startAt}  to host + members
     RaceProgress = 75,   // C  {u16 checkpoints, u32 finishMs}                                        a racer's progress in its race job
     RaceStandings = 76,  // S  {u32 jobId, u8 count, count x {u16 netId, u16 checkpoints, u32 finishMs}} in race order, to host + members
+    // player messages (channel 2) — v14: a small typed message from one player's mod to another's (the apartment buzzer...)
+    PlayerMessage = 80,       // C  {u16 to, str kind, str text}        to 0 = everyone in our session
+    PlayerMessageRelay = 81,  // S  {u16 from, str kind, str text}      only between players of the same session
     // state (channel 1)
     PlayerState = 20,    // C  PlayerStateMsg
     Snapshot = 21,       // S  {u32 tick, u32 serverTimeMs, u8 count, count x RemoteState}
@@ -486,6 +489,9 @@ struct JobOpenMsg { std::string title; Vec3 start; uint32_t payout = 0; uint8_t 
 struct JobInfo { uint32_t id = 0; uint16_t host = 0; std::string title; Vec3 start; uint8_t members = 0, status = kJobLobby, kind = kJobMission; };
 struct JobListMsg { std::vector<JobInfo> jobs; };
 struct JobJoinMsg { uint32_t jobId = 0; };
+constexpr size_t kMaxMsgKind = 16, kMaxMsgText = 200;
+struct PlayerMessageMsg { uint16_t to = 0; std::string kind, text; };
+struct PlayerMessageRelayMsg { uint16_t from = 0; std::string kind, text; };
 struct JobUpdateMsg { uint8_t status = kJobRunning; uint16_t step = 0; Vec3 objective; std::string text; };
 struct JobStateMsg { uint32_t jobId = 0; uint16_t host = 0; uint8_t status = kJobLobby; uint16_t step = 0; Vec3 objective; std::string text; uint32_t payout = 0; std::vector<uint16_t> members;
                      uint8_t kind = kJobMission; uint32_t startAt = 0; };
@@ -508,6 +514,10 @@ inline bool Get(wire::Reader &r, JobListMsg &m) {
     return r.Done();
 }
 inline void Put(wire::Writer &w, const JobJoinMsg &m) { PutHeader(w, MsgType::JobJoin); w.U32(m.jobId); }
+inline void Put(wire::Writer &w, const PlayerMessageMsg &m) { PutHeader(w, MsgType::PlayerMessage); w.U16(m.to); w.Str(m.kind, kMaxMsgKind); w.Str(m.text, kMaxMsgText); }
+inline bool Get(wire::Reader &r, PlayerMessageMsg &m) { m.to = r.U16(); m.kind = r.Str(kMaxMsgKind); m.text = r.Str(kMaxMsgText); return r.Done() && !m.kind.empty(); }
+inline void Put(wire::Writer &w, const PlayerMessageRelayMsg &m) { PutHeader(w, MsgType::PlayerMessageRelay); w.U16(m.from); w.Str(m.kind, kMaxMsgKind); w.Str(m.text, kMaxMsgText); }
+inline bool Get(wire::Reader &r, PlayerMessageRelayMsg &m) { m.from = r.U16(); m.kind = r.Str(kMaxMsgKind); m.text = r.Str(kMaxMsgText); return r.Done(); }
 inline bool Get(wire::Reader &r, JobJoinMsg &m) { m.jobId = r.U32(); return r.Done(); }
 inline void Put(wire::Writer &w, const JobUpdateMsg &m) { PutHeader(w, MsgType::JobUpdate); w.U8(m.status); w.U16(m.step); PutVec(w, m.objective); w.Str(m.text, kMaxJobText); }
 inline bool Get(wire::Reader &r, JobUpdateMsg &m) { m.status = r.U8(); m.step = r.U16(); m.objective = GetVec(r); m.text = r.Str(kMaxJobText); return r.Done() && m.status <= kJobClosed; }

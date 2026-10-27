@@ -246,6 +246,11 @@ void OnMessage(MsgType type, wire::Reader &r) {
             if (Get(r, m)) jobs::OnStandings(m);
             break;
         }
+        case MsgType::PlayerMessageRelay: {   // v14: for Gori Online (the apartment buzzer...)
+            PlayerMessageRelayMsg m;
+            if (Get(r, m)) jobs::OnPlayerMessage(m);
+            break;
+        }
         case MsgType::Ledger: {
             LedgerMsg m;
             if (Get(r, m)) economy::OnLedger(m);

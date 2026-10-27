@@ -246,6 +246,12 @@ void Server::OnPacket(ENetPeer *peer, const uint8_t *data, size_t size, uint8_t 
             if (c.authed) HandleJobJoin(c, m);
             break;
         }
+        case MsgType::PlayerMessage: {
+            PlayerMessageMsg m;
+            if (!Get(r, m)) return malformed("PlayerMessage");
+            if (c.authed && !c.camera) HandlePlayerMessage(c, m);
+            break;
+        }
         case MsgType::JobUpdate: {
             JobUpdateMsg m;
             if (!Get(r, m)) return malformed("JobUpdate");
@@ -1076,6 +1082,24 @@ void Server::HandleJobOpen(Client &c, const JobOpenMsg &m) {
     LOGI("jobs", c.name.c_str(), "opened %s %u \"%s\" (payout %u)", j.kind == kJobRace ? "race" : j.kind == kJobDeathmatch ? "deathmatch" : j.kind == kJobSurvival ? "survival" : "job", j.id, j.title.c_str(), j.payout);
     SendJobState(jobs_[j.id]);
     SendJobList(nullptr);
+}
+
+// v14: one player's mod to another's (the apartment buzzer...): only within the sender's session, at most 10 a second
+void Server::HandlePlayerMessage(Client &c, const PlayerMessageMsg &m) {
+    long long now = NowMs();
+    if (now - c.msgWindowAt > 1000) { c.msgWindowAt = now; c.msgsInWindow = 0; }
+    if (++c.msgsInWindow > 10) { LOGW("msg", c.name.c_str(), "message rate limit"); return; }
+    wire::Writer w;
+    Put(w, PlayerMessageRelayMsg{c.netId, m.kind, m.text});
+    int n = 0;
+    for (auto &kv : clients_) {
+        Client &o = kv.second;
+        if (!o.authed || o.camera || o.netId == c.netId || o.session != c.session) continue;
+        if (m.to && o.netId != m.to) continue;
+        Send(kv.first, w, kChanEvents, true);
+        ++n;
+    }
+    LOGD("msg", c.name.c_str(), "%s -> %u (%d delivered)", m.kind.c_str(), m.to, n);
 }
 
 void Server::HandleJobJoin(Client &c, const JobJoinMsg &m) {

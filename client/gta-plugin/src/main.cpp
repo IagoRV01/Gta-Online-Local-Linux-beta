@@ -110,6 +110,11 @@ extern "C" __declspec(dllexport) void LocalOnline_JobUpdate(int status, int step
     jobs::Update((uint8_t)status, (uint16_t)step, proto::Vec3{x, y, z}, text ? text : "");
 }
 extern "C" __declspec(dllexport) void LocalOnline_JobJoin(unsigned id) { jobs::Join(id); }
+// API v9: player messages (protocol v14): to another player's mod (to 0 = everyone in our session), and the ones received
+extern "C" __declspec(dllexport) bool LocalOnline_SendPlayerMessage(unsigned to, const char *kind, const char *text) {
+    return jobs::SendPlayerMessage((uint16_t)to, kind ? kind : "", text ? text : "");
+}
+extern "C" __declspec(dllexport) int LocalOnline_TakePlayerMessages(char *buf, int cap) { return CopyOut(jobs::TakePlayerMessages(), buf, cap); }
 extern "C" __declspec(dllexport) int LocalOnline_JobRevision() { return jobs::Revision(); }
 extern "C" __declspec(dllexport) int LocalOnline_GetJobs(char *buf, int cap) { return CopyOut(jobs::ListText(), buf, cap); }
 extern "C" __declspec(dllexport) int LocalOnline_GetJobState(char *buf, int cap) { return CopyOut(jobs::StateText(), buf, cap); }

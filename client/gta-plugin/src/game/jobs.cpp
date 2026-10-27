@@ -49,6 +49,23 @@ void Update(uint8_t status, uint16_t step, const proto::Vec3 &objective, const s
     if (status >= proto::kJobPassed) g_hosting = false;
 }
 
+static std::string g_msgs;   // received player messages, until Gori takes them
+bool SendPlayerMessage(uint16_t to, const std::string &kind, const std::string &text) {
+    if (!net::Connected() || kind.empty()) return false;
+    wire::Writer w;
+    proto::Put(w, proto::PlayerMessageMsg{to, kind.substr(0, proto::kMaxMsgKind), text.substr(0, proto::kMaxMsgText)});
+    net::SendEvent(w);
+    LOGI("msg", "-", "%s -> %u", kind.c_str(), to);
+    return true;
+}
+void OnPlayerMessage(const proto::PlayerMessageRelayMsg &m) {
+    auto clean = [](std::string s) { for (char &ch : s) if (ch == '\t' || ch == '\n' || ch == '\r') ch = ' '; return s; };
+    if (g_msgs.size() > 8000) g_msgs.clear();   // nobody reading
+    g_msgs += std::to_string(m.from) + "\t" + clean(m.kind) + "\t" + clean(m.text) + "\n";
+    LOGI("msg", "-", "%s from %u", m.kind.c_str(), m.from);
+}
+std::string TakePlayerMessages() { std::string s; s.swap(g_msgs); return s; }
+
 void Join(uint32_t jobId) {
     if (!net::Connected()) return;
     wire::Writer w;

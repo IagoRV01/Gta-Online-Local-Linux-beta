@@ -19,6 +19,11 @@ void OnStandings(const proto::RaceStandingsMsg &m);
 // "name\tcheckpoints\tfinishMs\tme(0/1)\n" per racer, in race order; "" when not racing
 std::string StandingsText();
 void OnDisconnected();
+// player messages (v14): a small typed message to another player's mod (to 0 = everyone in our session); the ones
+// received wait in a queue that Gori Online drains: "from netId\tkind\ttext\n" per message
+bool SendPlayerMessage(uint16_t to, const std::string &kind, const std::string &text);
+void OnPlayerMessage(const proto::PlayerMessageRelayMsg &m);
+std::string TakePlayerMessages();
 // (host name "you" = our own job) "id\thost name\ttitle\tx\ty\tz\tmembers\tstatus\tkind\n" per open job
 std::string ListText();
 // "id\thost name\tstatus\tstep\tx\ty\tz\tpayout\ttext\tmember names (comma separated)\thosting(0/1)\tkind\tstartsInMs", "" when in no job

@@ -701,6 +701,8 @@ struct LocalOnlineApi {
     int (*getPlayerName)(char *, int) = nullptr;
     void (*highlightPlayer)(unsigned, int) = nullptr;
     bool (*adoptOutfit)() = nullptr;                               // API v8: the outfit worn now becomes the character's (AptActs.inc wardrobe)
+    bool (*sendPlayerMessage)(unsigned, const char *, const char *) = nullptr;   // API v9: player messages (Buzzer.inc)
+    int (*takePlayerMessages)(char *, int) = nullptr;
     bool tried = false;
 };
 static LocalOnlineApi &LO() {
@@ -739,6 +741,9 @@ static LocalOnlineApi &LO() {
             api.getPlayerName = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_GetPlayerName");
             api.highlightPlayer = (void (*)(unsigned, int))GetProcAddress(h, "LocalOnline_HighlightPlayer");
             api.adoptOutfit = (bool (*)())GetProcAddress(h, "LocalOnline_AdoptOutfit");
+            api.sendPlayerMessage = (bool (*)(unsigned, const char *, const char *))GetProcAddress(h, "LocalOnline_SendPlayerMessage");
+            api.takePlayerMessages = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_TakePlayerMessages");
+            if (!api.sendPlayerMessage || !api.takePlayerMessages) api.sendPlayerMessage = nullptr, api.takePlayerMessages = nullptr;
         }
     }
     return api;
@@ -3532,7 +3537,8 @@ static void HbOpen();
 static void HbFrame();
 static bool HbUsing();
 #include "AptActs.inc"   // GTA Online's apartment activities in our own interiors
-#include "HeistBoard.inc"   // GTA Online's heist planning board (HEIST_MP) on the apartment wall
+#include "HeistBoard.inc"
+#include "Buzzer.inc"   // GTA Online's apartment buzzer: ring another player's home, the owner lets you in   // GTA Online's heist planning board (HEIST_MP) on the apartment wall
 
 static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     items.clear();
@@ -5053,6 +5059,7 @@ static void ScriptMain() {
         bool fm = Freemode();
         if (fm) ArenaWarWorldTick();
         if (fm || g_inside >= 0) PropertiesTick();   // inside a property (a heist from the planning board) it still runs
+        BuzzTick();
         if (fm) { DcDoorTick(); PlazaTick(); GardensTick(); GardensValetTick(); }
         NaptHideTick();
         BusinessTick();

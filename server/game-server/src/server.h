@@ -68,6 +68,7 @@ private:
         uint16_t rank = 0;            // v11: from the client (Gori's RP), shown in the player lists
         uint8_t infoFlags = 0;        // proto::InfoFlags
         uint32_t session = 0;         // the server's: 0 freemode, a running job's id, or a private solo session
+        long long msgWindowAt = 0; int msgsInWindow = 0;   // player messages (v14) rate limit
         int combatWindowMs = 0, shotsInWindow = 0, damageInWindow = 0;
         int kills = 0, deaths = 0;
         std::string characterUuid;        // known after ProfileRequest/ProfileSave
@@ -123,6 +124,7 @@ private:
     void SendRaceStandings(const Job &j);
     void HandleJobOpen(Client &c, const proto::JobOpenMsg &m);
     void HandleJobJoin(Client &c, const proto::JobJoinMsg &m);
+    void HandlePlayerMessage(Client &c, const proto::PlayerMessageMsg &m);   // v14: relayed within the sender's session
     void HandleJobUpdate(Client &c, const proto::JobUpdateMsg &m);
     void LeaveJobs(uint16_t netId);          // a member leaves / a host's job ends
     void CloseJob(uint32_t id, const char *why);
