@@ -17,6 +17,7 @@ struct CoronaDef {
     std::function<bool(const std::vector<int> &)> openLobby;
     std::function<void()> startLobby, cancelLobby;
     std::function<void(CoronaDef &)> onChange;   // options that depend on others (a vehicle class's vehicles, a theme's maps)
+    std::function<int(const std::vector<int> &)> memberPay;   // what each crew member is paid (a heist finale's cut); default half the payout
     bool solo = true;                            // false: needs Open (a deathmatch)
 };
 enum CoronaPage { CRP_NONE, CRP_SETTINGS, CRP_INVITE, CRP_MEMBER, CRP_RESULTS };
@@ -80,7 +81,8 @@ static void CoronaSetLobby(int type) {   // 1: Open, a server job the others see
     if (type == 1 && !g_cor.jobOpen && CoopAvailable()) {
         if (g_cor.def.openLobby) g_cor.jobOpen = g_cor.def.openLobby(CoronaSel());
         else {
-            g_cor.jobOpen = LO().jobOpen(g_cor.def.title.c_str(), Pos(Me()).x, Pos(Me()).y, Pos(Me()).z, g_cor.def.payout / 2);
+            int pay = g_cor.def.memberPay ? g_cor.def.memberPay(CoronaSel()) : g_cor.def.payout / 2;
+            g_cor.jobOpen = LO().jobOpen(g_cor.def.title.c_str(), Pos(Me()).x, Pos(Me()).y, Pos(Me()).z, pay);
             g_coopLobbyOpen = g_cor.jobOpen;
         }
         if (g_cor.jobOpen) Notify("Lobby open: the other players can join from ~b~Jobs~s~.");

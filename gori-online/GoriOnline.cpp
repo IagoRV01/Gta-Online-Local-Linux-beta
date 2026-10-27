@@ -535,6 +535,8 @@ struct BizState { std::string prop; float supplies = 0.f, stock = 0.f; int safe 
 static std::vector<BizState> g_biz;
 static const int NHEISTS = 8;
 static int g_heistStage[NHEISTS] = {0};
+static int g_heistCut[NHEISTS] = {25, 25, 25, 25, 25, 25, 25, 25};
+static int g_lastHeistPay = -1;   // the leader's cut of the finale just passed (its results show it, not the whole take)   // the crew's cut of each heist's finale, % per member (its lobby)
 // Island colours (logical colour -> stunt prop tint index), tunable in GoriOnline.ini ("tints=")
 static int g_bestTrial = 0;   // Isla Neon time trial record (ms)
 static int g_chips = 0;       // Diamond Casino chips
@@ -2796,10 +2798,15 @@ static void HeistStageDone(int h, bool finale) {
     if (finale) {
         g_heistStage[h] = 0;
         g_heistReadyAt = g_playMin + 20;
-        int pay = HEISTS[h].payout;
+        // the leader's cut: the take less the crew's (each member was paid its cut by the server), at least 15%
+        int crew = 0;
+        for (auto &n : Split(g_coop.members, ',')) if (!n.empty()) ++crew;
+        int leaderPct = std::max(15, 100 - g_heistCut[h] * crew);
+        int pay = HEISTS[h].payout * leaderPct / 100;
+        g_lastHeistPay = pay;
         AddCash(pay);
         GiveRP(HEISTS[h].rp, "heist complete");
-        Shard("~g~HEIST PASSED", std::string(HEISTS[h].name) + "  " + Money(pay));
+        Log("heist %s: leader cut %d%% (%d crew at %d%%) = %d", HEISTS[h].name, leaderPct, crew, g_heistCut[h], pay);
     } else {
         g_heistStage[h]++;
         GiveRP(1500, "heist prep done");
@@ -2955,7 +2962,7 @@ static void StartHeist(int h) {
         }
         break;
     }
-    m.coopPay = finale ? HEISTS[h].payout / 4 : 5000;   // a crew member's cut
+    m.coopPay = finale ? HEISTS[h].payout * g_heistCut[h] / 100 : 5000;   // a crew member's cut (the lobby's Crew Cut)
     m.onSuccess = [h, finale] { HeistStageDone(h, finale); };
     StartMission(m);
 }
@@ -4363,6 +4370,18 @@ static void CommandTick() {
             Log("races: %d installed; current phase %d cp %d/%d", (int)g_raceList.size(), g_race.phase, g_race.cp, g_race.total);
         }
         else if (a[0] == "hbtune" && a.size() > 4) { g_hbRot = F(1); g_hbAhead = F(2); g_hbUp = F(3); g_hbW = F(4); g_hbMode = (int)F(5); g_hbRotX = F(6); g_hbCorner = (int)F(7); Log("hbtune %.0f %.2f %.2f %.2f", g_hbRot, g_hbAhead, g_hbUp, g_hbW); }   // the heist board's placement (test)
+        else if (a[0] == "racepad" && a.size() > 1) {   // racepad <n>: the race car 8 m before stunt pad n, at it, 25 m/s (test)
+            int k = std::atoi(a[1].c_str());
+            if (g_race.phase == RP_RACING && k >= 0 && k < (int)g_race.pads.size() && Exists(g_race.veh)) {
+                int pad = g_race.pads[k].first;
+                Vec3 p = Pos(pad); float h = N<float>(N_GET_ENTITY_HEADING, pad);
+                Vec3 s = V3(p.x + std::sin(h * 0.0174533f) * 8.f, p.y - std::cos(h * 0.0174533f) * 8.f, p.z + 1.f);
+                N(N_SET_ENTITY_COORDS, g_race.veh, s.x, s.y, s.z, 0, 0, 0, 0);
+                N(N_SET_ENTITY_HEADING, g_race.veh, h);
+                N(N_SET_VEHICLE_FORWARD_SPEED, g_race.veh, 25.f);
+                Log("racepad %d of %d: %.1f %.1f %.1f h %.0f", k, (int)g_race.pads.size(), p.x, p.y, p.z, h);
+            }
+        }
         else if (a[0] == "racesolo") RaceStartSolo(a.size() > 1 ? a[1] : "", a.size() > 2 ? std::atoi(a[2].c_str()) : 1, a.size() > 3 ? a[3] : "");   // racesolo <file.xml> [laps] [vehicle]
         else if (a[0] == "racehost") RaceHostOnline(a.size() > 1 ? a[1] : "", a.size() > 2 ? std::atoi(a[2].c_str()) : 1, a.size() > 3 ? a[3] : "");
         else if (a[0] == "racestart") RaceHostStart();

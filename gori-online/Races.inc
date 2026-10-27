@@ -544,6 +544,7 @@ static void RacePadsTick() {
         if (Now() - last < 1200) continue;
         last = Now();
         float v = N<float>(N_GET_ENTITY_SPEED, r.veh);
+        Log("race: %s pad %+d at %.0f m/s", s > 0 ? "boost" : "slow-down", s, v);
         if (s > 0) {
             N(N_SET_VEHICLE_FORWARD_SPEED, r.veh, std::min(95.f, std::max(v, 20.f) + 7.f + 4.f * s));
             N(N_ANIMPOSTFX_PLAY, "RaceTurbo", 0, 0);

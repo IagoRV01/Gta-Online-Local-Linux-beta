@@ -173,7 +173,8 @@ static void ContactInviteTick() {
 static void ContactResults(bool passed, const std::string &why, const Mission &m) {
     std::vector<CoronaResultRow> rows;
     CoronaResultRow me; me.name = g_myName.empty() ? "You" : g_myName; me.rank = LevelOf(g_rp); me.kills = g_mKills; me.deaths = passed ? 0 : 1;
-    me.rp = passed ? m.resultRp : 0; me.cash = passed ? m.resultCash : 0; me.me = true;
+    me.rp = passed ? m.resultRp : 0; me.cash = passed ? (g_lastHeistPay >= 0 ? g_lastHeistPay : m.resultCash) : 0; me.me = true;
+    g_lastHeistPay = -1;
     rows.push_back(me);
     for (auto &n : Split(g_coop.members, ',')) if (!n.empty()) { CoronaResultRow r; r.name = n; rows.push_back(r); }
     std::string title = m.name;
