@@ -179,6 +179,7 @@ static void ContactResults(bool passed, const std::string &why, const Mission &m
     for (auto &n : Split(g_coop.members, ',')) if (!n.empty()) { CoronaResultRow r; r.name = n; rows.push_back(r); }
     std::string title = m.name;
     CoronaResults(title, passed, why, rows);
+    g_cor.after = [title] { NextJobContact(title); };   // then Online's vote on the next job
 }
 static bool ContactMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     int id = (int)f.id;

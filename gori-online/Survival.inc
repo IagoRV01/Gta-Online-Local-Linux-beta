@@ -21,6 +21,7 @@ struct SvRun {
     int phase = SVP_NONE, loc = 0, wave = 0, cleared = 0, kills = 0, spawned = 0, total = 0, payout = SV_PAYOUT;
     int startAt = 0, waveAt = 0, breakUntil = 0, resultsUntil = 0, outside = 0, nextSpawn = 0, hostClearedAt = 0, lastV = -1, lastK = -1;
     bool host = false, solo = false, ended = false, heli = false;
+    bool voting = false;   // the next job vote is up (NextJob.inc): it cleans the survival up
     std::vector<int> peds, blips, cars;
     std::vector<int> pedBorn;
     std::vector<uint32_t> given;
@@ -401,8 +402,8 @@ static void SvTick() {
         return;
     }
     if (g_sv.phase == SVP_RESULTS) {
-        if (!JobCelebrating()) SvResults();
-        if (Now() > g_sv.resultsUntil) SvCleanup();
+        if (!JobCelebrating() && !NjActive()) SvResults();
+        if (Now() > g_sv.resultsUntil && !g_sv.voting) { g_sv.voting = true; NextJobSurvival(g_sv.loc); }   // then Online's vote on the next job
         return;
     }
     // over for everyone (the host has passed the job)?

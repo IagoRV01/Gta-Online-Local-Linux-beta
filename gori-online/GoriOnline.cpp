@@ -26,6 +26,7 @@
 #include <deque>
 #include <ctime>
 #include <algorithm>
+#include <random>
 #include <functional>
 #include <type_traits>
 #include "nativehashes.h"
@@ -3407,6 +3408,11 @@ static void OpenSvCorona(int loc);
 static void OpenDmCorona(int arena);
 static void OpenAwCorona();
 static void OpenHeistCorona(int h);
+// the next job vote (NextJob.inc, after the lobbies)
+static bool NjActive();
+static void NextJobContact(const std::string &missionName);
+static void NextJobRace(const std::string &file, const std::string &type);
+static void NextJobSurvival(int loc);
 #include "Shops.inc"
 #include "ModShop.inc"
 #include "Races.inc"
@@ -3417,6 +3423,7 @@ static void OpenHeistCorona(int h);
 #include "Survival.inc"
 #include "ArenaWar.inc"
 #include "Coronas.inc"
+#include "NextJob.inc"   // GTA Online's vote on the next job (mp_next_job_selection) after a job's results
 
 // ---- Interaction Menu helpers (Online's options)
 // Quick GPS destinations: the nearest of each kind
@@ -3550,8 +3557,8 @@ static void HbOpen();
 static void HbFrame();
 static bool HbUsing();
 #include "AptActs.inc"   // GTA Online's apartment activities in our own interiors
-#include "HeistBoard.inc"
-#include "Buzzer.inc"   // GTA Online's apartment buzzer: ring another player's home, the owner lets you in   // GTA Online's heist planning board (HEIST_MP) on the apartment wall
+#include "HeistBoard.inc"   // GTA Online's heist planning board (HEIST_MP) on the apartment wall
+#include "Buzzer.inc"   // GTA Online's apartment buzzer: ring another player's home, the owner lets you in
 
 static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     items.clear();
@@ -5066,8 +5073,9 @@ static void ScriptMain() {
         PassiveTick();
         if (Freemode()) DoorsTick();
         CoronaTick();
+        NextJobTick();
         if (Freemode()) ContactInviteTick();
-        if (CoronaActive()) { g_wantMenu = false; g_backSince = 0x3fffffff; if (g_menuOpen) CloseMenu(); }   // the lobby has the screen
+        if (CoronaActive() || NjActive()) { g_wantMenu = false; g_backSince = 0x3fffffff; if (g_menuOpen) CloseMenu(); }   // the lobby has the screen
         // Controller: hold Back/Select like Online's interaction menu
         bool pad = !NB(N<int>(N_IS_USING_KEYBOARD_AND_MOUSE, 2));
         if (pad && !CoronaActive() && NB(N<int>(N_IS_CONTROL_PRESSED, 0, 0))) {

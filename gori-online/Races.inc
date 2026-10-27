@@ -48,6 +48,7 @@ struct RaceRun {
     std::string vehicle, startVehicle;   // vehicle: the current one (transforms change it)
     bool online = false, host = false, air = false;
     int startAt = 0, cp = 0, total = 0, finishMs = 0, lastCpAt = 0, resultsUntil = 0, hostEndAt = 0, respawnHold = 0;
+    bool voting = false;                                // the next job vote is up (NextJob.inc): it cleans the race up
     int cpHandle2 = 0, blip3 = 0;                       // a split checkpoint's other route
     std::vector<std::pair<int, int>> pads;              // stunt pads: object, strength (+ boost, - slow down)
     std::map<int, int> padAt;                           // object -> when it last fired
@@ -677,8 +678,8 @@ static void RaceTick() {
         return;
     }
     if (r.phase == RP_RESULTS) {
-        if (!JobCelebrating()) RaceResults();
-        if (Now() > r.resultsUntil) RaceCleanup();
+        if (!JobCelebrating() && !NjActive()) RaceResults();
+        if (Now() > r.resultsUntil && !r.voting) { r.voting = true; NextJobRace(r.def.file, r.def.type); }   // then Online's vote on the next job
     }
 }
 

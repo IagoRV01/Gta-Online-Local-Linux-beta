@@ -29,6 +29,7 @@ struct CoronaState {
     unsigned memberJob = 0;
     int resultsUntil = 0; bool passed = false; std::string why;
     std::vector<CoronaResultRow> results;
+    std::function<void()> after;   // when the results board is done (the next job vote)
     int navHeld = 0, navNext = 0;
 };
 static CoronaState g_cor;
@@ -291,7 +292,12 @@ static void CoronaTick() {
     if (g_myName.empty() && LO().getPlayerName) { char b[64] = {0}; LO().getPlayerName(b, sizeof b); g_myName = b; }
     if (g_cor.page == CRP_RESULTS) {
         CoronaDraw();
-        if (Now() > g_cor.resultsUntil || NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 2, 201))) { g_cor.page = CRP_NONE; Sound("CONTINUE", "HUD_FRONTEND_DEFAULT_SOUNDSET"); }
+        if (Now() > g_cor.resultsUntil || NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 2, 201))) {
+            std::function<void()> after = g_cor.after;
+            g_cor.page = CRP_NONE; g_cor.after = nullptr;
+            Sound("CONTINUE", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+            if (after) after();
+        }
         return;
     }
     int rowsN = g_cor.page == CRP_SETTINGS ? (int)g_cor.def.opts.size() + 1 : g_cor.page == CRP_MEMBER ? 2 : 3;
