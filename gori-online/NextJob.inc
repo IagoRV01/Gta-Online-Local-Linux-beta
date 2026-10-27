@@ -226,3 +226,41 @@ static void NextJobSurvival(int loc) {
         return out;
     }, [] { SvCleanup(); });
 }
+
+// at the end of a deathmatch's results: the other arenas
+static NjJob NjDmJob(int arena) {
+    NjJob j;
+    j.name = std::string("Deathmatch: ") + DM_ARENAS[arena].name;
+    j.type = "FM_NXT_DM"; j.icon = 1; j.minP = 2; j.maxP = 8;
+    j.desc = "Every player for themselves. Most kills wins; paid by position.";
+    j.at = V3(DM_ARENAS[arena].x, DM_ARENAS[arena].y, DM_ARENAS[arena].z);
+    j.open = [arena] { OpenDmCorona(arena); };
+    return j;
+}
+static void NextJobDeathmatch(int arena) {
+    NextJobOpen(NjDmJob(arena), [arena] {
+        std::vector<int> idx;
+        for (int i = 0; i < NDM_ARENAS; ++i) if (i != arena) idx.push_back(i);
+        std::shuffle(idx.begin(), idx.end(), std::mt19937(Now()));
+        std::vector<NjJob> out;
+        for (int i : idx) { out.push_back(NjDmJob(i)); if (out.size() == 6) break; }
+        return out;
+    }, [] { DmCleanup(); });
+}
+// at the end of an Arena War event's results: its modes (the lobby opens on the one voted for)
+static NjJob NjArenaJob(int mode) {
+    NjJob j;
+    j.name = std::string("Arena War - ") + AW_MODES[mode].name;
+    j.type = "PM_ARENA"; j.icon = 25; j.minP = 1; j.maxP = 8;
+    j.desc = AW_MODES[mode].desc;
+    j.at = V3(-376.f, -1862.f, 20.f);
+    j.open = [mode] { g_awSel[6] = mode; OpenAwCorona(); };
+    return j;
+}
+static void NextJobArena(int mode) {
+    NextJobOpen(NjArenaJob(mode), [mode] {
+        std::vector<NjJob> out;
+        for (int m = 0; m < AWM_COUNT; ++m) if (m != mode) out.push_back(NjArenaJob(m));
+        return out;
+    }, [] { AwCleanup(); });
+}

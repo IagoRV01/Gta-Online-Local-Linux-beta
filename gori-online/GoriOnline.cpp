@@ -3413,6 +3413,8 @@ static bool NjActive();
 static void NextJobContact(const std::string &missionName);
 static void NextJobRace(const std::string &file, const std::string &type);
 static void NextJobSurvival(int loc);
+static void NextJobDeathmatch(int arena);
+static void NextJobArena(int mode);
 #include "Shops.inc"
 #include "ModShop.inc"
 #include "Races.inc"
@@ -4410,8 +4412,8 @@ static void CommandTick() {
         else if (a[0] == "racestart") RaceHostStart();
         else if (a[0] == "acid") {   // acid [key value]: the Acid Lab / First Dose state (fd own upg sup stock10)
             if (a.size() > 2) { AcidSet(a[1].c_str(), std::atoi(a[2].c_str())); Save(); }
-            Log("acid: fd %d own %d upg %d sup %d stock %d/%d truck %d inFreak %d inLab %d", AcidGet("fd"), AcidGet("own"), AcidGet("upg"), AcidGet("sup"), AcidUnits(), ACID_MAX,
-                g_acidTruck, (int)g_inFreak, (int)g_inLab);
+            Log("acid: fd %d own %d upg %d sup %d stock %d/%d truck %d inFreak %d inLab %d arena_ap %d", AcidGet("fd"), AcidGet("own"), AcidGet("upg"), AcidGet("sup"), AcidUnits(), ACID_MAX,
+                g_acidTruck, (int)g_inFreak, (int)g_inLab, AcidGet("arena_ap"));
         }
         else if (a[0] == "acidclear") { for (auto it = g_cust.begin(); it != g_cust.end();) { if (!it->first.compare(0, 6, "@acid|")) it = g_cust.erase(it); else ++it; } Save(); Log("acid: state cleared"); }
         else if (a[0] == "freak") FreakEnter();

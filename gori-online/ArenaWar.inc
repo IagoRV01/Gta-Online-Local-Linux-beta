@@ -58,6 +58,7 @@ struct AwBot { int veh = 0, ped = 0, blip = 0, respawnAt = 0, retaskAt = 0, idle
 struct AwRun {
     int phase = AWP_NONE, theme = 0, map = 0, light = 0, minutes = 5, veh = 0, bots = 4;
     bool host = false, solo = true, ended = false, wasDown = false;
+    bool voting = false;   // the next job vote is up (NextJob.inc): it cleans the event up
     int startAt = 0, endAt = 0, resultsUntil = 0, payout = 0, interior = 0, myVeh = 0, downAt = 0, stuckSince = 0;
     float floorZ = 104.f;                                     // this map's main floor (they go from about 100 to 140)
     int kills = 0, deaths = 0, countdownMovie = 0, lastCount = -1;
@@ -714,8 +715,8 @@ static void ArenaWarTick() {
         return;
     }
     if (g_aw.phase == AWP_RESULTS) {
-        if (!JobCelebrating()) AwResults();
-        if (Now() > g_aw.resultsUntil) AwCleanup();
+        if (!JobCelebrating() && !NjActive()) AwResults();
+        if (Now() > g_aw.resultsUntil && !g_aw.voting) { g_aw.voting = true; NextJobArena(g_aw.mode); }   // then Online's vote on the next job
     }
 }
 

@@ -23,6 +23,7 @@ enum DmPhase { DP_NONE, DP_LOBBY, DP_COUNTDOWN, DP_PLAYING, DP_RESULTS };
 struct DmRun {
     int phase = DP_NONE, arena = 0, minutes = 10, loadout = 1, startAt = 0, endAt = 0, resultsUntil = 0, outside = 0, payout = 0;
     bool host = false, wasDead = false, ended = false;
+    bool voting = false;   // the next job vote is up (NextJob.inc): it cleans the deathmatch up
     std::vector<uint32_t> given;   // weapons we gave that the player did not own
     Vec3 back{}; float backH = 0.f;
     int countdownMovie = 0, lastCount = -1;
@@ -218,8 +219,8 @@ static void DmTick() {
         return;
     }
     if (g_dm.phase == DP_RESULTS) {
-        if (!JobCelebrating()) DmResults();
-        if (Now() > g_dm.resultsUntil) DmCleanup();
+        if (!JobCelebrating() && !NjActive()) DmResults();
+        if (Now() > g_dm.resultsUntil && !g_dm.voting) { g_dm.voting = true; NextJobDeathmatch(g_dm.arena); }   // then Online's vote on the next job
     }
 }
 static bool DmMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
