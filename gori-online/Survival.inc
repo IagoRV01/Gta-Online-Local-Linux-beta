@@ -403,7 +403,7 @@ static void SvTick() {
     }
     if (g_sv.phase == SVP_RESULTS) {
         if (!JobCelebrating() && !NjActive()) SvResults();
-        if (Now() > g_sv.resultsUntil && !g_sv.voting) { g_sv.voting = true; NextJobSurvival(g_sv.loc); }   // then Online's vote on the next job
+        if (Now() > g_sv.resultsUntil && !g_sv.voting) { g_sv.voting = true; NextJobSurvival(g_sv.loc, !g_sv.solo, g_sv.solo || g_sv.host); }   // then Online's vote on the next job
         return;
     }
     // over for everyone (the host has passed the job)?

@@ -716,7 +716,7 @@ static void ArenaWarTick() {
     }
     if (g_aw.phase == AWP_RESULTS) {
         if (!JobCelebrating() && !NjActive()) AwResults();
-        if (Now() > g_aw.resultsUntil && !g_aw.voting) { g_aw.voting = true; NextJobArena(g_aw.mode); }   // then Online's vote on the next job
+        if (Now() > g_aw.resultsUntil && !g_aw.voting) { g_aw.voting = true; NextJobArena(g_aw.mode, !g_aw.solo, g_aw.solo || g_aw.host); }   // then Online's vote on the next job
     }
 }
 

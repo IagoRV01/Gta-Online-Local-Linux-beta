@@ -3410,11 +3410,11 @@ static void OpenAwCorona();
 static void OpenHeistCorona(int h);
 // the next job vote (NextJob.inc, after the lobbies)
 static bool NjActive();
-static void NextJobContact(const std::string &missionName);
-static void NextJobRace(const std::string &file, const std::string &type);
-static void NextJobSurvival(int loc);
-static void NextJobDeathmatch(int arena);
-static void NextJobArena(int mode);
+static void NextJobContact(const std::string &missionName, bool shared, bool host);
+static void NextJobRace(const std::string &file, const std::string &type, bool shared, bool host);
+static void NextJobSurvival(int loc, bool shared, bool host);
+static void NextJobDeathmatch(int arena, bool host);
+static void NextJobArena(int mode, bool shared, bool host);
 #include "Shops.inc"
 #include "ModShop.inc"
 #include "Races.inc"

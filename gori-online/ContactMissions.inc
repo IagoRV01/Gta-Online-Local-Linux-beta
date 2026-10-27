@@ -179,7 +179,8 @@ static void ContactResults(bool passed, const std::string &why, const Mission &m
     for (auto &n : Split(g_coop.members, ',')) if (!n.empty()) { CoronaResultRow r; r.name = n; rows.push_back(r); }
     std::string title = m.name;
     CoronaResults(title, passed, why, rows);
-    g_cor.after = [title] { NextJobContact(title); };   // then Online's vote on the next job
+    bool shared = rows.size() > 1;
+    g_cor.after = [title, shared] { NextJobContact(title, shared, true); };   // then Online's vote on the next job, with the crew
 }
 static bool ContactMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     int id = (int)f.id;
@@ -222,6 +223,8 @@ static void ContactsInit() {
             rows.push_back(r);
         }
         CoronaResults(g_coopTitle.empty() ? "Job" : g_coopTitle, passed, passed ? "" : s.host + "'s job failed.", rows);
+        std::string t = g_coopTitle;
+        g_cor.after = [t] { NextJobContact(t, true, false); };   // the host's vote on the next job (a contact mission's)
     };
 }
 

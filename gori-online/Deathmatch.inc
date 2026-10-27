@@ -220,7 +220,7 @@ static void DmTick() {
     }
     if (g_dm.phase == DP_RESULTS) {
         if (!JobCelebrating() && !NjActive()) DmResults();
-        if (Now() > g_dm.resultsUntil && !g_dm.voting) { g_dm.voting = true; NextJobDeathmatch(g_dm.arena); }   // then Online's vote on the next job
+        if (Now() > g_dm.resultsUntil && !g_dm.voting) { g_dm.voting = true; NextJobDeathmatch(g_dm.arena, g_dm.host); }   // then Online's vote on the next job
     }
 }
 static bool DmMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {

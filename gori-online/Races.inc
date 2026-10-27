@@ -679,7 +679,7 @@ static void RaceTick() {
     }
     if (r.phase == RP_RESULTS) {
         if (!JobCelebrating() && !NjActive()) RaceResults();
-        if (Now() > r.resultsUntil && !r.voting) { r.voting = true; NextJobRace(r.def.file, r.def.type); }   // then Online's vote on the next job
+        if (Now() > r.resultsUntil && !r.voting) { r.voting = true; NextJobRace(r.def.file, r.def.type, r.online, !r.online || r.host); }   // then Online's vote on the next job
     }
 }
 
