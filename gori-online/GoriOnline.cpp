@@ -2240,6 +2240,7 @@ static int SpawnEnemy(uint32_t model, uint32_t weapon, float x, float y, float z
     int b = N<int>(N_ADD_BLIP_FOR_ENTITY, ped);
     N(N_SET_BLIP_COLOUR, b, 1);
     N(N_SET_BLIP_SCALE, b, 0.7f);
+    NameBlip(b, "Enemy");
     g_mPeds.push_back(ped);
     g_mPedBlips.push_back(b);
     return ped;
@@ -2395,7 +2396,7 @@ static void InitStep(Step &s) {
             if (g_mVeh) {
                 N(N_SET_ENTITY_AS_MISSION_ENTITY, g_mVeh, 1, 1);
                 N<int>(N_SET_VEHICLE_ON_GROUND_PROPERLY, g_mVeh, 5.0f);
-                g_mVehBlip = AddBlip(g_mVeh, 225, 2, "Target vehicle");
+                g_mVehBlip = AddBlip(g_mVeh, 225, 3, "Target vehicle");   // blue, like Online's vehicles to take
                 s.pos = p;
             }
         }
@@ -2407,16 +2408,21 @@ static void InitStep(Step &s) {
         N(N_SET_BLIP_ROUTE_COLOUR, g_mBlip, 5);
     }
     if (s.type == S_ESCAPE) RemoveBlip(g_mBlip);
-    if (s.type == S_DELIVER && g_mVeh && !g_mVehBlip) g_mVehBlip = AddBlip(g_mVeh, 225, 2, "Mission vehicle");
+    if (s.type == S_DELIVER && g_mVeh && !g_mVehBlip) g_mVehBlip = AddBlip(g_mVeh, 225, 3, "Mission vehicle");
     if (s.type == S_PICKUP) { g_mBlip = CoordBlip(s.pos, 1, 5, "Objective", false); N(N_SET_BLIP_ROUTE, g_mBlip, 1); }
 }
-static void DrawObjective(const std::string &t) {
-    Text(t, 0.5f, 0.905f, 0.45f, 4, 255, 255, 255, 255, 0, 1.0f, true);
+static void RaceBar(int row, const std::string &label, const std::string &value, bool big);
+// the objective like Online's: the game's own subtitle at the bottom, kept up while the step lasts; a vehicle to take is
+// blue (~b~) as in Online, green is for things to pick up; the time limit in Online's timer bar, red in the last minute
+static void DrawObjective(std::string t, bool vehicle = false) {
+    if (vehicle) for (size_t k; (k = t.find("~g~")) != std::string::npos;) t.replace(k, 3, "~b~");
+    N(N_BEGIN_TEXT_COMMAND_PRINT, "STRING");
+    N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, t.c_str());
+    N(N_END_TEXT_COMMAND_PRINT, 1, 1);
     if (g_mEnds) {
         int left = std::max(0, (g_mEnds - Now()) / 1000);
-        char b[32]; std::snprintf(b, sizeof b, "%02d:%02d", left / 60, left % 60);
-        Rect(0.92f, 0.86f, 0.1f, 0.035f, 0, 0, 0, 160);
-        Text(std::string("TIME ") + b, 0.92f, 0.845f, 0.42f, 4, left < 60 ? 230 : 255, left < 60 ? 60 : 255, left < 60 ? 60 : 255, 255, 0);
+        char b[32]; std::snprintf(b, sizeof b, "%s%02d:%02d", left < 60 ? "~r~" : "", left / 60, left % 60);
+        RaceBar(0, "TIME", b, false);
     }
 }
 static void MissionTick() {
@@ -2451,7 +2457,7 @@ static void MissionTick() {
         d = Dist(mp, s.pos);
     }
     if (s.enemies && !g_enemiesUp && d < 230.f) { g_enemiesUp = true; SpawnEnemies(s); }
-    DrawObjective(s.text);
+    DrawObjective(s.text, s.type == S_STEAL || s.type == S_DELIVER);
     CoopTrack((int)g_mStep, s.type == S_STEAL && g_mVeh && Exists(g_mVeh) ? Pos(g_mVeh) : s.pos, s.text);
     bool inMissionVeh = g_mVeh && MyVehicle() == g_mVeh;
     switch (s.type) {
@@ -2464,7 +2470,7 @@ static void MissionTick() {
         break;
     case S_DELIVER: {
         if (s.needMissionVehicle && g_mVeh && !inMissionVeh) {
-            if (!g_mVehBlip) g_mVehBlip = AddBlip(g_mVeh, 225, 2, "Mission vehicle");
+            if (!g_mVehBlip) g_mVehBlip = AddBlip(g_mVeh, 225, 3, "Mission vehicle");
             DrawObjective("Get back in the ~b~vehicle~s~.");
             break;
         }
@@ -4370,6 +4376,11 @@ static void CommandTick() {
             Log("races: %d installed; current phase %d cp %d/%d", (int)g_raceList.size(), g_race.phase, g_race.cp, g_race.total);
         }
         else if (a[0] == "hbtune" && a.size() > 4) { g_hbRot = F(1); g_hbAhead = F(2); g_hbUp = F(3); g_hbW = F(4); g_hbMode = (int)F(5); g_hbRotX = F(6); g_hbCorner = (int)F(7); Log("hbtune %.0f %.2f %.2f %.2f", g_hbRot, g_hbAhead, g_hbUp, g_hbW); }   // the heist board's placement (test)
+        else if (a[0] == "hbprop" && a.size() > 3) { g_hbPropAhead = F(1); g_hbPropZ = F(2); g_hbPropRot = F(3); if (g_hb.prop) DeleteEntity(g_hb.prop); }   // the board prop's placement (test)
+        else if (a[0] == "hbmap" && a.size() > 10) {   // hbmap on first solid ahead rx ry rz side up scale: the heist map's drawing (test)
+            g_hbMapOn = (int)F(1); g_hbMapFirst = (int)F(2); g_hbMapSolid = (int)F(3); g_hbMapAhead = F(4); g_hbMapRX = F(5); g_hbMapRY = F(6); g_hbMapRZ = F(7);
+            g_hbMapSide = F(8); g_hbMapUp = F(9); g_hbMapScale = F(10);
+        }
         else if (a[0] == "hbstage") {   // hbstage [h s]: log the heists' stages, or set one (test, not saved here; set it back after)
             if (a.size() > 2) { int h = std::atoi(a[1].c_str()) % NHEISTS; g_heistStage[h] = std::clamp(std::atoi(a[2].c_str()), 0, HEISTS[h].stages - 1); g_hb.heist = h; }
             std::string t; for (int h = 0; h < NHEISTS; ++h) t += std::to_string(g_heistStage[h]) + " ";

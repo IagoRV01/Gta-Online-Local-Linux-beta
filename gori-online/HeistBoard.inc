@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------- the heist planning board (GTA Online's HEIST_MP)
-// In Online the board in a high-end apartment is the HEIST_MP movie drawn in 3D on the wall (fmmc_launcher.c:
-// DRAW_SCALEFORM_MOVIE_3D with a 4.2 x 2.4 m board): the planning board while a heist's setups are open (one slot a
+// In Online the board in a high-end apartment is the hei_prop_dlc_heist_board prop (a dark panel and a whiteboard) with
+// the HEIST_MP movie (4.2 x 2.4 m) and the HEISTMAP_MP blueprint of the city (3.815 x 2.27 m) drawn on it in 3D
+// (fmmc_launcher.c); here both are drawn with the solid 3D draw, which keeps them in depth order (the plain one draws
+// one movie over the other whatever the depth), the map behind, the photos pinned on it: the planning board while a heist's setups are open (one slot a
 // setup, ticked when done), the heist board for the finale (the crew, roles, cuts, the take's pie chart, the leader's
 // setup cost, LAUNCH HEIST). Here it hangs in front of the planning spot of our apartments (AptActs 'P'), always drawn
 // while you are near it; using it (E) puts the camera on it: left / right pick a slot, up / down another heist, Enter
@@ -10,13 +12,21 @@
 struct HeistBoard {
     int movie = 0, heist = -1, built = -1, builtStage = -1, sel = 0;
     std::string builtCrew;   // the lobby's members when it was drawn: a new member redraws it
+    int prop = 0;            // Online's board itself (hei_prop_dlc_heist_board): the movie is drawn on it
+    int map = 0;             // and the heist map on its dark panel (HEISTMAP_MP, 3.815 x 2.27 m in fmmc_launcher.c)
     bool using_ = false;
+    bool hid = false;        // you, hidden from the board camera while using it
     Vec3 pos{}; float h = 0.f;   // the planning spot it hangs in front of
 };
 static HeistBoard g_hb;
-static float g_hbRot = 0.f, g_hbAhead = 0.62f, g_hbUp = 1.85f, g_hbW = 2.7f;   // where it hangs (hbtune): facing the spot, on the wall screen
-static int g_hbMode = 0, g_hbCorner = 0;   // g_hbCorner: which way the movie grows from its anchor (0 right+down, 1 left+down, 2 right+up, 3 left+up)
-static float g_hbRotX = 180.f;   // the 3D movie's y axis points up: turned over, it reads right (tested in dt10)   // 0 Online's 3D board, 1 the solid 3D draw, 2 full screen (tests)
+static float g_hbRot = 180.f, g_hbAhead = 0.52f, g_hbUp = 1.6f, g_hbW = 4.2f;   // where the movie hangs (hbtune): its centre, facing the spot
+static float g_hbPropAhead = 0.60f, g_hbPropZ = 1.6f, g_hbPropRot = 180.f;   // the 4.54 x 2.38 m board prop: ahead of the spot, its centre up, turned (hbprop; tested in dt10)
+static uint32_t g_hbRoom = 0;   // the room the board prop was put in
+// the map: on, drawn before the movie, solid, behind the movie by, its rotation, its centre off the board's, its scale
+static int g_hbMapOn = 1, g_hbMapFirst = 1, g_hbMapSolid = 1;
+static float g_hbMapAhead = 0.02f, g_hbMapRX = 0.f, g_hbMapRY = 0.f, g_hbMapRZ = 180.f, g_hbMapSide = 0.f, g_hbMapUp = 0.f, g_hbMapScale = 1.f;
+static int g_hbMode = 1, g_hbCorner = 0;   // 1 the solid 3D draw, 0 the plain one (placed by a corner, g_hbCorner: 0 grows right+down, 1 left+down, 2 right+up, 3 left+up), 2 full screen (tests)
+static float g_hbRotX = 0.f;   // the plain 3D draw's y axis points up: turned over (180) it reads right
 static bool HbUsing() { return g_hb.using_; }
 
 // scaleform parameters: a game text label, raw text in a label slot, raw text, numbers
@@ -105,10 +115,15 @@ static void HbOpen() {
     g_hb.sel = HbFinale(g_hb.heist) ? 0 : g_heistStage[g_hb.heist];
     g_hb.built = -1;
     g_hb.using_ = true;
+    Vec3 p; float h;
+    if (!g_hb.hid) { N(N_SET_ENTITY_VISIBLE, Me(), 0, 0); g_hb.hid = true; }   // out of the camera's way
+    if (HbSpot(p, h)) ActCam(ActAhead(p, h, -2.4f, 1.6f), ActAhead(p, h, g_hbAhead, g_hbUp), 50.f);   // Online's: the whole board, straight on
     Sound("Highlight_Accept", "DLC_HEIST_PLANNING_BOARD_SOUNDS");
 }
+static void HbShowMe() { if (g_hb.hid) { N(N_SET_ENTITY_VISIBLE, Me(), 1, 0); g_hb.hid = false; } }
 static void HbClose() {
     g_hb.using_ = false;
+    HbShowMe();
     ActEnd(false);
     Sound("Highlight_Cancel", "DLC_HEIST_PLANNING_BOARD_SOUNDS");
 }
@@ -117,8 +132,35 @@ static void HbFrame() {
     Vec3 p; float h;
     if (!HbSpot(p, h)) {
         if (g_hb.movie) { N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_hb.movie); g_hb.movie = 0; g_hb.built = -1; }
+        if (g_hb.prop) DeleteEntity(g_hb.prop);
+        if (g_hb.map) { N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_hb.map); g_hb.map = 0; }
         g_hb.using_ = false;
+        HbShowMe();
         return;
+    }
+    // Online's board on the wall (the apartment script's hei_prop_dlc_heist_board): the cork board the movie is drawn on
+    if (!g_hb.prop || !Exists(g_hb.prop)) {
+        uint32_t m = Joaat("hei_prop_dlc_heist_board");
+        if (LoadModel(m)) {
+            Vec3 bp = ActAhead(p, h, g_hbPropAhead, g_hbPropZ);
+            g_hb.prop = N<int>(N_CREATE_OBJECT_NO_OFFSET, m, bp.x, bp.y, bp.z, 0, 0, 0);
+            if (g_hb.prop) {
+                N(N_SET_ENTITY_ROTATION, g_hb.prop, 0.f, 0.f, h + g_hbPropRot, 2, 1);
+                N(N_FREEZE_ENTITY_POSITION, g_hb.prop, 1);
+                g_hbRoom = 0;
+                Vec3 mn{}, mx{};
+                N(N_GET_MODEL_DIMENSIONS, m, &mn, &mx);
+                Log("heist board prop: %.2f x %.2f x %.2f (min %.2f %.2f %.2f max %.2f %.2f %.2f)", mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, mn.x, mn.y, mn.z, mx.x, mx.y, mx.z);
+            }
+            N(N_SET_MODEL_AS_NO_LONGER_NEEDED, m);
+        }
+    }
+    // it belongs to the planning room: the room you are in near the spot (made at the door, it would be the hall's and
+    // not render in the planning room)
+    if (g_hb.prop && Dist(Pos(Me()), p) < 5.f) {
+        int in = N<int>(N_GET_INTERIOR_FROM_ENTITY, Me());
+        uint32_t room = N<uint32_t>(N_GET_ROOM_KEY_FROM_ENTITY, Me());
+        if (in && room && room != g_hbRoom) { N(N_FORCE_ROOM_FOR_ENTITY, g_hb.prop, in, room); g_hbRoom = room; }
     }
     if (!g_hb.movie) g_hb.movie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "HEIST_MP");
     if (!NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.movie))) return;
@@ -129,10 +171,23 @@ static void HbFrame() {
     float bw = g_hbW, bh = g_hbW * 2.4f / 4.2f;
     bool growsLeft = g_hbCorner & 1, growsUp = g_hbCorner & 2;
     Vec3 c = ActAhead(ActAhead(p, h, g_hbAhead, g_hbUp + (growsUp ? -bh : bh) / 2.f), h + 90.f, (growsLeft ? -bw : bw) / 2.f);
+    // the heist map (the blueprint of the city the photos are pinned on), centred on the board like the planning movie
+    if (!g_hb.map) g_hb.map = N<int>(N_REQUEST_SCALEFORM_MOVIE, "HEISTMAP_MP");
+    auto drawMap = [&] {   // the solid draw is placed by the movie's centre (the plain 3D one would cover the planning movie)
+        if (g_hbMode == 2 || !g_hbMapOn || !NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.map))) return;
+        float mw = 3.815f * g_hbMapScale, mh = 2.27f * g_hbMapScale;
+        Vec3 mc = ActAhead(ActAhead(p, h, g_hbAhead + g_hbMapAhead, g_hbUp + g_hbMapUp), h + 90.f, g_hbMapSide);
+        N(g_hbMapSolid ? N_DRAW_SCALEFORM_MOVIE_3D_SOLID : N_DRAW_SCALEFORM_MOVIE_3D, g_hb.map, mc.x, mc.y, mc.z, g_hbMapRX, g_hbMapRY, h + g_hbMapRZ, 1.f, 1.f, 1.f, mw, mh, 1.f, 2);
+    };
+    if (g_hbMapFirst) drawMap();
     if (g_hbMode == 2) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_hb.movie, 255, 255, 255, 255, 0);
-    else if (g_hbMode == 1) N(N_DRAW_SCALEFORM_MOVIE_3D_SOLID, g_hb.movie, c.x, c.y, c.z, g_hbRotX, 0.f, h + g_hbRot, 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
+    else if (g_hbMode == 1) {   // the solid draw: placed by its centre
+        Vec3 cc = ActAhead(p, h, g_hbAhead, g_hbUp);
+        N(N_DRAW_SCALEFORM_MOVIE_3D_SOLID, g_hb.movie, cc.x, cc.y, cc.z, g_hbRotX, 0.f, h + g_hbRot, 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
+    }
     else N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.movie, c.x, c.y, c.z, g_hbRotX, 0.f, h + g_hbRot, 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
-    if (!g_hb.using_) return;
+    if (!g_hbMapFirst) drawMap();
+    if (!g_hb.using_) { HbShowMe(); return; }
     N(N_DISABLE_ALL_CONTROL_ACTIONS, 0);
     int setups = HEISTS[g_hb.heist].stages - 1;
     bool fin = HbFinale(g_hb.heist);

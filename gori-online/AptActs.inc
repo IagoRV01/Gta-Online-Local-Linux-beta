@@ -240,9 +240,7 @@ static void ActStart(int i) {
     }
     case 'P': {
         N(N_SET_ENTITY_HEADING, me, a.h);
-        Vec3 p = V3(a.x, a.y, a.z);
-        ActCam(ActAhead(ActAhead(p, a.h, -1.1f, 1.95f), a.h + 90.f, 0.7f), ActAhead(p, a.h, 1.3f, 1.55f), 50.f);   // over the shoulder
-        HbOpen();   // Online's planning board on the wall (HeistBoard.inc)
+        HbOpen();   // Online's planning board on the wall, its camera (HeistBoard.inc)
         break;
     }
     }
