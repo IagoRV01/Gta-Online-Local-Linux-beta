@@ -4370,6 +4370,11 @@ static void CommandTick() {
             Log("races: %d installed; current phase %d cp %d/%d", (int)g_raceList.size(), g_race.phase, g_race.cp, g_race.total);
         }
         else if (a[0] == "hbtune" && a.size() > 4) { g_hbRot = F(1); g_hbAhead = F(2); g_hbUp = F(3); g_hbW = F(4); g_hbMode = (int)F(5); g_hbRotX = F(6); g_hbCorner = (int)F(7); Log("hbtune %.0f %.2f %.2f %.2f", g_hbRot, g_hbAhead, g_hbUp, g_hbW); }   // the heist board's placement (test)
+        else if (a[0] == "hbstage") {   // hbstage [h s]: log the heists' stages, or set one (test, not saved here; set it back after)
+            if (a.size() > 2) { int h = std::atoi(a[1].c_str()) % NHEISTS; g_heistStage[h] = std::clamp(std::atoi(a[2].c_str()), 0, HEISTS[h].stages - 1); g_hb.heist = h; }
+            std::string t; for (int h = 0; h < NHEISTS; ++h) t += std::to_string(g_heistStage[h]) + " ";
+            Log("heist stages: %s", t.c_str());
+        }
         else if (a[0] == "racepad" && a.size() > 1) {   // racepad <n>: the race car 8 m before stunt pad n, at it, 25 m/s (test)
             int k = std::atoi(a[1].c_str());
             if (g_race.phase == RP_RACING && k >= 0 && k < (int)g_race.pads.size() && Exists(g_race.veh)) {

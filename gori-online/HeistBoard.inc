@@ -9,6 +9,7 @@
 // ADD_CREW_MEMBER, ADD_PIECHART, ADD_TODO_LIST, INITIALISE_HEISTBOARD, SET_LEADER_COST, UPDATE_CREW_MEMBER).
 struct HeistBoard {
     int movie = 0, heist = -1, built = -1, builtStage = -1, sel = 0;
+    std::string builtCrew;   // the lobby's members when it was drawn: a new member redraws it
     bool using_ = false;
     Vec3 pos{}; float h = 0.f;   // the planning spot it hangs in front of
 };
@@ -62,21 +63,31 @@ static void HbBuild(int h) {
         HbBegin("SET_LABELS"); HbLabel(""); HbLabel("HEIST_LAUN_1"); HbLabel("HEIST_TAKE"); HbLabel("HEIST_PLAN"); HbLabel("HEIST_TOTAL");
         HbLabel("HEIST_COSTS"); HbLabel("HEIST_ROLE"); HbLabel("HEIST_CUT"); HbLabel("HEIST_STATUS"); HbLabel(""); HbEnd();
         for (int i = 0; i < 4; ++i) { HbBegin("ADD_CREW_MEMBER"); HbInt(i); HbEnd(); }
-        HbBegin("ADD_PIECHART"); HbInt(d.payout); HbInt(100); HbInt(0); HbInt(0); HbInt(0); HbInt(0); HbEnd();
+        // the crew: the heist lobby's members (Online's cuts: each at the lobby's Crew Cut, the leader the rest, min 15%)
+        std::vector<std::string> crew;
+        for (auto &n : Split(g_coop.members, ',')) if (!n.empty() && crew.size() < 3) crew.push_back(n);
+        int cut = g_heistCut[h], leaderPct = std::max(15, 100 - cut * (int)crew.size());
+        HbBegin("ADD_PIECHART"); HbInt(d.payout); HbInt(leaderPct);
+        for (int i = 0; i < 3; ++i) HbInt(i < (int)crew.size() ? cut : 0);
+        HbInt(0); HbEnd();
         HbBegin("ADD_TODO_LIST"); HbName(""); HbEnd();
         HbBegin("INITIALISE_HEISTBOARD"); HbEnd();
         HbBegin("SET_LEADER_COST"); HbLabel("HEIST_LCOST"); HbInt(d.fee); HbEnd();
-        // the crew: you, the leader, with the whole take (the other players join from the heist's lobby)
-        HbBegin("UPDATE_CREW_MEMBER");
-        HbInt(0); HbName(g_myName.empty() ? "You" : g_myName); HbInt(LevelOf(g_rp)); HbTex("");
-        HbRawLabel("Leader"); HbInt(0); HbRawLabel("Ready"); HbInt(0);
-        HbInt(d.payout); HbInt(100); HbInt(0); HbRawLabel(""); HbRawLabel(""); HbInt(1); HbInt(0); HbBool(false);
-        HbEnd();
+        int players = 1 + (int)crew.size();
+        auto member = [&](int slot, const std::string &name, int rank, const char *role, int pct) {
+            HbBegin("UPDATE_CREW_MEMBER");
+            HbInt(slot); HbName(name); HbInt(rank); HbTex("");
+            HbRawLabel(role); HbInt(0); HbRawLabel("Ready"); HbInt(0);
+            HbInt(d.payout * pct / 100); HbInt(pct); HbInt(0); HbRawLabel(""); HbRawLabel(""); HbInt(players); HbInt(0); HbBool(false);
+            HbEnd();
+        };
+        member(0, g_myName.empty() ? "You" : g_myName, LevelOf(g_rp), "Leader", leaderPct);
+        for (int i = 0; i < (int)crew.size(); ++i) member(i + 1, crew[i], 0, "Crew", cut);
         HbBegin("LAUNCH_BUTTON_VISIBLE"); HbBool(true); HbEnd();
         HbBegin("LAUNCH_BUTTON_ENABLED"); HbBool(true); HbEnd();
     }
     HbBegin("HIGHLIGHT_ITEM"); HbInt(g_hb.sel); HbInt(0); HbBool(false); HbBool(false); HbEnd();
-    g_hb.built = h; g_hb.builtStage = st;
+    g_hb.built = h; g_hb.builtStage = st; g_hb.builtCrew = g_coop.members;
     Log("heist board: %s, %s (stage %d/%d)", d.name, HbFinale(h) ? "heist board" : "planning board", st + 1, d.stages);
 }
 
@@ -112,7 +123,7 @@ static void HbFrame() {
     if (!g_hb.movie) g_hb.movie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "HEIST_MP");
     if (!NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.movie))) return;
     if (g_hb.heist < 0) g_hb.heist = HbDefaultHeist();
-    if (g_hb.built != g_hb.heist || g_hb.builtStage != g_heistStage[g_hb.heist]) HbBuild(g_hb.heist);
+    if (g_hb.built != g_hb.heist || g_hb.builtStage != g_heistStage[g_hb.heist] || g_hb.builtCrew != g_coop.members) HbBuild(g_hb.heist);
     // on the wall in front of the spot, its centre 1.55 m up, facing the spot (Online's board is 4.2 x 2.4 m, ours fits the
     // wall screen); the 3D movie is placed by its top-left corner
     float bw = g_hbW, bh = g_hbW * 2.4f / 4.2f;
