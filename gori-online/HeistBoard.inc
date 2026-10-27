@@ -28,6 +28,9 @@ static float g_hbMapAhead = 0.02f, g_hbMapRX = 0.f, g_hbMapRY = 0.f, g_hbMapRZ =
 static int g_hbMode = 1, g_hbCorner = 0;   // 1 the solid 3D draw, 0 the plain one (placed by a corner, g_hbCorner: 0 grows right+down, 1 left+down, 2 right+up, 3 left+up), 2 full screen (tests)
 static float g_hbRotX = 0.f;   // the plain 3D draw's y axis points up: turned over (180) it reads right
 static bool HbUsing() { return g_hb.using_; }
+// the solid draw turns the other way round: its yaw for a movie at heading h turned by rot (180: facing the spot) is
+// 180 - (h + rot) (tested in dt10 at 90, dt12 at 0, dt09 at 180, hg_sky at 70.5)
+static float HbSolidYaw(float h, float rot, bool solid) { return solid ? 180.f - (h + rot) : h + rot; }
 
 // scaleform parameters: a game text label, raw text in a label slot, raw text, numbers
 static void HbLabel(const char *label) { N(N_BEGIN_TEXT_COMMAND_SCALEFORM_STRING, label); N(N_END_TEXT_COMMAND_SCALEFORM_STRING); }
@@ -139,7 +142,9 @@ static void HbFrame() {
         return;
     }
     // Online's board on the wall (the apartment script's hei_prop_dlc_heist_board): the cork board the movie is drawn on
+    if (g_hb.prop && Dist(g_hb.pos, p) > 0.5f) DeleteEntity(g_hb.prop);   // another apartment's (napt moves you between them)
     if (!g_hb.prop || !Exists(g_hb.prop)) {
+        g_hb.pos = p; g_hb.h = h;
         uint32_t m = Joaat("hei_prop_dlc_heist_board");
         if (LoadModel(m)) {
             Vec3 bp = ActAhead(p, h, g_hbPropAhead, g_hbPropZ);
@@ -177,13 +182,13 @@ static void HbFrame() {
         if (g_hbMode == 2 || !g_hbMapOn || !NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.map))) return;
         float mw = 3.815f * g_hbMapScale, mh = 2.27f * g_hbMapScale;
         Vec3 mc = ActAhead(ActAhead(p, h, g_hbAhead + g_hbMapAhead, g_hbUp + g_hbMapUp), h + 90.f, g_hbMapSide);
-        N(g_hbMapSolid ? N_DRAW_SCALEFORM_MOVIE_3D_SOLID : N_DRAW_SCALEFORM_MOVIE_3D, g_hb.map, mc.x, mc.y, mc.z, g_hbMapRX, g_hbMapRY, h + g_hbMapRZ, 1.f, 1.f, 1.f, mw, mh, 1.f, 2);
+        N(g_hbMapSolid ? N_DRAW_SCALEFORM_MOVIE_3D_SOLID : N_DRAW_SCALEFORM_MOVIE_3D, g_hb.map, mc.x, mc.y, mc.z, g_hbMapRX, g_hbMapRY, HbSolidYaw(h, g_hbMapRZ, g_hbMapSolid), 1.f, 1.f, 1.f, mw, mh, 1.f, 2);
     };
     if (g_hbMapFirst) drawMap();
     if (g_hbMode == 2) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_hb.movie, 255, 255, 255, 255, 0);
     else if (g_hbMode == 1) {   // the solid draw: placed by its centre
         Vec3 cc = ActAhead(p, h, g_hbAhead, g_hbUp);
-        N(N_DRAW_SCALEFORM_MOVIE_3D_SOLID, g_hb.movie, cc.x, cc.y, cc.z, g_hbRotX, 0.f, h + g_hbRot, 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
+        N(N_DRAW_SCALEFORM_MOVIE_3D_SOLID, g_hb.movie, cc.x, cc.y, cc.z, g_hbRotX, 0.f, HbSolidYaw(h, g_hbRot, true), 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
     }
     else N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.movie, c.x, c.y, c.z, g_hbRotX, 0.f, h + g_hbRot, 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
     if (!g_hbMapFirst) drawMap();
