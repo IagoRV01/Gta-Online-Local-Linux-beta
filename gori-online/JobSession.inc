@@ -73,6 +73,7 @@ static CelArg CelI(int v) { return {0, v, 0.f, ""}; }
 static CelArg CelF(float v) { return {1, 0, v, ""}; }
 static CelArg CelB(bool v) { return {2, v ? 1 : 0, 0.f, ""}; }
 static CelArg CelS(const std::string &v) { return {3, 0, 0.f, v}; }
+static CelArg CelL(const std::string &label) { return {3, 0, 0.f, label}; }   // a game text label: its name, the movie looks it up (as Online passes them)
 static struct { int mv[3] = {0, 0, 0}; int until = 0; bool on = false; } g_cel;
 static void CelCall(const char *method, const std::vector<CelArg> &args) {   // the same call on all three movies, as Online does
     for (int m : g_cel.mv) {
@@ -85,6 +86,17 @@ static void CelCall(const char *method, const std::vector<CelArg> &args) {   // 
         }
         N(N_END_SCALEFORM_MOVIE_METHOD);
     }
+}
+// Online's word over PASSED / FAILED (fm_*_controller: the kind of job, not its name): a heist finale, a heist setup,
+// a survival, Arena War, a mission
+static const char *CelJobType(const std::string &job) {
+    if (!job.compare(0, 8, "Survival")) return "CELEB_SURVIVAL";
+    if (!job.compare(0, 9, "Arena War")) return "PM_ARENA";
+    for (int h = 0; h < NHEISTS; ++h) {
+        size_t n = std::strlen(HEISTS[h].name);
+        if (!job.compare(0, n, HEISTS[h].name)) return job.find(" - Finale") != std::string::npos ? "CELEB_HEIST" : "FMMC_RSTAR_HP";
+    }
+    return "CELEB_MISSION";
 }
 // position > 0: a race / deathmatch place; 0: a mission (passed or failed, why: the line under it). rpBefore: RP before
 // this job's RP was given.
@@ -101,7 +113,7 @@ static void JobCelebrate(const std::string &job, int position, bool passed, int 
     CelCall("CLEANUP", {CelS(w)});
     CelCall("CREATE_STAT_WALL", {CelS(w), CelS("HUD_COLOUR_BLACK"), CelI(-1)});
     if (position > 0) CelCall("ADD_POSITION_TO_WALL", {CelS(w), CelI(position), CelS(job), CelB(true), CelB(false)});
-    else CelCall("ADD_MISSION_RESULT_TO_WALL", {CelS(w), CelS(job), CelS(passed ? "PASSED" : "FAILED"), CelS(why), CelB(true), CelB(true), CelB(true)});
+    else CelCall("ADD_MISSION_RESULT_TO_WALL", {CelS(w), CelL(CelJobType(job)), CelL(passed ? "CELEB_PASSED" : "CELEB_FAILED"), CelS(why), CelB(true)});
     if (timeMs > 0 && g_celPbBy >= 0) CelCall("ADD_TIME_TO_WALL", {CelS(w), CelI(timeMs), CelS("PERSONAL BEST"), CelI(g_celPbBy)});   // Online's, a race beaten
     else if (timeMs > 0) CelCall("ADD_TIME_TO_WALL", {CelS(w), CelI(timeMs), CelS("TIME"), CelI(0)});
     g_celPbBy = -1;
