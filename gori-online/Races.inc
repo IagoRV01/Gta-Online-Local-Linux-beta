@@ -42,8 +42,22 @@ static const int NTRANSFORM_VEHICLES = (int)(sizeof TRANSFORM_VEHICLES / sizeof 
 enum { RM_LIST = 210, RM_RACE, RM_LOBBY, RM_RTYPE = 218 };   // RM_RTYPE: one kind of race (param: g_raceTypes index, -1 community)
 static std::vector<std::string> g_raceTypes;
 enum RacePhase { RP_NONE, RP_LOBBY, RP_COUNTDOWN, RP_RACING, RP_FINISHED, RP_RESULTS };
+// Online's race lobby options besides laps and vehicles: time of day, weather, traffic, catch up, slipstream
+struct RaceOpts { int tod = 0, weather = 0, traffic = 0; bool catchup = false, slip = true; };
+static const char *RACE_TOD[] = {"Current", "Morning", "Noon", "Night"};
+static const int RACE_TOD_HOUR[] = {-1, 7, 12, 0};
+static const char *RACE_WEATHER[] = {"Current", "Clear", "Rain", "Smog", "Overcast", "Thunder", "Snow"};
+static const char *RACE_WEATHER_TYPE[] = {"", "EXTRASUNNY", "RAIN", "SMOG", "OVERCAST", "THUNDER", "XMAS"};
+static const char *RACE_TRAFFIC[] = {"Off", "Low", "Medium", "High"};
+static const float RACE_TRAFFIC_DENSITY[] = {0.f, 0.3f, 0.7f, 1.0f};
+static RaceOpts g_raceNextOpts;   // the lobby's choices for the next race loaded (a member's come with the host's race)
+static std::string RaceOptsText(const RaceOpts &o) {
+    return std::to_string(o.tod) + "|" + std::to_string(o.weather) + "|" + std::to_string(o.traffic) + "|" + (o.catchup ? "1" : "0") + "|" + (o.slip ? "1" : "0");
+}
 struct RaceRun {
     RaceDef def;
+    RaceOpts opts;
+    bool worldHeld = false;   // our time of day / weather is on (the server's world held off)
     int laps = 1, phase = RP_NONE;
     std::string vehicle, startVehicle;   // vehicle: the current one (transforms change it)
     bool online = false, host = false, air = false;
@@ -360,7 +374,36 @@ static void RaceTransform(const std::string &model) {   // into the new vehicle 
     Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET");
     Log("race: transform -> %s at checkpoint %d", model.c_str(), r.cp);
 }
+// the lobby's time of day and weather, for the race (LocalOnline holds the server's world off meanwhile), slipstream
+static void RaceWorldApply(RaceRun &r) {
+    int tod = std::clamp(r.opts.tod, 0, 3), w = std::clamp(r.opts.weather, 0, 6);
+    if ((tod || w) && LO().setWorldHold) { LO().setWorldHold(1); r.worldHeld = true; }
+    if (tod) { N(N_SET_CLOCK_TIME, RACE_TOD_HOUR[tod], 0, 0); N(N_PAUSE_CLOCK, 1); }
+    if (w) { N(N_CLEAR_OVERRIDE_WEATHER); N(N_SET_WEATHER_TYPE_NOW_PERSIST, RACE_WEATHER_TYPE[w]); }
+    N(N_SET_ENABLE_VEHICLE_SLIPSTREAMING, r.opts.slip ? 1 : 0);
+    Log("race: %s, %s, traffic %s, catch up %s, slipstream %s", RACE_TOD[tod], RACE_WEATHER[w], RACE_TRAFFIC[std::clamp(r.opts.traffic, 0, 3)], r.opts.catchup ? "on" : "off", r.opts.slip ? "on" : "off");
+}
+static void RaceWorldRestore(RaceRun &r) {
+    N(N_SET_ENABLE_VEHICLE_SLIPSTREAMING, 0);
+    if (!r.worldHeld) return;
+    N(N_PAUSE_CLOCK, 0);
+    N(N_CLEAR_WEATHER_TYPE_PERSIST);
+    if (LO().setWorldHold) LO().setWorldHold(0);   // the server's clock and weather come back
+    r.worldHeld = false;
+}
+// every frame of the race: the traffic, and catch up (online: the ones behind get more power, the further behind the more)
+static void RaceOptsFrame(RaceRun &r) {
+    float d = RACE_TRAFFIC_DENSITY[std::clamp(r.opts.traffic, 0, 3)];
+    N(N_SET_VEHICLE_DENSITY_MULTIPLIER_THIS_FRAME, d);
+    N(N_SET_RANDOM_VEHICLE_DENSITY_MULTIPLIER_THIS_FRAME, d);
+    N(N_SET_PARKED_VEHICLE_DENSITY_MULTIPLIER_THIS_FRAME, d);
+    if (r.opts.catchup && r.online && r.phase == RP_RACING && Exists(r.veh)) {
+        int count = 1, pos = MyRacePosition(&count);
+        N(N_SET_VEHICLE_CHEAT_POWER_INCREASE, r.veh, pos > 1 ? 1.f + 0.12f * std::min(pos - 1, 4) : 1.f);
+    }
+}
 static void RaceCleanup() {
+    RaceWorldRestore(g_race);
     RaceClearMarkers();
     N(N_ANIMPOSTFX_STOP_ALL);
     if (g_race.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_race.countdownMovie);
@@ -393,6 +436,7 @@ static void RaceBegin(int startsInMs) {
     r.phase = RP_COUNTDOWN;
     r.payout = RacePayout(r);
     JobSkyUp();   // Online's transition: up from here...
+    RaceWorldApply(r);   // the lobby's time of day and weather while up there
     if (InAnyVehicle()) N(N_SET_ENTITY_COORDS, Me(), r.back.x, r.back.y, r.back.z + 1.f, 0, 0, 0, 0);
     int slot = RaceGridSlot();
     const auto &g = r.def.grid[(size_t)slot % r.def.grid.size()];
@@ -423,6 +467,8 @@ static bool RaceLoad(const std::string &file, int laps, const std::string &vehic
     r.vehicle = vehicle.empty() ? (r.def.vehicles.empty() ? std::string("elegy") : r.def.vehicles[0]) : vehicle;
     r.startVehicle = r.vehicle;
     r.back = Pos(Me()); r.backH = N<float>(N_GET_ENTITY_HEADING, Me());
+    r.opts = g_raceNextOpts;
+    g_raceNextOpts = RaceOpts();
     g_race = r;
     return true;
 }
@@ -440,15 +486,15 @@ static void RaceHostOnline(const std::string &file, int laps, const std::string 
     Vec3 t = g_race.def.trigger.x != 0.f ? g_race.def.trigger : g_race.def.grid[0].first;
     if (!LO().jobOpenKind(g_race.def.name.c_str(), t.x, t.y, t.z, RacePayout(g_race), 1)) { g_race = RaceRun(); Notify("~r~Could not open the race."); return; }
     g_race.phase = RP_LOBBY;
-    // the race setup for the members: "R|file|laps|vehicle"
-    std::string cfg = "R|" + file + "|" + std::to_string(g_race.laps) + "|" + g_race.vehicle;
+    // the race setup for the members: "R|file|laps|vehicle|tod|weather|traffic|catchup|slipstream"
+    std::string cfg = "R|" + file + "|" + std::to_string(g_race.laps) + "|" + g_race.vehicle + "|" + RaceOptsText(g_race.opts);
     Wait(300);
     if (LO().jobUpdate) LO().jobUpdate(COOP_LOBBY, 0, t.x, t.y, t.z, cfg.c_str());
     Notify("Race lobby open: other players can join from ~b~Jobs~s~. Start it from the ~b~Races~s~ menu.");
 }
 static void RaceHostStart() {
     if (!g_race.host || g_race.phase != RP_LOBBY || !LO().jobUpdate) return;
-    std::string cfg = "R|" + g_race.def.file + "|" + std::to_string(g_race.laps) + "|" + g_race.vehicle;
+    std::string cfg = "R|" + g_race.def.file + "|" + std::to_string(g_race.laps) + "|" + g_race.vehicle + "|" + RaceOptsText(g_race.opts);
     Vec3 t = g_race.def.grid[0].first;
     LO().jobUpdate(COOP_RUNNING, 0, t.x, t.y, t.z, cfg.c_str());
     g_race.phase = RP_NONE;   // RaceTick picks up the start time from the job state
@@ -465,6 +511,10 @@ static void RaceFollowJob() {
         for (char c : g_coop.text + "|") { if (c == '|') { f.push_back(cur); cur.clear(); } else cur += c; }
         if (f.size() < 4) return;
         bool host = g_coop.hosting || g_coop.host == "you";
+        if (!host && f.size() >= 9) {   // the host's lobby options
+            g_raceNextOpts.tod = std::atoi(f[4].c_str()); g_raceNextOpts.weather = std::atoi(f[5].c_str()); g_raceNextOpts.traffic = std::atoi(f[6].c_str());
+            g_raceNextOpts.catchup = f[7] == "1"; g_raceNextOpts.slip = f[8] == "1";
+        }
         if (!host && !RaceLoad(f[1], std::atoi(f[2].c_str()), f[3])) return;
         if (host && g_race.def.file != f[1] && !RaceLoad(f[1], std::atoi(f[2].c_str()), f[3])) return;
         g_race.online = true; g_race.host = host;
@@ -593,6 +643,7 @@ static void RaceTick() {
     if (r.online && (!g_coop.id || g_coop.kind != 1 || g_coop.status == COOP_CLOSED) && r.phase != RP_RESULTS) {
         Notify("The race was cancelled."); RaceCleanup(); return;
     }
+    if (r.phase != RP_RESULTS) RaceOptsFrame(r);
     if (r.phase == RP_COUNTDOWN) {
         int left = r.startAt - Now();
         N(N_DISABLE_CONTROL_ACTION, 0, 75, 1);

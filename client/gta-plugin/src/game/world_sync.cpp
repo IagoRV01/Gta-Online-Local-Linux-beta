@@ -10,7 +10,7 @@ namespace world_sync {
 
 using namespace proto;
 
-static bool g_active = false, g_have = false, g_dirty = false;
+static bool g_active = false, g_have = false, g_dirty = false, g_hold = false;
 static WorldStateMsg g_state;
 static std::string g_appliedWeather, g_appliedNext;
 static int g_appliedFlags = -1;
@@ -43,8 +43,15 @@ void Begin() {
     LOGI("world", "-", "story clock %02d:%02d kept (weather %s)", g_storyH, g_storyM, WeatherName(g_storyWeather).c_str());
 }
 
+void SetHold(bool hold) {
+    if (hold == g_hold) return;
+    g_hold = hold;
+    if (!hold) { g_appliedWeather.clear(); g_appliedNext.clear(); g_appliedFlags = -1; g_dirty = g_have; }   // snap back to the server's
+    LOGI("world", "-", "server world %s", hold ? "held (a job's own time and weather)" : "back");
+}
+
 void Frame() {
-    if (!g_active || !g_have || !g_dirty) return;
+    if (!g_active || !g_have || !g_dirty || g_hold) return;
     g_dirty = false;
     const WorldStateMsg &m = g_state;
     // clock: GTA runs it at the same 2 s/minute as the server, so only correct real drift
@@ -75,6 +82,7 @@ void Frame() {
 void End() {
     if (!g_active) return;
     g_active = false;
+    g_hold = false;
     N(N_PAUSE_CLOCK, 0);
     N(N_SET_ARTIFICIAL_LIGHTS_STATE, 0);
     N(N_CLEAR_WEATHER_TYPE_PERSIST);

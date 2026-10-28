@@ -14,23 +14,32 @@ static void OpenRaceCorona(int idx) {
     Vec3 t = r.trigger.x != 0.f ? r.trigger : (r.grid.empty() ? Pos(Me()) : r.grid[0].first);
     d.at = t;
     bool transform = !r.transforms.empty();
+    // Online's race lobby: laps, weather, time of day, traffic, catch up, slipstream, vehicle class, vehicle
     if (r.laps) { CoronaOpt o{"Laps", {}, std::clamp(r.defLaps > 0 ? r.defLaps - 1 : 2, 0, 9), "How many laps."}; for (int i = 1; i <= 10; ++i) o.values.push_back(std::to_string(i)); d.opts.push_back(o); }
+    d.opts.push_back({"Weather", {RACE_WEATHER, RACE_WEATHER + 7}, 0, "Current keeps the session's weather."});
+    d.opts.push_back({"Time of Day", {RACE_TOD, RACE_TOD + 4}, 0, "Current keeps the session's time."});
+    d.opts.push_back({"Traffic", {RACE_TRAFFIC, RACE_TRAFFIC + 4}, 0, "The ambient traffic on the route."});
+    d.opts.push_back({"Catch Up", {"Off", "On"}, 0, "Racers behind the leader get a little more power (online)."});
+    d.opts.push_back({"Slipstream", {"Off", "On"}, 1, "Driving close behind another car gives you its slipstream."});
     if (!transform) { CoronaOpt o{"Vehicle Class", {}, 0, "The class everyone races in."}; for (int i = 0; i < NRACE_CLASSES; ++i) o.values.push_back(RACE_CLASSES[i].name); d.opts.push_back(o); }
     d.opts.push_back({transform ? "Start Vehicle" : "Vehicle", {"elegy"}, 0, "Your vehicle."});
     std::string file = r.file;
     bool laps = r.laps;
-    d.onChange = [idx, transform, laps](CoronaDef &def) {   // the vehicle list follows the class
+    int base = laps ? 1 : 0;   // the options after laps: weather, time of day, traffic, catch up, slipstream, then the class
+    d.onChange = [idx, transform, base](CoronaDef &def) {   // the vehicle list follows the class
         const RaceDef &rr = g_raceList[idx];
-        int cls = transform ? 0 : def.opts[laps ? 1 : 0].sel;
+        int cls = transform ? 0 : def.opts[base + 5].sel;
         std::vector<std::string> vehs;
         if (cls == 0) vehs = rr.vehicles; else for (const char *m : RACE_CLASSES[cls].models) vehs.push_back(m);
         if (vehs.empty()) vehs.push_back("elegy");
         CoronaOpt &v = def.opts.back();
         if (v.values != vehs) { v.values = vehs; v.sel = 0; }
     };
-    auto args = [laps](const std::vector<int> &sel, int &lapsOut, std::string &veh) {
+    auto args = [laps, base](const std::vector<int> &sel, int &lapsOut, std::string &veh) {
         lapsOut = laps && !sel.empty() ? sel[0] + 1 : 1;
         veh = g_cor.def.opts.back().values[std::min((int)g_cor.def.opts.back().values.size() - 1, sel.back())];
+        g_raceNextOpts.weather = sel[base]; g_raceNextOpts.tod = sel[base + 1]; g_raceNextOpts.traffic = sel[base + 2];
+        g_raceNextOpts.catchup = sel[base + 3] == 1; g_raceNextOpts.slip = sel[base + 4] == 1;
     };
     d.onPlay = [file, args](const std::vector<int> &sel) { int l; std::string v; args(sel, l, v); RaceStartSolo(file, l, v); };
     d.openLobby = [file, args](const std::vector<int> &sel) { int l; std::string v; args(sel, l, v); RaceHostOnline(file, l, v); return g_race.phase == RP_LOBBY; };

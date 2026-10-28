@@ -706,6 +706,7 @@ struct LocalOnlineApi {
     bool (*adoptOutfit)() = nullptr;                               // API v8: the outfit worn now becomes the character's (AptActs.inc wardrobe)
     bool (*sendPlayerMessage)(unsigned, const char *, const char *) = nullptr;   // API v9: player messages (Buzzer.inc)
     int (*takePlayerMessages)(char *, int) = nullptr;
+    void (*setWorldHold)(int) = nullptr;                           // API v10: the server's clock and weather held off (a race's own)
     bool tried = false;
 };
 static LocalOnlineApi &LO() {
@@ -747,6 +748,7 @@ static LocalOnlineApi &LO() {
             api.sendPlayerMessage = (bool (*)(unsigned, const char *, const char *))GetProcAddress(h, "LocalOnline_SendPlayerMessage");
             api.takePlayerMessages = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_TakePlayerMessages");
             if (!api.sendPlayerMessage || !api.takePlayerMessages) api.sendPlayerMessage = nullptr, api.takePlayerMessages = nullptr;
+            api.setWorldHold = (void (*)(int))GetProcAddress(h, "LocalOnline_SetWorldHold");
         }
     }
     return api;
@@ -4406,6 +4408,14 @@ static void CommandTick() {
                 N(N_SET_VEHICLE_FORWARD_SPEED, g_race.veh, 25.f);
                 Log("racepad %d of %d: %.1f %.1f %.1f h %.0f", k, (int)g_race.pads.size(), p.x, p.y, p.z, h);
             }
+        }
+        else if (a[0] == "racelobby" && a.size() > 1) {   // racelobby <file.xml>: that race's lobby (test)
+            RefreshRaceList();
+            for (int i = 0; i < (int)g_raceList.size(); ++i) if (g_raceList[i].file == a[1]) { OpenRaceCorona(i); break; }
+        }
+        else if (a[0] == "raceopts" && a.size() > 5) {   // raceopts tod weather traffic catchup slip: the next race's lobby options (test)
+            g_raceNextOpts.tod = std::atoi(a[1].c_str()); g_raceNextOpts.weather = std::atoi(a[2].c_str()); g_raceNextOpts.traffic = std::atoi(a[3].c_str());
+            g_raceNextOpts.catchup = a[4] == "1"; g_raceNextOpts.slip = a[5] == "1";
         }
         else if (a[0] == "racesolo") RaceStartSolo(a.size() > 1 ? a[1] : "", a.size() > 2 ? std::atoi(a[2].c_str()) : 1, a.size() > 3 ? a[3] : "");   // racesolo <file.xml> [laps] [vehicle]
         else if (a[0] == "racehost") RaceHostOnline(a.size() > 1 ? a[1] : "", a.size() > 2 ? std::atoi(a[2].c_str()) : 1, a.size() > 3 ? a[3] : "");

@@ -15,6 +15,7 @@
 #include "game/economy.h"
 #include "game/net_client.h"
 #include "game/session.h"
+#include "game/world_sync.h"
 #include "ui/startup.h"
 #include "game/camera_client.h"
 
@@ -127,7 +128,9 @@ extern "C" __declspec(dllexport) void LocalOnline_RaceProgress(int checkpoints, 
     jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs > 0 ? (uint32_t)finishMs : 0);
 }
 extern "C" __declspec(dllexport) int LocalOnline_GetRaceStandings(char *buf, int cap) { return CopyOut(jobs::StandingsText(), buf, cap); }
-extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 8; }
+extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 10; }
+// API v10: hold the server's clock and weather off while a job sets its own (a race's time of day and weather)
+extern "C" __declspec(dllexport) void LocalOnline_SetWorldHold(int hold) { world_sync::SetHold(hold != 0); }
 // API v7: Gori's rank and flags (passive mode, in a solo activity) for the player lists and the sessions,
 // and every known player for Gori's menus ("netId|name|rank|flags|session|sameSession" lines).
 extern "C" __declspec(dllexport) void LocalOnline_SetPlayerInfo(int rank, int flags) { remote::SetMyInfo(rank, flags); }

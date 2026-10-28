@@ -9,5 +9,8 @@ void OnWorldState(const proto::WorldStateMsg &m);   // network callback
 void Begin();                                       // entering YOU: remember the story clock/weather
 void Frame();                                       // every frame while YOU is active and online
 void End();                                         // leaving YOU: restore the story clock/weather
+// API v10: a job with its own time of day and weather (a race's lobby options) holds the server's world off while it
+// lasts; released, the server's clock and weather come back
+void SetHold(bool hold);
 
 }  // namespace world_sync
