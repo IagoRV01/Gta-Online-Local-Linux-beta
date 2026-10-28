@@ -102,7 +102,9 @@ static void JobCelebrate(const std::string &job, int position, bool passed, int 
     CelCall("CREATE_STAT_WALL", {CelS(w), CelS("HUD_COLOUR_BLACK"), CelI(-1)});
     if (position > 0) CelCall("ADD_POSITION_TO_WALL", {CelS(w), CelI(position), CelS(job), CelB(true), CelB(false)});
     else CelCall("ADD_MISSION_RESULT_TO_WALL", {CelS(w), CelS(job), CelS(passed ? "PASSED" : "FAILED"), CelS(why), CelB(true), CelB(true), CelB(true)});
-    if (timeMs > 0) CelCall("ADD_TIME_TO_WALL", {CelS(w), CelI(timeMs), CelS("TIME"), CelI(0)});
+    if (timeMs > 0 && g_celPbBy >= 0) CelCall("ADD_TIME_TO_WALL", {CelS(w), CelI(timeMs), CelS("PERSONAL BEST"), CelI(g_celPbBy)});   // Online's, a race beaten
+    else if (timeMs > 0) CelCall("ADD_TIME_TO_WALL", {CelS(w), CelI(timeMs), CelS("TIME"), CelI(0)});
+    g_celPbBy = -1;
     int lvl = LevelOf(rpBefore);
     if (rpGained > 0)
         CelCall("ADD_REP_POINTS_AND_RANK_BAR_TO_WALL", {CelS(w), CelI(rpGained), CelI(rpBefore), CelI(RpFor(lvl)), CelI(RpFor(lvl + 1)), CelI(lvl), CelI(lvl + 1),

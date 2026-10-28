@@ -217,6 +217,7 @@ static void JobEnter();
 static bool Freemode();
 static int g_jobStartedAt = 0;   // when the current job's session began
 static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash, const std::string &why = "");
+static int g_celPbBy = -1;   // the next end screen's time is a personal best, by this many ms (a race's); -1: just the time
 static bool JobCelebrating();
 static int AddBlip(int ent, int sprite, int colour, const char *name) {
     int b = N<int>(N_ADD_BLIP_FOR_ENTITY, ent);
@@ -4320,6 +4321,7 @@ static void CommandTick() {
             N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &mv);
         }
         else if (a[0] == "rank") { RankBarShow(g_rp, g_rp, 5000); Log("rank: rp %d level %d (%d..%d), movie loaded %d", g_rp, LevelOf(g_rp), RpFor(LevelOf(g_rp)), RpFor(LevelOf(g_rp) + 1), N<int>(N_HAS_SCALEFORM_SCRIPT_HUD_MOVIE_LOADED, 19)); }
+        else if (a[0] == "custdel" && !rest.empty()) { Log("custdel %s: %d", rest.c_str(), (int)g_cust.erase(rest)); Save(); }   // a saved value (a test's race record...)
         else if (a[0] == "giverp") { GiveRP(std::atoi(rest.c_str()), "test"); }
         else if (a[0] == "delprop") {   // undo a test purchase: ownership, its garage cars, its business state
             int n0 = (int)g_props.size(), c0 = (int)g_garage.size();

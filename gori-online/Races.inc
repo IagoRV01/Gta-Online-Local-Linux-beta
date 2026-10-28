@@ -57,7 +57,8 @@ static std::string RaceOptsText(const RaceOpts &o) {
 struct RaceRun {
     RaceDef def;
     RaceOpts opts;
-    bool worldHeld = false;   // our time of day / weather is on (the server's world held off)
+    bool worldHeld = false;
+    int lapStart = 0, lapBest = 0, pb = 0;   // this lap's start and the best lap (ms into the race); your record on this race (0 none)   // our time of day / weather is on (the server's world held off)
     int laps = 1, phase = RP_NONE;
     std::string vehicle, startVehicle;   // vehicle: the current one (transforms change it)
     bool online = false, host = false, air = false;
@@ -374,6 +375,16 @@ static void RaceTransform(const std::string &model) {   // into the new vehicle 
     Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET");
     Log("race: transform -> %s at checkpoint %d", model.c_str(), r.cp);
 }
+// your records (saved with the character): the best time on a race with its laps, and its best lap
+static std::string RacePbKey(const RaceRun &r) { return "@racepb|" + r.def.file + "|" + std::to_string(r.def.laps ? r.laps : 1); }
+static int RacePb(const RaceRun &r) { auto it = g_cust.find(RacePbKey(r)); return it == g_cust.end() ? 0 : it->second; }
+static void RaceRecord(RaceRun &r) {   // finished: a new personal best? (the end screen says so, by how much)
+    if (r.pb && r.finishMs < r.pb) g_celPbBy = r.pb - r.finishMs;
+    if (!r.pb || r.finishMs < r.pb) { g_cust[RacePbKey(r)] = r.finishMs; Log("race: personal best %s (was %s)", RaceTime(r.finishMs).c_str(), r.pb ? RaceTime(r.pb).c_str() : "none"); }
+    std::string lk = "@racelap|" + r.def.file;
+    auto it = g_cust.find(lk);
+    if (r.lapBest && (it == g_cust.end() || r.lapBest < it->second)) g_cust[lk] = r.lapBest;
+}
 // the lobby's time of day and weather, for the race (LocalOnline holds the server's world off meanwhile), slipstream
 static void RaceWorldApply(RaceRun &r) {
     int tod = std::clamp(r.opts.tod, 0, 3), w = std::clamp(r.opts.weather, 0, 6);
@@ -432,6 +443,7 @@ static void RaceBegin(int startsInMs) {
     r.total = (int)r.def.cps.size() * (r.def.laps ? std::max(1, r.laps) : 1);
     r.startAt = Now() + std::max(1000, startsInMs);
     r.cp = 0; r.finishMs = 0;
+    r.lapStart = 0; r.lapBest = 0; r.pb = RacePb(r);
     r.vehicle = r.startVehicle.empty() ? r.vehicle : r.startVehicle;   // transforms start over
     r.phase = RP_COUNTDOWN;
     r.payout = RacePayout(r);
@@ -541,8 +553,10 @@ static void RaceHud() {
     int lapCps = (int)r.def.cps.size();
     int lap = std::min(r.laps, r.cp / std::max(1, lapCps) + 1);
     if (JobCelebrating()) return;
-    int row = 0;   // like Online's: the time at the bottom, the lap (a sprint: the checkpoints), the position on top
+    int row = 0;   // like Online's: the time at the bottom, your record, the current lap, the lap (a sprint: the checkpoints), the position on top
     RaceBar(row++, "TIME", RaceTime(t));
+    if (r.pb) RaceBar(row++, "PERSONAL RECORD", RaceTime(r.pb));
+    if (r.def.laps && r.laps > 1 && r.phase == RP_RACING) RaceBar(row++, "CURRENT LAP", RaceTime(t - r.lapStart));
     if (r.def.laps && r.laps > 1) RaceBar(row++, "LAP", std::to_string(lap) + "/" + std::to_string(r.laps));
     else RaceBar(row++, "CHECKPOINT", std::to_string(std::min(r.cp, r.total)) + "/" + std::to_string(r.total));
     RaceBar(row++, "POSITION", std::to_string(pos) + "/" + std::to_string(std::max(1, count)), true);
@@ -669,7 +683,13 @@ static void RaceTick() {
             ++r.cp;
             r.lastCpAt = Now();
             bool done = r.cp >= r.total;
-            if (done) r.finishMs = Now() - r.startAt;
+            int lapCps = (int)r.def.cps.size();
+            if (r.def.laps && lapCps && r.cp % lapCps == 0) {   // a lap done: Online's CURRENT LAP starts again
+                int at = Now() - r.startAt, lapMs = at - r.lapStart;
+                if (!r.lapBest || lapMs < r.lapBest) r.lapBest = lapMs;
+                r.lapStart = at;
+            }
+            if (done) { r.finishMs = Now() - r.startAt; RaceRecord(r); }
             if (r.online && LO().raceProgress) LO().raceProgress(r.cp, done ? r.finishMs : 0);
             if (done) {
                 RaceClearMarkers();
