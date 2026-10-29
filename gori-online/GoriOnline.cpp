@@ -217,7 +217,8 @@ static void JobEnter();
 static bool Freemode();
 static int g_jobStartedAt = 0;   // when the current job's session began
 static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash, const std::string &why = "");
-static int g_celPbBy = -1;   // the next end screen's time is a personal best, by this many ms (a race's); -1: just the time
+static int g_celPbBy = -1;
+static int g_celWave = -1; static bool g_celWaveSurvived = false;   // the next end screen's wave (a survival's): reached, or all survived   // the next end screen's time is a personal best, by this many ms (a race's); -1: just the time
 static bool JobCelebrating();
 static int AddBlip(int ent, int sprite, int colour, const char *name) {
     int b = N<int>(N_ADD_BLIP_FOR_ENTITY, ent);

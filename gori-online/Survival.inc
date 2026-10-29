@@ -179,6 +179,13 @@ static void SvPlaceInArea() {
     if (InAnyVehicle()) N(N_TASK_LEAVE_VEHICLE, me, MyVehicle(), 16);
     N(N_SET_ENTITY_COORDS, me, p.x, p.y, p.z, 0, 0, 0, 0);
     N(N_SET_ENTITY_HEADING, me, (float)Rand(360));
+    // held there until the ground has loaded (coming from far away it can take seconds: on the Galileo hill you fell
+    // through the map, 2026-10-29), then put on it
+    N(N_FREEZE_ENTITY_POSITION, me, 1);
+    for (int i = 0; i < 200 && !NB(N<int>(N_HAS_COLLISION_LOADED_AROUND_ENTITY, me)); ++i) { N(N_REQUEST_COLLISION_AT_COORD, p.x, p.y, p.z); Wait(50); }
+    float gz = 0.f;
+    if (NB(N<int>(N_GET_GROUND_Z_FOR_3D_COORD, p.x, p.y, p.z + 5.f, &gz, 0, 0)) && std::fabs(gz - p.z) < 15.f) N(N_SET_ENTITY_COORDS, me, p.x, p.y, gz + 0.5f, 0, 0, 0, 0);
+    N(N_FREEZE_ENTITY_POSITION, me, 0);   // (SvBegin holds you again for the countdown)
     N(N_SET_PLAYER_WANTED_LEVEL, Player(), 0, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0);
 }
 static void SvStartWave(int wave) {
@@ -242,8 +249,9 @@ static void SvFinish() {   // over for everyone: the results, RP (and the cash w
     if (cash) AddCash((int)cash);
     int rpBefore = g_rp, rp = 150 * waves + 10 * g_sv.kills;
     if (rp) GiveRP(rp, nullptr);
+    g_celWaveSurvived = waves >= SV_WAVES; g_celWave = g_celWaveSurvived ? SV_WAVES : std::max(1, g_sv.wave);
     JobCelebrate("Survival - " + std::string(SV_LOCS[g_sv.loc].name), 0, waves >= SV_WAVES, g_jobStartedAt ? Now() - g_jobStartedAt : 0, rpBefore, rp, cash,
-                 std::to_string(waves) + "/" + std::to_string(SV_WAVES) + " waves, " + std::to_string(g_sv.kills) + " kills");
+                 std::to_string(g_sv.kills) + " kills");
     Save();
 }
 
@@ -398,7 +406,12 @@ static void SvTick() {
             Sound(n ? "3_2_1" : "GO", "HUD_MINI_GAME_SOUNDSET");
         }
         if (g_sv.lastCount >= 0) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_sv.countdownMovie, 255, 255, 255, 255, 0);
-        if (left <= 0) { N(N_FREEZE_ENTITY_POSITION, me, 0); SvStartWave(1); }
+        if (left <= 0) {   // on the ground now that it has loaded (placed while flying in, it may not have been yet)
+            Vec3 p = Pos(me); float gz = 0.f;
+            if (NB(N<int>(N_GET_GROUND_Z_FOR_3D_COORD, p.x, p.y, p.z + 3.f, &gz, 0, 0)) && std::fabs(gz - p.z) < 25.f) N(N_SET_ENTITY_COORDS, me, p.x, p.y, gz + 0.5f, 0, 0, 0, 0);
+            else if (NB(N<int>(N_GET_GROUND_Z_FOR_3D_COORD, p.x, p.y, SV_LOCS[g_sv.loc].z + 10.f, &gz, 0, 0))) N(N_SET_ENTITY_COORDS, me, p.x, p.y, gz + 0.5f, 0, 0, 0, 0);
+            N(N_FREEZE_ENTITY_POSITION, me, 0); SvStartWave(1);
+        }
         return;
     }
     if (g_sv.phase == SVP_RESULTS) {
@@ -419,6 +432,7 @@ static void SvTick() {
             Notify("~r~You're down.~s~ You'll be back for the next wave if your crew survives it.");
         } else {
             const SvLoc &l = SV_LOCS[g_sv.loc];
+            if (Pos(me).z < l.z - 20.f && !InAnyVehicle()) { Log("survival: fell through the map (z %.0f), back in the area", Pos(me).z); SvPlaceInArea(); }
             float d = std::hypot(Pos(me).x - l.x, Pos(me).y - l.y);
             if (d > l.r * 1.4f) {
                 if (!g_sv.outside) g_sv.outside = Now();
