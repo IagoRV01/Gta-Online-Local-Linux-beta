@@ -4577,6 +4577,12 @@ static void CommandTick() {
                 Teleport(back.x, back.y, back.z, bh);
             }
         }
+        else if (a[0] == "groundat" && a.size() > 3) {   // groundat x y z: the ground just under that height (checking a job's points)
+            float x = F(1), y = F(2), z = F(3);
+            N(N_REQUEST_COLLISION_AT_COORD, x, y, z);
+            float under = GroundAt(x, y, z + 3.f, -9999.f), top = GroundAt(x, y, 1000.f, -9999.f);
+            Log("groundat %.1f %.1f %.1f: under %.2f top %.2f", x, y, z, under, top);
+        }
         else if (a[0] == "probez" && a.size() > 2) {   // probez x y: ground and water height there (designing races)
             float x = F(1), y = F(2), wz = 0.f;
             N(N_REQUEST_COLLISION_AT_COORD, x, y, 0.f);

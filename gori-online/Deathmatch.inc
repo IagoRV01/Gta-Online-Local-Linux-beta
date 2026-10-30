@@ -7,10 +7,10 @@
 enum { DM_LIST = 250, DM_ARENA };
 struct DmArena { const char *name; float x, y, z, r; };
 static const DmArena DM_ARENAS[] = {
-    {"Construction Site", -150.f, -1000.f, 27.3f, 60.f}, {"Elysian Island Docks", 1000.f, -3060.f, 5.9f, 80.f},
+    {"Vinewood Bowl", 683.f, 570.f, 129.5f, 60.f},   // was the Pillbox building site (our apartment complex now) {"Elysian Island Docks", 1000.f, -3060.f, 5.9f, 80.f},
     {"Legion Square", 195.f, -934.f, 30.7f, 50.f}, {"Sandy Shores Airfield", 1720.f, 3270.f, 41.1f, 90.f},
     {"Grapeseed Farm", 2440.f, 4975.f, 46.f, 60.f}, {"Paleto Sawmill", -570.f, 5300.f, 70.2f, 70.f},
-    {"Vespucci Beach", -1600.f, -1100.f, 13.f, 70.f}, {"Cypress Flats", 850.f, -2100.f, 30.f, 60.f},
+    {"Vespucci Beach", -1600.f, -1100.f, 4.3f, 70.f}, {"Cypress Flats", 850.f, -2100.f, 30.f, 60.f},
 };
 static const int NDM_ARENAS = (int)(sizeof DM_ARENAS / sizeof *DM_ARENAS);
 static const char *DM_LOADOUT_NAMES[3] = {"Pistols", "Rifles", "Heavy"};

@@ -14,11 +14,11 @@ struct ContactMission {
 struct ContactDef { const char *name; int phoneId; const char *greeting; const ContactMission *missions; int count; };
 static const ContactMission CM_GERALD[] = {
     {"Pier Pressure", CM_PACKAGE, 1, 6000, -1820.f, -1210.f, 13.f, "g_m_y_mexgoon_02", "weapon_pistol", nullptr, "Gerald: \"Vagos got my stash under the pier. Go get it.\""},
-    {"Death Metal", CM_ELIM, 3, 7000, 1290.f, -1700.f, 54.f, "g_m_y_ballaeast_01", "weapon_microsmg", nullptr, "Gerald: \"Some Ballas think they run El Burro. Correct them.\""},
+    {"Death Metal", CM_ELIM, 3, 7000, 1290.f, -1700.f, 61.f, "g_m_y_ballaeast_01", "weapon_microsmg", nullptr, "Gerald: \"Some Ballas think they run El Burro. Correct them.\""},
     {"Chasing the Dragon", CM_STEAL, 5, 8000, 470.f, -1310.f, 29.f, "g_m_y_mexgoon_01", "weapon_pistol", "speedo", "Gerald: \"A van full of product. It's mine now.\""},
-    {"Rich Men in Richman", CM_PACKAGE, 8, 9000, -1530.f, 110.f, 56.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Gerald: \"A rich boy owes me. Take it from his mansion.\""},
+    {"Rich Men in Richman", CM_PACKAGE, 8, 9000, -1525.f, 80.f, 56.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Gerald: \"A rich boy owes me. Take it from his mansion.\""},
     {"Hot Property", CM_DESTROY, 12, 10000, 1140.f, -1290.f, 34.f, "g_m_y_mexgoon_03", "weapon_assaultrifle", nullptr, "Gerald: \"Burn the Vagos' lab. Leave nothing.\""},
-    {"Out of Court Settlement", CM_RESCUE, 16, 12000, 1855.f, 3690.f, 34.f, "s_m_y_sheriff_01", "weapon_pistol", nullptr, "Gerald: \"My cousin's in Sandy Shores lockup. Bust him out.\""},
+    {"Out of Court Settlement", CM_RESCUE, 16, 12000, 1855.f, 3690.f, 38.f, "s_m_y_sheriff_01", "weapon_pistol", nullptr, "Gerald: \"My cousin's in Sandy Shores lockup. Bust him out.\""},
 };
 static const ContactMission CM_SIMEON[] = {
     {"Blow Up", CM_DESTROY, 1, 5000, -45.f, -1100.f, 26.f, "s_m_m_security_01", "weapon_pistol", nullptr, "Simeon: \"Some customers don't pay. Make their cars... disappear.\""},
@@ -32,7 +32,7 @@ static const ContactMission CM_LAMAR[] = {
     {"Lost My Mind", CM_ELIM, 1, 5500, 975.f, -120.f, 74.f, "g_m_y_lost_01", "weapon_sawnoffshotgun", nullptr, "Lamar: \"The Lost disrespected the hood. Pay 'em a visit, homie.\""},
     {"Ballas to the Wall", CM_ELIM, 4, 7000, 100.f, -1940.f, 20.f, "g_m_y_ballaorig_01", "weapon_pistol", nullptr, "Lamar: \"Ballas on Grove Street. Not on my watch.\""},
     {"Gentrification", CM_PACKAGE, 7, 8500, -50.f, -1450.f, 32.f, "g_m_y_famca_01", "weapon_microsmg", nullptr, "Lamar: \"Some fool's sitting on our money in Strawberry.\""},
-    {"Rooftop Rumble", CM_PACKAGE, 10, 9500, -150.f, -590.f, 167.f, "s_m_m_highsec_02", "weapon_carbinerifle", nullptr, "Lamar: \"A deal on a rooftop downtown. Take the merch.\""},
+    {"Rooftop Rumble", CM_PACKAGE, 10, 9500, -150.f, -590.f, 211.f, "s_m_m_highsec_02", "weapon_carbinerifle", nullptr, "Lamar: \"A deal on a rooftop downtown. Take the merch.\""},
     {"Bust Out", CM_RESCUE, 14, 11000, 400.f, -1630.f, 29.f, "s_m_y_cop_01", "weapon_pistol", nullptr, "Lamar: \"They got my boy at the impound. Bust him out!\""},
 };
 static const ContactMission CM_MARTIN[] = {

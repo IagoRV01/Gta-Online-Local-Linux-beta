@@ -11,7 +11,7 @@ static const SvLoc SV_LOCS[] = {
     {"Stab City", 66.f, 3705.f, 39.7f, 45.f}, {"Boneyard", 2390.f, 3100.f, 48.2f, 55.f},
     {"Elysian Island Docks", 1000.f, -3100.f, 5.9f, 55.f}, {"Galileo Observatory", -425.f, 1123.f, 325.9f, 45.f},
     {"Paleto Sawmill", -567.f, 5253.f, 70.5f, 55.f}, {"Del Perro Pier", -1700.f, -1130.f, 13.1f, 40.f},
-    {"Lost MC Clubhouse", 975.f, -115.f, 74.4f, 45.f}, {"Construction Site", -150.f, -1000.f, 27.3f, 50.f},
+    {"Lost MC Clubhouse", 975.f, -115.f, 74.4f, 45.f}, {"Grapeseed Farm", 2465.f, 4940.f, 44.3f, 55.f},   // the yard of the burnt farmhouse; was the Pillbox building site, where our apartment complex stands now
 };
 static const int NSV_LOCS = (int)(sizeof SV_LOCS / sizeof *SV_LOCS);
 static const int SV_WAVES = 10, SV_DOWN = 0x10000, SV_PAYOUT = 50000, SV_BREAK_MS = 15000;
