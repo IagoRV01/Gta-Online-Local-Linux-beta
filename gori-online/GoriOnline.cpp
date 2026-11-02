@@ -4396,6 +4396,7 @@ static void CommandTick() {
             g_hbMapOn = (int)F(1); g_hbMapFirst = (int)F(2); g_hbMapSolid = (int)F(3); g_hbMapAhead = F(4); g_hbMapRX = F(5); g_hbMapRY = F(6); g_hbMapRZ = F(7);
             g_hbMapSide = F(8); g_hbMapUp = F(9); g_hbMapScale = F(10);
         }
+        else if (a[0] == "heiststart" && a.size() > 1) StartHeist(std::atoi(a[1].c_str()) % NHEISTS);   // heiststart <h>: its current stage, no lobby (test)
         else if (a[0] == "hbstage") {   // hbstage [h s]: log the heists' stages, or set one (test, not saved here; set it back after)
             if (a.size() > 2) { int h = std::atoi(a[1].c_str()) % NHEISTS; g_heistStage[h] = std::clamp(std::atoi(a[2].c_str()), 0, HEISTS[h].stages - 1); g_hb.heist = h; }
             std::string t; for (int h = 0; h < NHEISTS; ++h) t += std::to_string(g_heistStage[h]) + " ";

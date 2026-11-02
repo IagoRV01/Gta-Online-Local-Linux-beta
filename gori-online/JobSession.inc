@@ -92,9 +92,13 @@ static void CelCall(const char *method, const std::vector<CelArg> &args) {   // 
 static const char *CelJobType(const std::string &job) {
     if (!job.compare(0, 8, "Survival")) return "CELEB_SURVIVAL";
     if (!job.compare(0, 9, "Arena War")) return "PM_ARENA";
+    // a heist's mission is its name in capitals, a setup's with ": STAGE" after it (StartHeist)
+    std::string up = job;
+    for (auto &c : up) c = (char)toupper((unsigned char)c);
     for (int h = 0; h < NHEISTS; ++h) {
-        size_t n = std::strlen(HEISTS[h].name);
-        if (!job.compare(0, n, HEISTS[h].name)) return job.find(" - Finale") != std::string::npos ? "CELEB_HEIST" : "FMMC_RSTAR_HP";
+        std::string n = HEISTS[h].name;
+        for (auto &c : n) c = (char)toupper((unsigned char)c);
+        if (!up.compare(0, n.size(), n)) return up.size() == n.size() ? "CELEB_HEIST" : "FMMC_RSTAR_HP";
     }
     return "CELEB_MISSION";
 }
