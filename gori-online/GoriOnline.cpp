@@ -2593,7 +2593,7 @@ static void MissionTick() {
         if (d < 30.f) Marker(s.pos, 240, 200, 80);
         if (d < s.radius && !InAnyVehicle() && GuardsNear(mp)) Help("Deal with the guards first.");
         else if (d < s.radius && !InAnyVehicle()) {
-            Help(s.type == S_HACK ? "Press ~INPUT_CONTEXT~ to hack the keypad." : "Press ~INPUT_CONTEXT~ to start drilling.");
+            Help(s.type == S_HACK ? "Press ~INPUT_CONTEXT~ to start hacking." : "Press ~INPUT_CONTEXT~ to start drilling.");
             if (JustPressed(51)) {
                 N(N_SET_ENTITY_COORDS_NO_OFFSET, me, s.pos.x, s.pos.y, s.pos.z, 0, 0, 0);
                 N(N_SET_ENTITY_HEADING, me, s.heading);
@@ -3282,7 +3282,7 @@ static void StartHeist(int h) {
             go.onStart = [] { TravelCayo(4300.f, -5900.f, 0.5f, 40.f, "longfin"); };
             go.enemies = 10; go.enemyModel = "g_m_m_cartelguards_01"; go.enemyWeapon = "weapon_assaultrifle";
             m.steps.push_back(go);
-            m.steps.push_back(DrillAt("~y~Drill~s~ the office safe.", V3(5010.f, -5752.f, 28.8f), 0.f));
+            m.steps.push_back(DrillAt("~y~Drill~s~ through the office wall to the safe.", V3(5005.3f, -5753.f, 28.84f), 90.f));
             Step p = Pickup("Take the ~g~loot~s~.", V3(5010.f, -5752.f, 28.8f), 3, "prop_gold_bar"); p.snapFoot = true;
             m.steps.push_back(p);
             m.steps.push_back(Escape("Escape the island: get out to ~b~open sea~s~.", V3(4840.f, -5170.f, 0.f), 1800.f));
