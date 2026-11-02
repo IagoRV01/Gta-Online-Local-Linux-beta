@@ -614,19 +614,14 @@ static void AwHud() {
     else if (g_aw.mode == AWM_CARNAGE) RaceBar(row++, "KILLS", std::to_string(g_aw.kills), true);
 }
 static void AwResults() {
-    float x = 0.5f, y = 0.3f, w = 0.4f;
-    Rect(x, y, w, 0.05f, 255, 120, 0, 230);
-    Text(std::string(AW_MODES[g_aw.mode].name) + ": " + AW_THEMES[g_aw.theme].name, x, y - 0.018f, 0.5f, 1, 255, 255, 255, 255, 0);
     bool fw = g_aw.mode == AWM_FLAGWAR;
-    const char *rows[] = {g_aw.mode == AWM_HOTBOMB ? "Rounds survived" : g_aw.mode == AWM_GAMESMASTERS ? "Checkpoints" : fw ? "Your flags" : "Kills",
-                          g_aw.mode == AWM_MONSTERS ? "Times wrecked" : fw ? "Bots' flags" : "Deaths", "Bots", "Arena Points total"};
-    int vals[] = {g_aw.mode == AWM_HOTBOMB || g_aw.mode == AWM_GAMESMASTERS || fw ? g_aw.score : g_aw.kills, fw ? g_aw.botScore : g_aw.deaths, (int)g_aw.botList.size(), AwApGet()};
-    for (int i = 0; i < 4; ++i) {
-        float ry = y + 0.05f + 0.038f * i;
-        Rect(x, ry, w, 0.036f, 0, 0, 0, 190);
-        Text(rows[i], x - w / 2 + 0.01f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 1);
-        Text(std::to_string(vals[i]), x + w / 2 - 0.01f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 2, x + w / 2 - 0.01f);
-    }
+    const char *c1 = g_aw.mode == AWM_HOTBOMB ? "ROUNDS SURVIVED" : g_aw.mode == AWM_GAMESMASTERS ? "CHECKPOINTS" : fw ? "YOUR FLAGS" : "KILLS";
+    const char *c2 = g_aw.mode == AWM_MONSTERS ? "TIMES WRECKED" : fw ? "BOTS' FLAGS" : "DEATHS";
+    int v1 = g_aw.mode == AWM_HOTBOMB || g_aw.mode == AWM_GAMESMASTERS || fw ? g_aw.score : g_aw.kills, v2 = fw ? g_aw.botScore : g_aw.deaths;
+    JobBoardRow me; me.me = true;
+    me.cells = {g_myName.empty() ? std::string("You") : g_myName, std::to_string(v1), std::to_string(v2), std::to_string((int)g_aw.botList.size()), std::to_string(AwApGet())};
+    JobBoard(std::string(AW_MODES[g_aw.mode].name) + ": " + AW_THEMES[g_aw.theme].name, "", JB_VERSUS,
+             {{"PLAYER", 0.f}, {c1, 0.48f}, {c2, 0.65f}, {"BOTS", 0.79f}, {"AP TOTAL", 0.9f}}, {me});
 }
 static void ArenaWarTick() {
     AwFollowJob();

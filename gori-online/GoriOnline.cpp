@@ -3421,6 +3421,7 @@ static void NextJobDeathmatch(int arena, bool host);
 static void NextJobArena(int mode, bool shared, bool host);
 #include "Shops.inc"
 #include "ModShop.inc"
+#include "JobBoard.inc"   // a job's results board
 #include "Races.inc"
 #include "AcidLab.inc"
 #include "Deathmatch.inc"

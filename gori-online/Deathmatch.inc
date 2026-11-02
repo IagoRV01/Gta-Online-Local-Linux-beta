@@ -152,19 +152,17 @@ static void DmHud() {
 }
 static void DmResults() {
     std::vector<DmScore> sc = DmScores();
-    float x = 0.5f, y = 0.25f, w = 0.4f;
-    Rect(x, y, w, 0.05f, 30, 30, 30, 230);
-    Text(std::string("Deathmatch: ") + DM_ARENAS[g_dm.arena].name, x, y - 0.018f, 0.5f, 1, 255, 255, 255, 255, 0);
     static const double share[8] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};
+    std::vector<JobBoardRow> rows;
     for (size_t i = 0; i < sc.size(); ++i) {
-        float ry = y + 0.05f + 0.038f * i;
-        Rect(x, ry, w, 0.036f, sc[i].me ? 60 : 0, sc[i].me ? 110 : 0, sc[i].me ? 170 : 0, 190);
-        Text(Ordinal((int)i + 1), x - w / 2 + 0.01f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 1);
-        Text(sc[i].name == "you" ? "You" : sc[i].name, x - w / 2 + 0.06f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 1);
-        std::string right = std::to_string(sc[i].kills) + " K  " + std::to_string(sc[i].deaths) + " D   " +
-                            ((sc[i].kills || sc[i].deaths) ? Money((long long)(g_dm.payout * share[i < 8 ? i : 7])) : std::string("-"));
-        Text(right, x + w / 2 - 0.01f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 2, x + w / 2 - 0.01f);
+        JobBoardRow row; row.me = sc[i].me;
+        char ratio[16]; std::snprintf(ratio, sizeof ratio, "%.2f", sc[i].deaths ? (float)sc[i].kills / sc[i].deaths : (float)sc[i].kills);
+        row.cells = {Ordinal((int)i + 1) + "   " + (sc[i].name == "you" ? "You" : sc[i].name), std::to_string(sc[i].kills), std::to_string(sc[i].deaths), ratio,
+                     (sc[i].kills || sc[i].deaths) ? Money((long long)(g_dm.payout * share[i < 8 ? i : 7])) : std::string("-")};
+        rows.push_back(row);
     }
+    JobBoard(std::string("Deathmatch: ") + DM_ARENAS[g_dm.arena].name, std::to_string(g_dm.minutes) + " minutes", JB_VERSUS,
+             {{"POSITION", 0.f}, {"KILLS", 0.55f}, {"DEATHS", 0.67f}, {"K/D RATIO", 0.79f}, {"CASH", 0.91f}}, rows, 4);
 }
 static void DmTick() {
     DmFollowJob();

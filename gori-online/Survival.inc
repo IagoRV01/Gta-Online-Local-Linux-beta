@@ -335,17 +335,15 @@ static void SvHud() {
 }
 static void SvResults() {
     std::vector<SvScore> sc = SvScores();
-    float x = 0.5f, y = 0.25f, w = 0.42f;
-    Rect(x, y, w, 0.05f, 30, 30, 30, 230);
-    Text(std::string("Survival: ") + SV_LOCS[g_sv.loc].name, x, y - 0.018f, 0.5f, 1, 255, 255, 255, 255, 0);
+    std::vector<JobBoardRow> rows;
     for (size_t i = 0; i < sc.size(); ++i) {
-        float ry = y + 0.05f + 0.038f * i;
-        Rect(x, ry, w, 0.036f, sc[i].me ? 60 : 0, sc[i].me ? 110 : 0, sc[i].me ? 170 : 0, 190);
-        Text(sc[i].name == "you" ? "You" : sc[i].name, x - w / 2 + 0.01f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 1);
+        JobBoardRow row; row.me = sc[i].me;
         int waves = std::min(sc[i].waves, SV_WAVES);
-        std::string right = std::to_string(waves) + " waves  " + std::to_string(sc[i].kills) + " kills   " + Money((long long)g_sv.payout * waves / SV_WAVES);
-        Text(right, x + w / 2 - 0.01f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 2, x + w / 2 - 0.01f);
+        row.cells = {sc[i].name == "you" ? "You" : sc[i].name, std::to_string(waves) + "/" + std::to_string(SV_WAVES), std::to_string(sc[i].kills),
+                     waves ? Money((long long)g_sv.payout * waves / SV_WAVES) : std::string("-")};
+        rows.push_back(row);
     }
+    JobBoard(std::string("Survival: ") + SV_LOCS[g_sv.loc].name, "", JB_SURVIVAL, {{"PLAYER", 0.f}, {"WAVES", 0.6f}, {"KILLS", 0.75f}, {"CASH", 0.9f}}, rows, 3);
 }
 
 // ---- each frame

@@ -58,6 +58,7 @@ struct RaceRun {
     RaceDef def;
     RaceOpts opts;
     bool worldHeld = false;
+    int resultRp = 0;   // the RP this race gave you (the results board)
     int lapStart = 0, lapBest = 0, pb = 0;   // this lap's start and the best lap (ms into the race); your record on this race (0 none)   // our time of day / weather is on (the server's world held off)
     int laps = 1, phase = RP_NONE;
     std::string vehicle, startVehicle;   // vehicle: the current one (transforms change it)
@@ -562,23 +563,26 @@ static void RaceHud() {
     RaceBar(row++, "POSITION", std::to_string(pos) + "/" + std::to_string(std::max(1, count)), true);
 }
 static void RaceResults() {
+    RaceRun &r = g_race;
     std::vector<RaceStanding> st = RaceStandings();
-    if (st.empty()) st.push_back({"you", g_race.cp, g_race.finishMs, true});
-    float x = 0.5f, y = 0.25f, w = 0.36f;
-    Rect(x, y, w, 0.05f, 30, 30, 30, 230);
-    Text(g_race.def.name, x, y - 0.018f, 0.55f, 1, 255, 255, 255, 255, 0);
+    if (st.empty()) st.push_back({"you", r.cp, r.finishMs, true});
     static const double share[8] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};
+    std::vector<JobBoardRow> rows;
     for (size_t i = 0; i < st.size(); ++i) {
-        float ry = y + 0.05f + 0.038f * i;
-        bool me = st[i].me;
-        Rect(x, ry, w, 0.036f, me ? 60 : 0, me ? 110 : 0, me ? 170 : 0, 190);
-        Text(Ordinal((int)i + 1), x - w / 2 + 0.01f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 1);
-        Text(st[i].name == "you" ? "You" : st[i].name, x - w / 2 + 0.06f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 1);
-        std::string right = st[i].finishMs ? RaceTime(st[i].finishMs) : "DNF";
-        if (g_race.online) right += st[i].finishMs ? "   " + Money((long long)(g_race.payout * share[i < 8 ? i : 7])) : "";
-        else if (st[i].finishMs) right += "   " + Money(RaceSoloPay(g_race));
-        Text(right, x + w / 2 - 0.01f, ry - 0.014f, 0.35f, 4, 255, 255, 255, 255, 2, x + w / 2 - 0.01f);
+        JobBoardRow row; row.me = st[i].me;
+        long long pay = !st[i].finishMs ? 0 : r.online ? (long long)(r.payout * share[i < 8 ? i : 7]) : RaceSoloPay(r);
+        row.cells = {Ordinal((int)i + 1) + "   " + (st[i].name == "you" ? "You" : st[i].name),
+                     st[i].me ? Label(N<const char *>(N_GET_DISPLAY_NAME_FROM_VEHICLE_MODEL, ModelHash(r.vehicle))) : std::string("-"),
+                     st[i].me && r.lapBest ? RaceTime(r.lapBest) : std::string("-"),
+                     st[i].finishMs ? RaceTime(st[i].finishMs) : std::string("DNF"),
+                     st[i].me ? std::to_string(r.resultRp) : std::string("-"),
+                     st[i].finishMs ? Money(pay) : std::string("-")};
+        rows.push_back(row);
     }
+    int pb = RacePb(r);
+    std::string sub = r.def.laps ? std::to_string(r.laps) + (r.laps == 1 ? " Lap" : " Laps") : "Point to point";
+    if (pb) sub += "   ~y~Personal Best: " + RaceTime(pb);
+    JobBoard(r.def.name, sub, JB_RACE, {{"POSITION", 0.f}, {"VEHICLE", 0.46f}, {"BEST LAP", 0.6f}, {"TOTAL TIME", 0.73f}, {"RP", 0.84f}, {"CASH", 0.93f}}, rows, 5);
 }
 static void RaceCountdownDraw(int left) {
     int n = left > 3000 ? -1 : left > 0 ? left / 1000 + 1 : 0;
@@ -733,6 +737,7 @@ static void RaceTick() {
             int count = 1, pos = MyRacePosition(&count);
             int rpBefore = g_rp, rp = std::max(100, (r.online ? 1200 / pos : 300) + 10 * r.total);
             GiveRP(rp, nullptr);
+            r.resultRp = rp;
             long long cash = 0;
             if (!r.online) {   // online races are paid by the server, into the bank
                 cash = RaceSoloPay(r);
