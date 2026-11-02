@@ -2188,7 +2188,7 @@ static void BuyProperty(int i, int price = -1) {   // price: the website's total
 }
 
 // ---------------------------------------------------------------- Missions (jobs, sell missions, heists)
-enum StepType { S_GOTO, S_PICKUP, S_STEAL, S_DELIVER, S_HOLD, S_ESCAPE, S_HACK, S_DRILL };
+enum StepType { S_GOTO, S_PICKUP, S_STEAL, S_DELIVER, S_HOLD, S_ESCAPE, S_HACK, S_DRILL, S_PLANT, S_LOOT };
 #include "HeistGames.inc"   // the heists' minigames: the drill, the hack
 static int g_hgTest = 0;     // hgame: 1 drill, 2 hack
 struct Step {
@@ -2198,6 +2198,9 @@ struct Step {
     float radius = 6.f, heading = 0.f;
     bool snapRoad = false, snapFoot = false;   // move the target to the nearest road / walkable spot
     bool indoors = false;                      // the target is inside a building: keep it exactly there
+    std::string door;                          // S_PLANT: the gate the thermal charge opens
+    Vec3 doorAt{}; float doorOpen = 0.f;       // where it is, its heading when open
+    int take = 0;                              // S_LOOT: what this trolley adds to the take
     std::string vehicle;                       // S_STEAL
     int enemies = 0;
     const char *enemyModel = "g_m_y_mexgoon_01", *enemyWeapon = "weapon_carbinerifle";
@@ -2298,7 +2301,34 @@ static void SpawnChasers(int count) {
     N(N_SET_MODEL_AS_NO_LONGER_NEEDED, cm); N(N_SET_MODEL_AS_NO_LONGER_NEEDED, pm);
     Notify("~r~Rivals~s~ are coming for your cargo!");
 }
+// the heists' take (the TAKE bar) and the steps of a thermal charge and a cash trolley
+static int g_mTake = 0;
+static struct { int phase = 0, at = 0, prop = 0, fx = 0, drip = 0; } g_plant;     // 1 placing, 2 burning
+static struct { int phase = 0, at = 0, pile = 0, from = 0; } g_loot;              // 1 intro, 2 grabbing, 3 exit
+static std::vector<std::pair<int, int>> g_trolleys;                               // the mission's trolleys: step, entity (until it ends)
+static bool g_alarm = false;
+static void PlantClear() {
+    if (g_plant.fx) { N(N_STOP_PARTICLE_FX_LOOPED, g_plant.fx, 0); g_plant.fx = 0; }
+    if (g_plant.drip) { N(N_STOP_PARTICLE_FX_LOOPED, g_plant.drip, 0); g_plant.drip = 0; }
+    if (g_plant.prop) DeleteEntity(g_plant.prop);
+    g_plant.phase = 0;
+}
+static void LootClear() {
+    if (g_loot.pile) DeleteEntity(g_loot.pile);
+    g_loot.phase = 0;
+}
+static void AlarmStart(const char *name) {
+    for (int i = 0; i < 40 && !NB(N<int>(N_PREPARE_ALARM, name)); ++i) Wait(50);
+    N(N_START_ALARM, name, 0);
+    g_alarm = true;
+}
+static bool GuardsNear(Vec3 at) {   // the mission's enemies still up around here
+    for (int p : g_mPeds) if (Exists(p) && !Dead(p) && Dist(Pos(p), at) < 40.f) return true;
+    return false;
+}
 static void ClearStepThings() {
+    PlantClear();
+    LootClear();
     RemoveBlip(g_mBlip);
     for (int &b : g_mObjBlips) RemoveBlip(b);
     g_mObjBlips.clear();
@@ -2310,6 +2340,10 @@ static void CleanupMission() {
     if (g_drill.on) DrillEnd();
     HgCamOff();
     if (g_m.onCleanup) g_m.onCleanup();
+    for (auto &e : g_trolleys) DeleteEntity(e.second);
+    g_trolleys.clear();
+    if (g_alarm) { N(N_STOP_ALL_ALARMS, 1); g_alarm = false; }
+    g_mTake = 0;
     ClearStepThings();
     for (int &b : g_mPedBlips) RemoveBlip(b);
     g_mPedBlips.clear();
@@ -2343,7 +2377,7 @@ static Vec3 ReachableSpot(Vec3 p) {
 }
 static void StartMission(const Mission &m) {
     if (g_mActive) { Notify("~r~Finish or quit your current job first."); return; }
-    g_m = m; g_mActive = true; g_mStep = 0; g_stepInit = false; g_mVeh = 0; g_mAlly = 0; g_mKills = 0;
+    g_m = m; g_mActive = true; g_mStep = 0; g_stepInit = false; g_mVeh = 0; g_mAlly = 0; g_mKills = 0; g_mTake = 0;
     JobEnter();
     g_mEnds = m.timeLimitMs ? Now() + m.timeLimitMs : 0;
     Shard("~y~" + m.name, m.steps.empty() ? "" : m.steps[0].text);
@@ -2437,6 +2471,7 @@ static void DrawObjective(std::string t, bool vehicle = false) {
         char b[32]; std::snprintf(b, sizeof b, "%s%02d:%02d", left < 60 ? "~r~" : "", left / 60, left % 60);
         RaceBar(0, "TIME", b, false);
     }
+    if (g_mTake) RaceBar(1, "TAKE", Money(g_mTake), false);
 }
 static void MissionTick() {
     if (!g_mActive || g_mStep >= g_m.steps.size()) return;
@@ -2556,7 +2591,8 @@ static void MissionTick() {
     case S_HACK:
     case S_DRILL:
         if (d < 30.f) Marker(s.pos, 240, 200, 80);
-        if (d < s.radius && !InAnyVehicle()) {
+        if (d < s.radius && !InAnyVehicle() && GuardsNear(mp)) Help("Deal with the guards first.");
+        else if (d < s.radius && !InAnyVehicle()) {
             Help(s.type == S_HACK ? "Press ~INPUT_CONTEXT~ to hack the keypad." : "Press ~INPUT_CONTEXT~ to start drilling.");
             if (JustPressed(51)) {
                 N(N_SET_ENTITY_COORDS_NO_OFFSET, me, s.pos.x, s.pos.y, s.pos.z, 0, 0, 0);
@@ -2572,6 +2608,138 @@ static void MissionTick() {
             }
         }
         break;
+    case S_PLANT: {   // a thermal charge on a gate: the animation, the charge burns on it, the gate opens
+        const char *dict = "anim@heists@ornate_bank@thermal_charge";
+        if (!g_plant.phase) {
+            if (d < 30.f) Marker(s.pos, 240, 200, 80);
+            N(N_REQUEST_ANIM_DICT, dict);
+            N(N_REQUEST_NAMED_PTFX_ASSET, "scr_ornate_heist");
+            if (d < s.radius && !InAnyVehicle() && GuardsNear(mp)) Help("Deal with the guards first.");
+            else if (d < s.radius && !InAnyVehicle()) {
+                Help("Press ~INPUT_CONTEXT~ to plant the thermal charge.");
+                uint32_t pm = Joaat("hei_prop_heist_thermite");
+                if (JustPressed(51) && LoadModel(pm)) {
+                    N(N_SET_ENTITY_COORDS_NO_OFFSET, me, s.pos.x, s.pos.y, s.pos.z, 0, 0, 0);
+                    N(N_SET_ENTITY_HEADING, me, s.heading);
+                    N(N_FREEZE_ENTITY_POSITION, me, 1);
+                    N(N_TASK_PLAY_ANIM, me, dict, "thermal_charge", 8.f, -8.f, -1, 0, 0.f, 0, 0, 0);
+                    g_plant.prop = N<int>(N_CREATE_OBJECT, pm, mp.x, mp.y, mp.z, 0, 0, 0);
+                    if (g_plant.prop) N(N_ATTACH_ENTITY_TO_ENTITY, g_plant.prop, me, N<int>(N_GET_PED_BONE_INDEX, me, 28422), 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0, 0, 0, 0, 2, 1);
+                    N(N_SET_MODEL_AS_NO_LONGER_NEEDED, pm);
+                    g_plant.phase = 1; g_plant.at = Now();
+                }
+            }
+        } else if (g_plant.phase == 1 && Now() - g_plant.at > 3200) {   // on the gate now, burning
+            N(N_FREEZE_ENTITY_POSITION, me, 0);
+            N(N_CLEAR_PED_TASKS, me);
+            float r = s.heading * 0.0174533f;
+            Vec3 at = V3(s.pos.x - std::sin(r) * 0.65f, s.pos.y + std::cos(r) * 0.65f, s.pos.z + 0.2f);
+            if (g_plant.prop) {
+                N(N_DETACH_ENTITY, g_plant.prop, 1, 1);
+                N(N_SET_ENTITY_COORDS_NO_OFFSET, g_plant.prop, at.x, at.y, at.z, 0, 0, 0);
+                N(N_SET_ENTITY_HEADING, g_plant.prop, s.heading);
+                N(N_FREEZE_ENTITY_POSITION, g_plant.prop, 1);
+            }
+            uint32_t fm = Joaat("hei_prop_heist_thermite_flash");
+            if (LoadModel(fm)) {
+                if (g_plant.prop) DeleteEntity(g_plant.prop);
+                g_plant.prop = N<int>(N_CREATE_OBJECT_NO_OFFSET, fm, at.x, at.y, at.z, 0, 0, 0);
+                if (g_plant.prop) { N(N_SET_ENTITY_HEADING, g_plant.prop, s.heading); N(N_FREEZE_ENTITY_POSITION, g_plant.prop, 1); }
+                N(N_SET_MODEL_AS_NO_LONGER_NEEDED, fm);
+            }
+            N(N_USE_PARTICLE_FX_ASSET, "scr_ornate_heist");
+            g_plant.fx = N<int>(N_START_PARTICLE_FX_LOOPED_AT_COORD, "scr_heist_ornate_thermal_burn_patch", at.x, at.y, at.z, 0.f, 0.f, s.heading, 1.f, 0, 0, 0, 0);
+            N(N_USE_PARTICLE_FX_ASSET, "scr_ornate_heist");
+            g_plant.drip = N<int>(N_START_PARTICLE_FX_LOOPED_AT_COORD, "scr_heist_ornate_metal_drip", at.x, at.y, at.z, 0.f, 0.f, s.heading, 1.f, 0, 0, 0, 0);
+            N(N_TASK_PLAY_ANIM, me, dict, "cover_eyes_loop", 4.f, -4.f, -1, 49, 0.f, 0, 0, 0);
+            Sound("Thermal_Burn", "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS");
+            g_plant.phase = 2; g_plant.at = Now();
+        } else if (g_plant.phase == 2) {
+            Help("The charge is burning: stand back.");
+            if (Now() - g_plant.at > 7000) {
+                PlantClear();
+                N(N_STOP_ANIM_TASK, me, dict, "cover_eyes_loop", -4.f);
+                HgDoorLock(s.door.c_str(), s.doorAt.x, s.doorAt.y, s.doorAt.z, false);
+                HgDoorTurn(s.door.c_str(), s.doorAt.x, s.doorAt.y, s.doorAt.z, s.doorOpen);
+                Sound("PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+                NextStep();
+            }
+        }
+        break;
+    }
+    case S_LOOT: {   // a cash trolley: the grab with its intro and exit, the take going up, the empty trolley left behind
+        const char *dict = "anim@heists@ornate_bank@grab_cash";
+        int t = 0;
+        for (auto &e : g_trolleys) if (e.first == (int)g_mStep) t = e.second;
+        if (g_trolleys.empty() && d < 60.f) {   // all of the mission's at once: the next ones are in sight behind their gates
+            uint32_t tm = Joaat("hei_prop_hei_cash_trolly_01");
+            if (LoadModel(tm)) {
+                for (size_t i = g_mStep; i < g_m.steps.size(); ++i) {
+                    const Step &o = g_m.steps[i];
+                    if (o.type != S_LOOT) continue;
+                    int e = N<int>(N_CREATE_OBJECT_NO_OFFSET, tm, o.pos.x, o.pos.y, o.pos.z - 1.f, 0, 0, 0);
+                    if (e) { N(N_SET_ENTITY_HEADING, e, o.heading + 180.f); N(N_PLACE_OBJECT_ON_GROUND_PROPERLY, e); N(N_FREEZE_ENTITY_POSITION, e, 1); }
+                    g_trolleys.push_back({(int)i, e});
+                }
+                N(N_SET_MODEL_AS_NO_LONGER_NEEDED, tm);
+            }
+        }
+        if (!g_loot.phase) {
+            if (d < 30.f) Marker(s.pos, 114, 204, 114);
+            N(N_REQUEST_ANIM_DICT, dict);
+            if (d < s.radius && !InAnyVehicle() && GuardsNear(mp)) Help("Deal with the guards first.");
+            else if (d < s.radius && !InAnyVehicle() && NB(N<int>(N_HAS_ANIM_DICT_LOADED, dict))) {
+                Help("Press ~INPUT_CONTEXT~ to grab the cash.");
+                if (JustPressed(51)) {
+                    float r = s.heading * 0.0174533f;
+                    N(N_SET_ENTITY_COORDS_NO_OFFSET, me, s.pos.x + std::sin(r) * 0.85f, s.pos.y - std::cos(r) * 0.85f, s.pos.z, 0, 0, 0);
+                    N(N_SET_ENTITY_HEADING, me, s.heading);
+                    N(N_FREEZE_ENTITY_POSITION, me, 1);
+                    N(N_TASK_PLAY_ANIM, me, dict, "intro", 8.f, -8.f, -1, 2, 0.f, 0, 0, 0);
+                    g_loot.phase = 1; g_loot.at = Now(); g_loot.from = g_mTake;
+                }
+            }
+        } else if (g_loot.phase == 1) {
+            if (Now() - g_loot.at > 1400) {
+                N(N_TASK_PLAY_ANIM, me, dict, "grab", 4.f, -4.f, -1, 1, 0.f, 0, 0, 0);
+                uint32_t pm = Joaat("hei_prop_heist_cash_pile");
+                if (LoadModel(pm)) {   // the stack in the hand, as the original's
+                    g_loot.pile = N<int>(N_CREATE_OBJECT, pm, mp.x, mp.y, mp.z, 0, 0, 0);
+                    if (g_loot.pile) N(N_ATTACH_ENTITY_TO_ENTITY, g_loot.pile, me, N<int>(N_GET_PED_BONE_INDEX, me, 60309), 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0, 0, 0, 0, 2, 1);
+                    N(N_SET_MODEL_AS_NO_LONGER_NEEDED, pm);
+                }
+                g_loot.phase = 2; g_loot.at = Now();
+            }
+        } else if (g_loot.phase == 2) {
+            const int ms = std::max(1, s.seconds) * 1000;
+            float f = std::min(1.f, (Now() - g_loot.at) / (float)ms);
+            int tk = g_loot.from + (int)(s.take * f);
+            if (tk / 2500 != g_mTake / 2500) Sound("LOCAL_PLYR_CASH_COUNTER_INCREASE", "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS");
+            g_mTake = tk;
+            if (f >= 1.f) {
+                Sound("LOCAL_PLYR_CASH_COUNTER_COMPLETE", "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS");
+                if (g_loot.pile) DeleteEntity(g_loot.pile);
+                N(N_TASK_PLAY_ANIM, me, dict, "exit", 4.f, -4.f, -1, 2, 0.f, 0, 0, 0);
+                uint32_t em = Joaat("hei_prop_hei_cash_trolly_03");   // the empty one stays
+                if (t && LoadModel(em)) {
+                    Vec3 tp = Pos(t); float th = N<float>(N_GET_ENTITY_HEADING, t);
+                    int e = N<int>(N_CREATE_OBJECT_NO_OFFSET, em, tp.x, tp.y, tp.z, 0, 0, 0);
+                    if (e) {
+                        N(N_SET_ENTITY_HEADING, e, th); N(N_FREEZE_ENTITY_POSITION, e, 1);
+                        for (auto &o : g_trolleys) if (o.first == (int)g_mStep) { DeleteEntity(o.second); o.second = e; }
+                    }
+                    N(N_SET_MODEL_AS_NO_LONGER_NEEDED, em);
+                }
+                g_loot.phase = 3; g_loot.at = Now();
+            }
+        } else if (g_loot.phase == 3 && Now() - g_loot.at > 1300) {
+            N(N_CLEAR_PED_TASKS, me);
+            N(N_FREEZE_ENTITY_POSITION, me, 0);
+            g_loot.phase = 0;
+            NextStep();
+        }
+        break;
+    }
     case S_ESCAPE: {
         int wanted = N<int>(N_GET_PLAYER_WANTED_LEVEL, Player());
         bool farEnough = s.escapeDist <= 0.f || Dist2(mp, s.pos) > s.escapeDist;
@@ -2591,6 +2759,8 @@ static Step Deliver(const std::string &t, Vec3 p, bool inVehicle = true) { Step 
 static Step Hold(const std::string &t, Vec3 p, int seconds) { Step s; s.type = S_HOLD; s.text = t; s.pos = p; s.radius = 2.5f; s.seconds = seconds; return s; }
 // the heists' minigames: at this spot, facing this way, on E
 static Step HackAt(const std::string &t, Vec3 p, float h) { Step s; s.type = S_HACK; s.text = t; s.pos = p; s.heading = h; s.radius = 1.5f; s.indoors = true; return s; }
+static Step PlantAt(const std::string &t, Vec3 p, float h, const char *door, Vec3 doorAt, float doorOpen) { Step s; s.type = S_PLANT; s.text = t; s.pos = p; s.heading = h; s.radius = 1.5f; s.indoors = true; s.door = door; s.doorAt = doorAt; s.doorOpen = doorOpen; return s; }
+static Step LootAt(const std::string &t, Vec3 p, float h, int take, int seconds) { Step s; s.type = S_LOOT; s.text = t; s.pos = p; s.heading = h; s.radius = 1.8f; s.indoors = true; s.take = take; s.seconds = seconds; return s; }
 static Step DrillAt(const std::string &t, Vec3 p, float h) { Step s; s.type = S_DRILL; s.text = t; s.pos = p; s.heading = h; s.radius = 1.5f; s.indoors = true; return s; }
 static Step Escape(const std::string &t, Vec3 p = V3(0, 0, 0), float dist = 0.f) { Step s; s.type = S_ESCAPE; s.text = t; s.pos = p; s.escapeDist = dist; return s; }
 static Step Enemies(Step s, int n, const char *model, const char *weapon) { s.enemies = n; s.enemyModel = model; s.enemyWeapon = weapon; return s; }
@@ -2835,9 +3005,10 @@ static const HeistDef HEISTS[NHEISTS] = {
     {"The Cayo Perico Heist", "Infiltrate El Rubio's compound from the Kosatka.", T_KOSATKA, 25000, 1900000, 9000, 3, {"Gather Intel", "Plasma Cutter", "Finale"}},
     {"The Kortz Center Heist", "Steal the masterpiece from the Kortz Center exhibition.", -1, 100000, 1600000, 8000, 3, {"Blueprints", "Cutting Tools", "Finale"}},
 };
+static bool g_heistTest = false;   // heiststart: no property needed
 static bool HeistUnlocked(int h, std::string &why) {
     int need = HEISTS[h].needType;
-    if (need == -1) return true;
+    if (need == -1 || g_heistTest) return true;
     for (auto &o : g_props) {
         int i = FindProp(o);
         if (i < 0) continue;
@@ -2888,6 +3059,87 @@ static void FleecaHostages() {   // the staff and a customer, hands up
         g_fleecaPeds.push_back(ped);
     }
 }
+// The Fleeca Job's first setup: a look inside before the job, no trouble (the doors open as for a customer)
+static void FleecaScope(Mission &m) {
+    Step in = Goto("Go into the ~y~Fleeca~s~ on the Great Ocean Highway.", V3(-2963.5f, 482.0f, 15.7f), 3.f);
+    in.indoors = true;
+    in.onStart = [] {
+        HgDoorLock("v_ilev_gb_teldr", -2960.176f, 479.01f, 15.97f, false);
+        HgDoorLock("v_ilev_genbankdoor1", -2965.7f, 481.6f, 15.9f, false);
+        HgDoorLock("v_ilev_genbankdoor2", -2965.7f, 484.1f, 15.9f, false);
+    };
+    in.onDone = [] { Notify("Lester: \"Take a good look at the vault door. Quietly.\""); };
+    m.steps.push_back(in);
+    Step look = Goto("Scope out the ~y~vault door~s~ in the back.", V3(-2957.0f, 481.0f, 15.7f), 1.5f);
+    look.indoors = true;
+    look.onDone = [] { Notify("Lester: \"A keypad and a deposit room. I can work with that. Leave before they notice.\""); };
+    m.steps.push_back(look);
+    Step out = Goto("Leave the ~y~bank~s~.", V3(-2968.5f, 482.5f, 15.0f), 4.f);
+    out.indoors = true;
+    m.steps.push_back(out);
+}
+// The Pacific Standard Job's finale, as Online's: the bank held up, thermal charges through the barred gates, the vault door
+// hacked, the trolleys emptied (the take), out with the police on you. The real bank of the map; points measured in game.
+static void PacificHostages() {
+    static const struct { const char *model; float x, y, h; } P[] = {{"s_m_m_security_01", 243.f, 226.f, 160.f}, {"a_f_y_business_01", 249.f, 228.f, 160.f}, {"a_m_y_business_02", 237.f, 219.f, 340.f}, {"cs_bankman", 247.f, 229.5f, 160.f}};
+    for (auto &p : P) {
+        uint32_t m = Joaat(p.model);
+        if (!LoadModel(m)) continue;
+        int ped = N<int>(N_CREATE_PED, 4, m, p.x, p.y, 106.3f, p.h, 0, 0);
+        N(N_SET_MODEL_AS_NO_LONGER_NEEDED, m);
+        if (!ped) continue;
+        N(N_SET_BLOCKING_OF_NON_TEMPORARY_EVENTS, ped, 1);
+        N(N_TASK_HANDS_UP, ped, -1, Me(), -1, 0);
+        g_fleecaPeds.push_back(ped);
+    }
+}
+static void PacificFinale(Mission &m, int payout) {
+    static const Vec3 FRONT_A = V3(231.512f, 216.518f, 106.405f), FRONT_B = V3(232.605f, 214.158f, 106.405f);
+    static const Vec3 GATE1 = V3(256.312f, 220.658f, 106.43f), GATE2 = V3(262.198f, 222.519f, 106.43f);
+    static const Vec3 VAULT = V3(255.228f, 223.976f, 102.393f), SAFE1 = V3(251.858f, 221.065f, 101.832f), SAFE2 = V3(261.3f, 214.505f, 101.832f);
+    Step in = Goto("Go into the ~y~Pacific Standard~s~.", V3(243.f, 222.f, 106.3f), 5.f);
+    in.indoors = true;
+    in.onStart = [] {
+        HgDoorLock("hei_prop_hei_bankdoor_new", FRONT_A.x, FRONT_A.y, FRONT_A.z, false);
+        HgDoorLock("hei_prop_hei_bankdoor_new", FRONT_B.x, FRONT_B.y, FRONT_B.z, false);
+        HgDoorLock("hei_v_ilev_bk_gate_pris", GATE1.x, GATE1.y, GATE1.z, true);       // only the charges open these
+        HgDoorLock("hei_v_ilev_bk_gate2_pris", GATE2.x, GATE2.y, GATE2.z, true);
+        HgDoorLock("hei_v_ilev_bk_safegate_pris", SAFE1.x, SAFE1.y, SAFE1.z, true);
+        HgDoorLock("hei_v_ilev_bk_safegate_pris", SAFE2.x, SAFE2.y, SAFE2.z, true);
+    };
+    in.onDone = [] { PacificHostages(); Notify("Lester: \"Keep them calm. The barred gates are past the counter: burn through them.\""); };
+    m.steps.push_back(in);
+    m.steps.push_back(PlantAt("Plant a ~y~thermal charge~s~ on the first gate.", V3(257.16f, 219.54f, 106.3f), 340.f, "hei_v_ilev_bk_gate_pris", GATE1, 70.f));
+    m.steps.push_back(PlantAt("Plant a ~y~thermal charge~s~ on the second gate.", V3(261.2f, 222.2f, 106.3f), 250.f, "hei_v_ilev_bk_gate2_pris", GATE2, 340.f));
+    Step hack = HackAt("~y~Hack~s~ the vault door's keypad.", V3(253.3f, 227.5f, 101.68f), 160.f);
+    hack.onDone = [] {
+        HgDoorTurn("v_ilev_bk_vaultdoor", VAULT.x, VAULT.y, VAULT.z, 70.f);
+        Sound("OPENING", "MP_PROPERTIES_ELEVATOR_DOORS");
+        AlarmStart("BIG_SCORE_HEIST_VAULT_ALARMS");
+        Notify("Lester: \"The vault's open and the alarm's gone. Burn the inner gates and grab what you can, the cops are on their way.\"");
+    };
+    m.steps.push_back(hack);
+    m.steps.push_back(PlantAt("Plant a ~y~thermal charge~s~ on the vault's gate.", V3(253.19f, 221.36f, 101.68f), 160.f, "hei_v_ilev_bk_safegate_pris", SAFE1, 70.f));
+    m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the trolley.", V3(257.44f, 215.07f, 101.68f), 160.f, payout / 4, 10));
+    m.steps.push_back(PlantAt("Plant a ~y~thermal charge~s~ on the deposit room's gate.", V3(260.99f, 215.84f, 101.68f), 250.f, "hei_v_ilev_bk_safegate_pris", SAFE2, 160.f));
+    m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the trolley.", V3(262.34f, 213.52f, 101.68f), 160.f, payout * 3 / 8, 12));
+    m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the last trolley.", V3(263.45f, 216.05f, 101.68f), 340.f, payout - payout / 4 - payout * 3 / 8, 12));
+    Step out = Goto("Get out of the ~y~bank~s~.", V3(225.5f, 212.5f, 105.5f), 4.f);
+    out.indoors = true; out.wanted = 4;
+    m.steps.push_back(out);
+    m.steps.push_back(Escape("Lose the ~r~cops~s~."));
+    m.onCleanup = [] {
+        HgDoorTurn("v_ilev_bk_vaultdoor", VAULT.x, VAULT.y, VAULT.z, 160.f);
+        HgDoorTurn("hei_v_ilev_bk_gate_pris", GATE1.x, GATE1.y, GATE1.z, 340.f);
+        HgDoorTurn("hei_v_ilev_bk_gate2_pris", GATE2.x, GATE2.y, GATE2.z, 250.f);
+        HgDoorTurn("hei_v_ilev_bk_safegate_pris", SAFE1.x, SAFE1.y, SAFE1.z, 160.f);
+        HgDoorTurn("hei_v_ilev_bk_safegate_pris", SAFE2.x, SAFE2.y, SAFE2.z, 250.f);
+        HgDoorLock("hei_prop_hei_bankdoor_new", FRONT_A.x, FRONT_A.y, FRONT_A.z, true);
+        HgDoorLock("hei_prop_hei_bankdoor_new", FRONT_B.x, FRONT_B.y, FRONT_B.z, true);
+        for (int &p : g_fleecaPeds) ForgetEntity(p);
+        g_fleecaPeds.clear();
+    };
+}
 static void FleecaFinale(Mission &m) {
     Step in = Goto("Go into the ~y~Fleeca~s~ bank.", V3(-2963.5f, 482.0f, 15.7f), 3.f);
     in.indoors = true;
@@ -2907,6 +3159,7 @@ static void FleecaFinale(Mission &m) {
     Step drill = DrillAt("~y~Drill~s~ the safety deposit box.", V3(-2958.1f, 485.0f, 15.7f), 90.f);
     drill.onDone = [] {   // the box's cash is yours, and that trips the alarm
         Sound("PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+        g_mTake = HEISTS[0].payout;
         N(N_SET_PLAYER_WANTED_LEVEL, Player(), 3, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0);
         Notify("Lester: \"You've got the cash. The alarm's tripped: get out of there.\"");
     };
@@ -2929,7 +3182,7 @@ static void StartHeist(int h) {
     bool finale = st == HEISTS[h].stages - 1;
     if (st == 0) { PayWhat what("heist setup (job)"); if (!Pay(HEISTS[h].fee)) return; }
     Mission m;
-    m.corona = true; m.resultCash = finale ? HEISTS[h].payout : 0; m.resultRp = HEISTS[h].rp;   // the results board at the end
+    m.corona = true; m.resultCash = finale ? HEISTS[h].payout : 0; m.resultRp = finale ? HEISTS[h].rp : 1500;   // the results board at the end
     m.name = std::string(HEISTS[h].name) + (finale ? "" : std::string(": ") + HEISTS[h].stageNames[st]);
     for (auto &c : m.name) c = (char)toupper((unsigned char)c);
     m.timeLimitMs = 30 * 60000;
@@ -2940,9 +3193,9 @@ static void StartHeist(int h) {
     auto prep = [&](Step s, int enemies, int gang) { s.snapFoot = s.type == S_PICKUP || s.type == S_GOTO; return Enemies(s, enemies, GANGS[gang][0], GANGS[gang][1]); };
     switch (h) {
     case 0:   // Fleeca
-        if (st == 0) { m.steps.push_back(Goto("Scope out the ~y~Fleeca~s~ on the Great Ocean Highway.", V3(-2966.f, 482.9f, 15.7f), 10.f)); }
-        else if (st == 1) { m.steps.push_back(Enemies(Steal("Steal the ~g~armored Kuruma~s~.", park, parkH, "kuruma2"), 4, "g_m_y_mexgoon_01", "weapon_microsmg"));
-                            m.steps.push_back(Deliver("Take it to your ~y~safehouse~s~.", safe)); m.keepVehicle = true; }
+        if (st == 0) FleecaScope(m);
+        else if (st == 1) { m.steps.push_back(Enemies(Steal("Steal the ~g~armored Kuruma~s~.", park, parkH, "kuruma2"), 6, "g_m_y_mexgoon_01", "weapon_microsmg"));
+                            Step take = Deliver("Take it to your ~y~safehouse~s~.", safe); take.chasers = 2; m.steps.push_back(take); m.keepVehicle = true; }
         else FleecaFinale(m);
         break;
     case 1:   // Prison break
@@ -2970,8 +3223,11 @@ static void StartHeist(int h) {
             Step g = Goto("Break into ~y~Humane Labs~s~.", V3(3617.f, 3739.f, 28.7f), 8.f);
             g.enemies = 8; g.enemyModel = "s_m_y_blackops_01"; g.enemyWeapon = "weapon_carbinerifle";
             m.steps.push_back(g);
-            Step d = Hold("Steal the ~g~compound~s~ from the lab.", V3(3536.7f, 3668.9f, 28.1f), 30); d.snapFoot = true; d.wanted = 4;
+            Step d = HackAt("~y~Hack~s~ the lab's terminal.", V3(3536.7f, 3668.9f, 28.12f), 0.f);
+            d.onDone = [] { N(N_SET_PLAYER_WANTED_LEVEL, Player(), 4, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0); };
             m.steps.push_back(d);
+            Step c = Pickup("Steal the ~g~compound~s~.", V3(3536.7f, 3666.5f, 28.1f), 1, "prop_ld_case_01"); c.indoors = true;
+            m.steps.push_back(c);
             m.steps.push_back(Escape("Lose the ~r~cops~s~."));
         }
         break;
@@ -2993,17 +3249,7 @@ static void StartHeist(int h) {
                             m.steps.push_back(Goto("Bring it to your ~y~safehouse~s~.", safe, 5.f)); }
         else if (st == 2) { m.steps.push_back(Enemies(Steal("Steal the ~g~Lectro~s~ getaway bike.", park, parkH, "lectro"), 3, "g_m_y_lost_01", "weapon_pistol"));
                             m.steps.push_back(Deliver("Hide it at your ~y~safehouse~s~.", safe)); }
-        else {
-            m.steps.push_back(Interior(Goto("Go to the ~y~Pacific Standard~s~.", V3(229.f, 213.f, 105.5f), 5.f), "psbank"));
-            Step d = Hold("~y~Hack~s~ the vault.", V3(253.3f, 228.4f, 101.7f), 45);
-            d.enemies = 4; d.enemyModel = "s_m_m_security_01"; d.enemyWeapon = "weapon_pistol"; d.wanted = 4; d.snapFoot = true;
-            m.steps.push_back(d);
-            m.steps.push_back(Pickup("Grab the ~g~cash~s~.", V3(263.f, 214.f, 101.7f), 2, "prop_money_bag_01"));
-            Step out = Goto("Get out of the ~y~bank~s~.", V3(247.f, 222.f, 106.3f), 3.f);
-            out.onDone = [] { Teleport(229.f, 205.f, 105.5f, 160.f); };
-            m.steps.push_back(out);
-            m.steps.push_back(Escape("Lose the ~r~cops~s~."));
-        }
+        else PacificFinale(m, HEISTS[h].payout);
         break;
     case 5:   // Diamond Casino
         if (st == 0) { m.steps.push_back(prep(Pickup("Steal the ~g~vault keycards~s~.", PickSpot(HOSTILE_SPOTS), 1, "prop_cs_swipe_card"), 5, 3));
@@ -3012,10 +3258,11 @@ static void StartHeist(int h) {
                             m.steps.push_back(Deliver("Park it near the ~y~casino~s~.", V3(930.f, 30.f, 80.f))); m.keepVehicle = true; }
         else {
             m.steps.push_back(Interior(Goto("Walk into the ~y~Diamond Casino~s~.", V3(924.4f, 46.9f, 81.1f), 4.f), "casino"));
-            Step d = Hold("Break into the ~y~cashier cage~s~.", V3(1117.8f, 219.9f, -49.4f), 35);
-            d.enemies = 8; d.enemyModel = "s_m_m_highsec_01"; d.enemyWeapon = "weapon_smg"; d.snapFoot = true;
+            Step d = HackAt("~y~Hack~s~ the lock of the ~y~cashier cage~s~.", V3(1117.8f, 219.9f, -49.44f), 90.f);
+            d.enemies = 8; d.enemyModel = "s_m_m_highsec_01"; d.enemyWeapon = "weapon_smg";
             m.steps.push_back(d);
-            m.steps.push_back(Pickup("Grab the ~g~cash~s~.", V3(1112.f, 222.f, -49.4f), 3, "prop_money_bag_01"));
+            m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the trolley.", V3(1119.15f, 222.f, -49.44f), 90.f, HEISTS[h].payout / 2, 12));
+            m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the other trolley.", V3(1119.15f, 218.f, -49.44f), 90.f, HEISTS[h].payout - HEISTS[h].payout / 2, 12));
             Step out = Goto("Leave the ~y~casino~s~.", V3(1089.97f, 206.0f, -49.0f), 3.f);
             out.onDone = [] { Teleport(918.f, 51.f, 80.9f, 330.f); N(N_SET_PLAYER_WANTED_LEVEL, Player(), 4, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0); };
             m.steps.push_back(out);
@@ -3035,8 +3282,7 @@ static void StartHeist(int h) {
             go.onStart = [] { TravelCayo(4300.f, -5900.f, 0.5f, 40.f, "longfin"); };
             go.enemies = 10; go.enemyModel = "g_m_m_cartelguards_01"; go.enemyWeapon = "weapon_assaultrifle";
             m.steps.push_back(go);
-            Step d = Hold("Cut into the ~y~office safe~s~.", V3(5010.f, -5752.f, 28.8f), 40); d.snapFoot = true;
-            m.steps.push_back(d);
+            m.steps.push_back(DrillAt("~y~Drill~s~ the office safe.", V3(5010.f, -5752.f, 28.8f), 0.f));
             Step p = Pickup("Take the ~g~loot~s~.", V3(5010.f, -5752.f, 28.8f), 3, "prop_gold_bar"); p.snapFoot = true;
             m.steps.push_back(p);
             m.steps.push_back(Escape("Escape the island: get out to ~b~open sea~s~.", V3(4840.f, -5170.f, 0.f), 1800.f));
@@ -4489,6 +4735,14 @@ static void CommandTick() {
             else if (a[1] == "bg" && a.size() > 2) g_hack.background = std::atoi(a[2].c_str());
             else { if (g_drill.on) DrillEnd(); if (g_hack.on) HackEnd(); g_hgTest = 0; }
         }
+        else if (a[0] == "mskip") {   // mskip: the mission's current step done (test)
+            if (g_drill.on) DrillEnd();
+            if (g_hack.on) HackEnd();
+            if (g_mActive) { N(N_FREEZE_ENTITY_POSITION, Me(), 0); NextStep(); }
+            if (!g_mActive) N(N_CLEAR_PLAYER_WANTED_LEVEL, Player());
+        }
+        else if (a[0] == "doorlock" && a.size() > 5) HgDoorLock(a[1].c_str(), F(2), F(3), F(4), a[5] == "1");   // doorlock model x y z 0|1 (test)
+        else if (a[0] == "doorturn" && a.size() > 5) HgDoorTurn(a[1].c_str(), F(2), F(3), F(4), F(5));         // doorturn model x y z heading (test)
         else if (a[0] == "walkto" && a.size() > 3) N(N_TASK_FOLLOW_NAV_MESH_TO_COORD, Me(), F(1), F(2), F(3), 1.f, 20000, 0.5f, 0, 0.f);   // walkto x y z: on foot (does a door let you through?)
         else if (a[0] == "objfind" && a.size() > 5) {   // objfind model x y z r: the closest object of a model there (doors for the heists)
             uint32_t m = Joaat(a[1].c_str());
@@ -4496,7 +4750,7 @@ static void CommandTick() {
             Vec3 op = o ? Pos(o) : Vec3{};
             Log("objfind %s: %d at %.3f %.3f %.3f heading %.1f", a[1].c_str(), o, op.x, op.y, op.z, o ? N<float>(N_GET_ENTITY_HEADING, o) : 0.f);
         }
-        else if (a[0] == "heiststart" && a.size() > 1) StartHeist(std::atoi(a[1].c_str()) % NHEISTS);   // heiststart <h>: its current stage, no lobby (test)
+        else if (a[0] == "heiststart" && a.size() > 1) { g_heistReadyAt = 0; g_heistTest = true; StartHeist(std::atoi(a[1].c_str()) % NHEISTS); g_heistTest = false; }   // heiststart <h>: its current stage, no lobby (test)
         else if (a[0] == "hbstage") {   // hbstage [h s]: log the heists' stages, or set one and save it (test: set it back after)
             if (a.size() > 2) { int h = std::atoi(a[1].c_str()) % NHEISTS; g_heistStage[h] = std::clamp(std::atoi(a[2].c_str()), 0, HEISTS[h].stages - 1); g_hb.heist = h; Save(); }
             std::string t; for (int h = 0; h < NHEISTS; ++h) t += std::to_string(g_heistStage[h]) + " ";
