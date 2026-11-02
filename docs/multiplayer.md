@@ -426,9 +426,10 @@ GTA Online-style races, solo or online, with GTA Online's look: countdown, check
   - HUD: time left, kills, deaths, position. A results board at the end, and the weapons given are removed again.
   - The server counts kills/deaths in HandleDeath, ranks by kills then deaths, and pays everyone who played by position (payout $10k per 5 min).
   - Verified with netprobe `dmhost`/`dmjoin` on an isolated server: 11 kills / 6 deaths won $20,000, second $15,000. Not in game yet.
-- **Contact missions** (ContactMissions.inc). 32 missions with GTA Online's names for Gerald, Simeon, Lamar, Martin, Ron and Trevor.
-  - Built from 5 templates: eliminate, steal a vehicle, grab a package, destroy (plant, explosion), rescue.
-  - Unlocked by rank, $5k-$18k, co-op jobs.
+- **Contact missions** (ContactMissions.inc). 148 missions for Gerald, Simeon, Lamar, Martin, Ron, Trevor, Lester, Agent 14 (Mobile Operations), SecuroServ (Special Vehicle Work) and Ms. Baker (Casino Story), using GTA Online's mission names, unlock ranks and player counts (2026-11-02; the first version had 32).
+  - Includes the later strands: Gerald's Last Play, Premium Deluxe Repo Work, Lamar's Lowriders, Short Trips, Madrazo Dispatch Services.
+  - These are recreations, not Rockstar's scripts: built from 6 templates (eliminate, steal a vehicle, grab a package, destroy, rescue, hold up). Targets, briefings and pay are ours, placed from the mission's name or its known area.
+  - Unlocked by rank (strand missions from rank 1, without Online's strand order), co-op jobs. Aircraft are landed at the Grapeseed airstrip.
   - Interaction Menu → Contact Missions, or call the contact (the phone now opens his missions instead of the heists). Test: `cm <contact> <mission>`.
 - **Ammu-Nation clerk.** `s_m_y_ammucity_01` / `s_m_m_ammucountry` behind each counter; he turns to face you. Verified at Pillbox Hill.
 - **Lester's phone picture.** The phone shows a silhouette for him because the CHAR_LESTER texture is one: that is the game's own picture. An earlier label swap to `CELL_E_311` was removed (2026-10-14).
@@ -643,10 +644,15 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
 - **Done in the evening.** The Last Dose, deathmatches, 32 contact missions.
 - **Done 2026-10-13.** Survival (solo and co-op).
 - **Done 2026-10-14.** Transform races, special-vehicle and Hotring classes, Race Creator anywhere on the map; Salvage Yards, Bail Offices, Garment Factory and the Money Fronts businesses.
+- **Done 2026-11-02.**
+  - Rockstar Created races: the player's own download of Online's 254 races, stunt tracks included, converted to Gori race files.
+  - Contact missions: GTA Online's roster (see below), Lester included.
+  - Heist finales played on foot: Pacific Standard, Fleeca, Prison Break, Humane Labs, the Casino and Cayo Perico with their minigames, thermal charges, cash trolleys and getaways.
+  - Heist setups with Online's names and order: Prison Break (Plane, Bus, Station, Wet Work), Humane Labs (Key Codes, Insurgents, EMP, Valkyrie, Deliver EMP), Series A (Coke, Trash Truck, Bikers, Weed, Steal Meth, then holding the warehouse) and Pacific Standard (Vans, Signal, Hack, Convoy, Bikes). Recreations for a solo-or-co-op crew: Online's two-team objectives are played one after the other. The Coke and EMP setups load the heist yacht and the USS Luxington (`hei_yacht_heist*`, `hei_carrier*`).
+  - The story's race launcher (`launcher_racing`) is stopped in YOU mode, so its prompts don't appear in Online.
 - **Next.**
-  - Stunt race checkpoints for the 129 stunt tracks (the Race Creator does it by hand today).
-  - More contact missions (Lester, Martin's later ones, Agent 14...).
-  - The businesses' own heists (Salvage Yard robbery finales, bail office staff missions).
+  - The newer strands (Brendan Darcy, Sessanta and KDJ, Franklin's VIP Contract, and others).
+  - Second-player checks: shared votes, heist cuts, roles.
 
 ## Co-op jobs (protocol v9, 2026-10-12)
 

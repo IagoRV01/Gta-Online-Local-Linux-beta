@@ -2188,7 +2188,7 @@ static void BuyProperty(int i, int price = -1) {   // price: the website's total
 }
 
 // ---------------------------------------------------------------- Missions (jobs, sell missions, heists)
-enum StepType { S_GOTO, S_PICKUP, S_STEAL, S_DELIVER, S_HOLD, S_ESCAPE, S_HACK, S_DRILL, S_PLANT, S_LOOT };
+enum StepType { S_GOTO, S_PICKUP, S_STEAL, S_DELIVER, S_HOLD, S_ESCAPE, S_HACK, S_DRILL, S_PLANT, S_LOOT, S_KILL };
 #include "HeistGames.inc"   // the heists' minigames: the drill, the hack
 static int g_hgTest = 0;     // hgame: 1 drill, 2 hack
 struct Step {
@@ -2197,6 +2197,7 @@ struct Step {
     Vec3 pos{};
     float radius = 6.f, heading = 0.f;
     bool snapRoad = false, snapFoot = false;   // move the target to the nearest road / walkable spot
+    bool holdStill = false;                    // S_HOLD: stand there, not welding
     bool indoors = false;                      // the target is inside a building: keep it exactly there
     std::string door;                          // S_PLANT: the gate the thermal charge opens
     Vec3 doorAt{}; float doorOpen = 0.f;       // where it is, its heading when open
@@ -2436,7 +2437,7 @@ static void InitStep(Step &s) {
         uint32_t vm = Joaat(s.vehicle.c_str());
         Vec3 p = s.pos; float h = s.heading;
         Vec3 out{}; float oh = h;
-        if (NB(N<int>(N_GET_CLOSEST_VEHICLE_NODE_WITH_HEADING, p.x, p.y, p.z, &out, &oh, 1, 3.0f, 0.0f)) && Dist(out, p) < 60.f) { p = out; h = oh; }
+        if (!s.indoors && NB(N<int>(N_GET_CLOSEST_VEHICLE_NODE_WITH_HEADING, p.x, p.y, p.z, &out, &oh, 1, 3.0f, 0.0f)) && Dist(out, p) < 60.f) { p = out; h = oh; }
         if (LoadModel(vm)) {
             g_mVeh = N<int>(N_CREATE_VEHICLE, vm, p.x, p.y, p.z, h, 0, 0, 0);
             N(N_SET_MODEL_AS_NO_LONGER_NEEDED, vm);
@@ -2525,6 +2526,12 @@ static void MissionTick() {
         if (d < 60.f) Marker(s.pos, 240, 200, 80);
         if (d < s.radius) NextStep();
         break;
+    case S_KILL: {   // all of them down
+        bool any = false;
+        for (int p : g_mPeds) if (Exists(p) && !Dead(p)) any = true;
+        if (g_enemiesUp && !any) NextStep();
+        break;
+    }
     case S_STEAL:
         if (g_mVeh && inMissionVeh) { RemoveBlip(g_mVehBlip); NextStep(); }
         break;
@@ -2578,7 +2585,7 @@ static void MissionTick() {
         int now = Now();
         bool inside = d < s.radius && !InAnyVehicle();
         if (inside) {
-            if (!g_holding) { N(N_TASK_START_SCENARIO_IN_PLACE, me, "WORLD_HUMAN_WELDING", 0, 1); g_holding = 1; }
+            if (!g_holding) { if (!s.holdStill) N(N_TASK_START_SCENARIO_IN_PLACE, me, "WORLD_HUMAN_WELDING", 0, 1); g_holding = 1; }
             g_holdMs += now - g_holdLast;
         } else if (g_holding) { N(N_CLEAR_PED_TASKS, me); g_holding = 0; }
         g_holdLast = now;
@@ -2762,6 +2769,7 @@ static Step HackAt(const std::string &t, Vec3 p, float h) { Step s; s.type = S_H
 static Step PlantAt(const std::string &t, Vec3 p, float h, const char *door, Vec3 doorAt, float doorOpen) { Step s; s.type = S_PLANT; s.text = t; s.pos = p; s.heading = h; s.radius = 1.5f; s.indoors = true; s.door = door; s.doorAt = doorAt; s.doorOpen = doorOpen; return s; }
 static Step LootAt(const std::string &t, Vec3 p, float h, int take, int seconds) { Step s; s.type = S_LOOT; s.text = t; s.pos = p; s.heading = h; s.radius = 1.8f; s.indoors = true; s.take = take; s.seconds = seconds; return s; }
 static Step DrillAt(const std::string &t, Vec3 p, float h) { Step s; s.type = S_DRILL; s.text = t; s.pos = p; s.heading = h; s.radius = 1.5f; s.indoors = true; return s; }
+static Step KillAll(const std::string &t, Vec3 p, int n, const char *model, const char *weapon) { Step s; s.type = S_KILL; s.text = t; s.pos = p; s.indoors = true; s.enemies = n; s.enemyModel = model; s.enemyWeapon = weapon; return s; }
 static Step Escape(const std::string &t, Vec3 p = V3(0, 0, 0), float dist = 0.f) { Step s; s.type = S_ESCAPE; s.text = t; s.pos = p; s.escapeDist = dist; return s; }
 static Step Enemies(Step s, int n, const char *model, const char *weapon) { s.enemies = n; s.enemyModel = model; s.enemyWeapon = weapon; return s; }
 
@@ -2994,13 +3002,13 @@ static void TravelCayo(float x, float y, float z, float h, const char *boat) {
 }
 
 // ---------------------------------------------------------------- Heists
-struct HeistDef { const char *name, *desc; int needType, fee, payout, rp; int stages; const char *stageNames[4]; };
+struct HeistDef { const char *name, *desc; int needType, fee, payout, rp; int stages; const char *stageNames[6]; };
 static const HeistDef HEISTS[NHEISTS] = {
     {"The Fleeca Job", "Lester's warm-up: drill a Fleeca vault on the Great Ocean Highway.", -2, 25000, 230000, 3000, 3, {"Scope Out", "Kuruma", "Finale"}},
-    {"The Prison Break", "Break Rashkovsky out of Bolingbroke Penitentiary.", -2, 40000, 1000000, 6000, 3, {"Plane", "Uniforms", "Finale"}},
-    {"The Humane Labs Raid", "Steal the experimental compound from Humane Labs.", -2, 50000, 1350000, 7000, 3, {"Key Codes", "Insurgents", "Finale"}},
-    {"Series A Funding", "Collect the product of three gangs for Trevor.", -2, 50000, 800000, 6000, 4, {"Families", "Vagos", "The Lost", "Finale"}},
-    {"The Pacific Standard Job", "Rob the vault of the Pacific Standard bank.", -2, 75000, 1250000, 8000, 4, {"Vans", "Hack", "Bikes", "Finale"}},
+    {"The Prison Break", "Break Rashkovsky out of Bolingbroke Penitentiary.", -2, 40000, 1000000, 6000, 5, {"Plane", "Bus", "Station", "Wet Work", "Finale"}},
+    {"The Humane Labs Raid", "Steal the experimental compound from Humane Labs.", -2, 50000, 1350000, 7000, 6, {"Key Codes", "Insurgents", "EMP", "Valkyrie", "Deliver EMP", "Finale"}},
+    {"Series A Funding", "Fund Trevor's business with the product of four crews.", -2, 50000, 800000, 6000, 6, {"Coke", "Trash Truck", "Bikers", "Weed", "Steal Meth", "Finale"}},
+    {"The Pacific Standard Job", "Rob the vault of the Pacific Standard bank.", -2, 75000, 1250000, 8000, 6, {"Vans", "Signal", "Hack", "Convoy", "Bikes", "Finale"}},
     {"The Diamond Casino Heist", "Hit the cashier cage of the Diamond Casino.", T_ARCADE, 100000, 2100000, 9000, 3, {"Keycards", "Getaway", "Finale"}},
     {"The Cayo Perico Heist", "Infiltrate El Rubio's compound from the Kosatka.", T_KOSATKA, 25000, 1900000, 9000, 3, {"Gather Intel", "Plasma Cutter", "Finale"}},
     {"The Kortz Center Heist", "Steal the masterpiece from the Kortz Center exhibition.", -1, 100000, 1600000, 8000, 3, {"Blueprints", "Cutting Tools", "Finale"}},
@@ -3080,6 +3088,7 @@ static void FleecaScope(Mission &m) {
 }
 // The Pacific Standard Job's finale, as Online's: the bank held up, thermal charges through the barred gates, the vault door
 // hacked, the trolleys emptied (the take), out with the police on you. The real bank of the map; points measured in game.
+static void GetawayCar(const char *model, float x, float y, float z, float h);
 static void PacificHostages() {
     static const struct { const char *model; float x, y, h; } P[] = {{"s_m_m_security_01", 243.f, 226.f, 160.f}, {"a_f_y_business_01", 249.f, 228.f, 160.f}, {"a_m_y_business_02", 237.f, 219.f, 340.f}, {"cs_bankman", 247.f, 229.5f, 160.f}};
     for (auto &p : P) {
@@ -3126,6 +3135,7 @@ static void PacificFinale(Mission &m, int payout) {
     m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the last trolley.", V3(263.45f, 216.05f, 101.68f), 340.f, payout - payout / 4 - payout * 3 / 8, 12));
     Step out = Goto("Get out of the ~y~bank~s~.", V3(225.5f, 212.5f, 105.5f), 4.f);
     out.indoors = true; out.wanted = 4;
+    out.onStart = [] { GetawayCar("lectro", 221.5f, 207.5f, 105.5f, 250.f); };
     m.steps.push_back(out);
     m.steps.push_back(Escape("Lose the ~r~cops~s~."));
     m.onCleanup = [] {
@@ -3138,6 +3148,42 @@ static void PacificFinale(Mission &m, int payout) {
         HgDoorLock("hei_prop_hei_bankdoor_new", FRONT_B.x, FRONT_B.y, FRONT_B.z, true);
         for (int &p : g_fleecaPeds) ForgetEntity(p);
         g_fleecaPeds.clear();
+    };
+}
+static void GetawayCar(const char *model, float x, float y, float z, float h) {   // waiting at the way out
+    uint32_t vm = Joaat(model);
+    if (!LoadModel(vm)) return;
+    int v = N<int>(N_CREATE_VEHICLE, vm, x, y, z, h, 0, 0, 0);
+    N(N_SET_MODEL_AS_NO_LONGER_NEEDED, vm);
+    if (!v) return;
+    N(N_SET_ENTITY_AS_MISSION_ENTITY, v, 1, 1);
+    N(N_SET_VEHICLE_ON_GROUND_PROPERLY, v, 5.f);
+    g_mCars.push_back(v);
+    g_mPedBlips.push_back(AddBlip(v, 225, 3, "Getaway"));
+}
+// The Prison Break's finale: the gate controls hacked, through the real gates to the yard, out with Rashkovsky
+static void PrisonFinale(Mission &m) {
+    static const Vec3 G1 = V3(1844.998f, 2604.813f, 44.638f), G2 = V3(1818.543f, 2604.813f, 44.611f);
+    Step g = Goto("Get to the ~y~prison gate~s~.", V3(1856.f, 2607.5f, 45.67f), 6.f);
+    g.indoors = true;
+    m.steps.push_back(g);
+    Step hack = HackAt("~y~Hack~s~ the gate's control box.", V3(1847.1f, 2605.1f, 45.67f), 90.f);
+    hack.onDone = [] {
+        HgDoorSlide("prop_gate_prison_01", G1.x, G1.y, G1.z, 0.f, 12.f);
+        HgDoorSlide("prop_gate_prison_01", G2.x, G2.y, G2.z, 0.f, 12.f);
+        Sound("OPENING", "MP_PROPERTIES_ELEVATOR_DOORS");
+        Notify("Lester: \"Gates are open. Get to the yard, Rashkovsky's waiting.\"");
+    };
+    m.steps.push_back(hack);
+    Step y = Goto("Find ~b~Rashkovsky~s~ in the yard.", V3(1691.0f, 2565.0f, 45.6f), 3.f);
+    y.enemies = 8; y.enemyModel = "s_m_m_prisguard_01"; y.enemyWeapon = "weapon_pistol"; y.wanted = 3; y.indoors = true;
+    m.steps.push_back(y);
+    Step e = Escape("Escape the prison with Rashkovsky and lose the ~r~cops~s~."); e.ally = "s_m_y_prisoner_01";
+    m.steps.push_back(e);
+    m.steps.push_back(Deliver("Take Rashkovsky to the ~y~Sandy Shores airfield~s~.", V3(1733.f, 3291.f, 41.1f), false));
+    m.onCleanup = [] {
+        HgDoorSlide("prop_gate_prison_01", G1.x, G1.y, G1.z, 0.f, 0.f);
+        HgDoorSlide("prop_gate_prison_01", G2.x, G2.y, G2.z, 0.f, 0.f);
     };
 }
 static void FleecaFinale(Mission &m) {
@@ -3166,6 +3212,7 @@ static void FleecaFinale(Mission &m) {
     m.steps.push_back(drill);
     Step out = Goto("Get out of the ~y~bank~s~.", V3(-2968.5f, 482.5f, 15.0f), 4.f);
     out.indoors = true;
+    out.onStart = [] { GetawayCar("kuruma2", -2976.f, 482.f, 15.2f, 355.f); };
     m.steps.push_back(out);
     m.steps.push_back(Escape("Lose the ~r~cops~s~."));
     m.onCleanup = [] {
@@ -3174,13 +3221,103 @@ static void FleecaFinale(Mission &m) {
         g_fleecaPeds.clear();
     };
 }
+static Step Land(const std::string &t, Vec3 p, float r = 30.f) { Step d = Deliver(t, p); d.radius = r; d.snapRoad = false; return d; }
+static Step Air(Step s) { s.indoors = true; return s; }   // stolen where it stands
+static void HeistYacht(bool on) {
+    for (const char *ipl : {"hei_yacht_heist", "hei_yacht_heist_Bar", "hei_yacht_heist_Bedrm", "hei_yacht_heist_Bridge", "hei_yacht_heist_enginrm", "hei_yacht_heist_Lounge", "hei_yacht_heist_LODLights", "hei_yacht_heist_DistantLights"})
+        N(on ? N_REQUEST_IPL : N_REMOVE_IPL, ipl);
+}
+static void HeistCarrier(bool on) {
+    for (const char *ipl : {"hei_carrier", "hei_carrier_int1", "hei_carrier_int2", "hei_carrier_int3", "hei_carrier_int4", "hei_carrier_int5", "hei_carrier_int6", "hei_carrier_DistantLights", "hei_carrier_LODLights"})
+        N(on ? N_REQUEST_IPL : N_REMOVE_IPL, ipl);
+}
+static const Vec3 HEIST_WAREHOUSE = V3(3310.f, 5176.f, 19.6f), HEIST_SANDY = V3(1733.f, 3291.f, 41.1f), HEIST_MCKENZIE = V3(2133.f, 4783.f, 40.9f), LESTER_FACTORY = V3(716.8f, -962.0f, 30.4f);
+// Series A Funding: the setups end at Trevor's warehouse by El Gordo Lighthouse
+static void SeriesA(Mission &m, int st) {
+    switch (st) {
+    case 0: {   // Coke: the dealers' yacht off Del Perro
+        Step b = Goto("Take the ~b~dinghy~s~ to the ~y~yacht~s~ off Del Perro.", V3(-2043.f, -1031.f, 2.f), 35.f);
+        b.indoors = true;
+        b.onStart = [] { HeistYacht(true); GetawayCar("dinghy", -1890.f, -1240.f, 0.6f, 300.f); };
+        b.onDone = [] { Teleport(-2045.8f, -1031.2f, 12.2f, 240.f); };
+        m.steps.push_back(b);
+        m.steps.push_back(KillAll("Clear the ~r~dealers~s~ off the yacht.", V3(-2045.8f, -1031.2f, 12.f), 8, "g_m_y_mexgoon_01", "weapon_microsmg"));
+        Step c = Pickup("Steal the ~g~coke~s~.", V3(-2050.f, -1031.f, 12.f), 1, "prop_drug_package"); c.indoors = true;
+        m.steps.push_back(c);
+        Step e = Escape("Get away and lose the ~r~cops~s~."); e.wanted = 2;
+        m.steps.push_back(e);
+        m.steps.push_back(Goto("Take the coke to the ~y~warehouse~s~ at El Gordo Lighthouse.", HEIST_WAREHOUSE, 8.f));
+        m.onCleanup = [] { HeistYacht(false); };
+        break;
+    }
+    case 1: {   // Trash Truck: the molly in the bins along its round
+        static const float stops[4][3] = {{-100.f, -1590.f, 30.f}, {830.f, -1200.f, 26.f}, {750.f, -1650.f, 30.f}, {-40.f, -1100.f, 27.f}};
+        static const char *const names[4] = {"Forum Drive", "Capital Boulevard", "Supply Street", "Vespucci Boulevard"};
+        m.steps.push_back(Steal("Steal the ~g~Trashmaster~s~ from South L.S. Recycling.", V3(-350.f, -1540.f, 27.f), 0.f, "trash"));
+        for (int i = 0; i < 4; ++i) {
+            Vec3 at = V3(stops[i][0], stops[i][1], stops[i][2]);
+            m.steps.push_back(Deliver(std::string("Drive to the bins on ~y~") + names[i] + "~s~.", at));
+            Step p = Pickup("Collect the ~g~trash bags~s~.", at, 2, "prop_rub_binbag_sd_01");
+            p.snapFoot = true;
+            m.steps.push_back(Enemies(p, 3, "g_m_y_ballaeast_01", "weapon_pistol"));
+        }
+        Step d = Deliver("Take the Trashmaster to the ~y~warehouse~s~.", HEIST_WAREHOUSE); d.chasers = 2;
+        m.steps.push_back(d);
+        break;
+    }
+    case 2: {   // Bikers: the Lost's vans at Stab City
+        m.steps.push_back(Enemies(Steal("Steal the ~g~Gang Burrito~s~ from the Lost at Stab City.", V3(70.f, 3730.f, 39.7f), 0.f, "gburrito"), 8, "g_m_y_lost_01", "weapon_sawnoffshotgun"));
+        Step d = Deliver("Take the meds to the ~y~warehouse~s~.", HEIST_WAREHOUSE); d.chasers = 2;
+        m.steps.push_back(d);
+        break;
+    }
+    case 3: {   // Weed: the Ballas' Benson at the Paleto sawmill
+        m.steps.push_back(Enemies(Steal("Steal the ~g~Benson~s~ from the Ballas at the Paleto sawmill.", V3(-560.f, 5280.f, 70.f), 0.f, "benson"), 8, "g_m_y_ballaorig_01", "weapon_microsmg"));
+        Step d = Deliver("Take the weed to the ~y~warehouse~s~.", HEIST_WAREHOUSE); d.chasers = 2;
+        m.steps.push_back(d);
+        break;
+    }
+    case 4: {   // Steal Meth: the tanker at O'Neil Ranch
+        Step g = Goto("Go to ~y~O'Neil Ranch~s~.", V3(2430.f, 4970.f, 46.f), 30.f);
+        m.steps.push_back(g);
+        m.steps.push_back(KillAll("Clear the ~r~meth dealers~s~.", V3(2430.f, 4970.f, 46.f), 8, "a_m_m_hillbilly_01", "weapon_pumpshotgun"));
+        m.steps.push_back(Steal("Steal the ~g~tanker~s~.", V3(2425.f, 4990.f, 46.f), 45.f, "phantom"));
+        Step d = Deliver("Take the tanker to ~y~Trevor's meth lab~s~.", V3(1395.f, 3613.f, 34.9f));
+        d.onStart = [] {
+            uint32_t tm = Joaat("tanker");
+            if (!g_mVeh || !LoadModel(tm)) return;
+            Vec3 p = Pos(g_mVeh);
+            float hd = N<float>(N_GET_ENTITY_HEADING, g_mVeh), a = hd * 3.14159f / 180.f;
+            int t = N<int>(N_CREATE_VEHICLE, tm, p.x + std::sin(a) * 9.f, p.y - std::cos(a) * 9.f, p.z, hd, 0, 0, 0);
+            N(N_SET_MODEL_AS_NO_LONGER_NEEDED, tm);
+            if (!t) return;
+            N(N_SET_ENTITY_AS_MISSION_ENTITY, t, 1, 1);
+            N(N_SET_VEHICLE_ON_GROUND_PROPERLY, t, 5.f);
+            N(N_ATTACH_VEHICLE_TO_TRAILER, g_mVeh, t, 1.f);
+            g_mCars.push_back(t);
+        };
+        m.steps.push_back(d);
+        break;
+    }
+    default: {  // the finale: hold the warehouse, then the Mule to Trevor
+        Step g = Goto("Get to the ~y~warehouse~s~ at El Gordo Lighthouse.", HEIST_WAREHOUSE, 15.f);
+        m.steps.push_back(g);
+        m.steps.push_back(KillAll("Defend the warehouse from the ~r~attackers~s~.", HEIST_WAREHOUSE, 10, "g_m_y_mexgoon_02", "weapon_assaultrifle"));
+        m.steps.push_back(KillAll("Hold your position: more ~r~attackers~s~ are coming.", HEIST_WAREHOUSE, 12, "g_m_y_lost_02", "weapon_assaultrifle"));
+        m.steps.push_back(Steal("Get in the ~g~Mule~s~.", HEIST_WAREHOUSE, 0.f, "mule"));
+        Step d = Deliver("Take the product to ~y~Trevor~s~ at the Sandy Shores airfield.", HEIST_SANDY); d.chasers = 3;
+        m.steps.push_back(d);
+        break;
+    }
+    }
+}
 static void StartHeist(int h) {
     std::string why;
     if (!HeistUnlocked(h, why)) { Notify("~r~" + why); return; }
     if (g_playMin < g_heistReadyAt) { Notify("Lester: \"Lay low for a while. Next job in " + std::to_string(g_heistReadyAt - g_playMin) + " minutes.\""); return; }
     int st = g_heistStage[h];
     bool finale = st == HEISTS[h].stages - 1;
-    if (st == 0) { PayWhat what("heist setup (job)"); if (!Pay(HEISTS[h].fee)) return; }
+    if (st == 0 && !g_heistTest) { PayWhat what("heist setup (job)"); if (!Pay(HEISTS[h].fee)) return; }
     Mission m;
     m.corona = true; m.resultCash = finale ? HEISTS[h].payout : 0; m.resultRp = finale ? HEISTS[h].rp : 1500;   // the results board at the end
     m.name = std::string(HEISTS[h].name) + (finale ? "" : std::string(": ") + HEISTS[h].stageNames[st]);
@@ -3199,26 +3336,51 @@ static void StartHeist(int h) {
         else FleecaFinale(m);
         break;
     case 1:   // Prison break
-        if (st == 0) { m.steps.push_back(Enemies(Steal("Steal the ~g~Velum~s~ at Sandy Shores airfield.", V3(1708.f, 3254.f, 41.f), 105.f, "velum2"), 4, "g_m_y_lost_01", "weapon_sawnoffshotgun"));
-                       m.steps.push_back(Deliver("Land it at the ~y~Grapeseed airstrip~s~.", V3(2133.f, 4783.f, 40.9f))); }
-        else if (st == 1) { m.steps.push_back(prep(Pickup("Steal the ~g~prison guard uniforms~s~.", V3(1855.f, 2601.f, 45.6f), 1, "prop_cs_cardbox_01"), 3, 2)); }
+        if (st == 0) { m.steps.push_back(Enemies(Air(Steal("Steal the ~g~Velum~s~ at McKenzie Airfield.", HEIST_MCKENZIE, 290.f, "velum2")), 6, "g_m_y_mexgoon_01", "weapon_microsmg"));
+                       m.steps.push_back(Land("Fly it to the ~y~hangar~s~ at Sandy Shores.", HEIST_SANDY)); }
+        else if (st == 1) { m.steps.push_back(Enemies(Steal("Hijack the ~g~prison bus~s~ in the Grand Senora Desert.", V3(1500.f, 2700.f, 37.f), 0.f, "pbus"), 5, "s_m_y_cop_01", "weapon_pistol"));
+                            Step e = Escape("Lose the ~r~cops~s~."); e.wanted = 3; m.steps.push_back(e);
+                            m.steps.push_back(Deliver("Store the bus near ~y~Sandy Shores~s~.", HEIST_SANDY)); }
+        else if (st == 2) { m.steps.push_back(Enemies(Steal("Steal the ~g~Casco~s~ from the cargo ship's dock.", V3(1180.f, -3110.f, 5.9f), 0.f, "casco"), 4, "s_m_y_cop_01", "weapon_pistol"));
+                            m.steps.push_back(Deliver("Take the Casco to the ~y~drop-off~s~.", safe));
+                            Step p = Pickup("Get the ~g~transfer schedule~s~ at Mission Row police station.", V3(440.f, -982.f, 30.7f), 1, "prop_cs_documents_01"); p.snapFoot = true;
+                            m.steps.push_back(p);
+                            Step e = Escape("Lose the ~r~cops~s~."); e.wanted = 3; m.steps.push_back(e);
+                            m.steps.push_back(Goto("Bring the schedule to the ~y~planning room~s~.", safe, 5.f)); }
+        else if (st == 3) { Step p = Pickup("Collect the ~g~deposition~s~ at City Hall.", V3(240.f, -400.f, 47.f), 1, "prop_cs_documents_01"); p.snapFoot = true;
+                            m.steps.push_back(Enemies(p, 3, "s_m_m_security_01", "weapon_pistol"));
+                            Step e = Escape("Lose the ~r~cops~s~."); e.wanted = 2; m.steps.push_back(e);
+                            m.steps.push_back(Goto("Go to ~y~Popov's mansion~s~ in Richman Glen.", V3(-1525.f, 80.f, 56.f), 40.f));
+                            m.steps.push_back(KillAll("Eliminate ~r~Popov~s~ and his guards.", V3(-1525.f, 80.f, 56.f), 7, "s_m_m_highsec_01", "weapon_carbinerifle"));
+                            m.steps.push_back(Goto("Deliver the deposition to the ~y~planning room~s~.", safe, 5.f)); }
         else {
-            Step g = Interior(Goto("Get to the ~y~prison gate~s~.", V3(1845.9f, 2585.9f, 45.67f), 5.f), "");
-            g.onDone = [] { Teleport(1691.0f, 2565.0f, 45.6f, 0.f); };
-            m.steps.push_back(g);
-            Step y = Goto("Find ~b~Rashkovsky~s~ in the yard.", V3(1691.0f, 2565.0f, 45.6f), 3.f);
-            y.enemies = 8; y.enemyModel = "s_m_m_prisguard_01"; y.enemyWeapon = "weapon_pistol"; y.wanted = 3;
-            m.steps.push_back(y);
-            Step e = Escape("Escape the prison with Rashkovsky and lose the ~r~cops~s~."); e.ally = "s_m_y_prisoner_01";
-            m.steps.push_back(e);
-            m.steps.push_back(Deliver("Take Rashkovsky to the ~y~Sandy Shores airfield~s~.", V3(1733.f, 3291.f, 41.1f), false));
+            PrisonFinale(m);
         }
         break;
     case 2:   // Humane labs
-        if (st == 0) { m.steps.push_back(prep(Pickup("Steal the ~g~key codes~s~ from the Merryweather convoy.", PickSpot(HOSTILE_SPOTS), 1, "prop_laptop_01a"), 5, 4));
-                       m.steps.push_back(Goto("Bring them to your ~y~safehouse~s~.", safe, 5.f)); }
-        else if (st == 1) { m.steps.push_back(Enemies(Steal("Steal the ~g~Insurgent~s~.", park, parkH, "insurgent"), 5, "s_m_y_blackops_01", "weapon_carbinerifle"));
-                            m.steps.push_back(Deliver("Take it to your ~y~safehouse~s~.", safe)); m.keepVehicle = true; }
+        if (st == 0) { m.steps.push_back(Goto("Go to the ~y~meeting~s~ downtown.", V3(100.f, -730.f, 45.f), 25.f));
+                       m.steps.push_back(KillAll("Eliminate the ~r~agents~s~.", V3(100.f, -730.f, 45.f), 6, "s_m_m_fibsec_01", "weapon_carbinerifle"));
+                       Step c = Pickup("Collect the ~g~briefcase~s~ with the key codes.", V3(100.f, -730.f, 45.f), 1, "prop_ld_case_01"); c.snapFoot = true;
+                       m.steps.push_back(c);
+                       Step g = Goto("Take it to the ~y~planning room~s~.", safe, 5.f); g.wanted = 2;
+                       m.steps.push_back(g); }
+        else if (st == 1) { m.steps.push_back(Enemies(Steal("Steal the ~g~Insurgent~s~ from the test site at the Davis Quartz quarry.", V3(2950.f, 2790.f, 41.f), 0.f, "insurgent"), 8, "s_m_y_blackops_01", "weapon_carbinerifle"));
+                            Step d = Deliver("Take it to the ~y~drop-off~s~.", safe); d.chasers = 2; m.steps.push_back(d); m.keepVehicle = true; }
+        else if (st == 2) { Step b = Goto("Take the ~b~dinghy~s~ to the ~y~USS Luxington~s~.", V3(3050.f, -4600.f, 2.f), 70.f);
+                            b.indoors = true;
+                            b.onStart = [] { HeistCarrier(true); GetawayCar("dinghy", 1320.f, -3350.f, 0.6f, 150.f); };
+                            b.onDone = [] { Teleport(3016.5f, -4534.f, 15.8f, 180.f); };
+                            m.steps.push_back(b);
+                            m.steps.push_back(Enemies(Air(Steal("Steal the ~g~Hydra~s~ with the EMP.", V3(3044.f, -4640.f, 15.4f), 20.f, "hydra")), 6, "s_m_y_marine_01", "weapon_carbinerifle"));
+                            m.steps.push_back(Land("Fly it to the ~y~drop-off~s~.", HEIST_SANDY, 40.f));
+                            m.onCleanup = [] { HeistCarrier(false); }; }
+        else if (st == 3) { m.steps.push_back(Enemies(Air(Steal("Steal the ~g~Valkyrie~s~ from Merryweather at the Naval Port.", V3(490.f, -3220.f, 6.1f), 0.f, "valkyrie")), 8, "s_m_y_blackops_01", "weapon_carbinerifle"));
+                            m.steps.push_back(Land("Take it to the ~y~drop-off~s~.", HEIST_MCKENZIE)); }
+        else if (st == 4) { m.steps.push_back(Steal("Get in the ~g~Insurgent~s~ with the EMP.", park, parkH, "insurgent"));
+                            Step d = Deliver("Drive it into the ~y~lab's bay~s~.", V3(3617.f, 3739.f, 28.7f));
+                            d.enemies = 6; d.enemyModel = "s_m_y_blackops_01"; d.enemyWeapon = "weapon_carbinerifle";
+                            m.steps.push_back(d);
+                            m.steps.push_back(Escape("Leave the lab.", V3(3617.f, 3739.f, 0.f), 200.f)); }
         else {
             Step g = Goto("Break into ~y~Humane Labs~s~.", V3(3617.f, 3739.f, 28.7f), 8.f);
             g.enemies = 8; g.enemyModel = "s_m_y_blackops_01"; g.enemyWeapon = "weapon_carbinerifle";
@@ -3231,24 +3393,25 @@ static void StartHeist(int h) {
             m.steps.push_back(Escape("Lose the ~r~cops~s~."));
         }
         break;
-    case 3: { // Series A
-        static const float spots[3][3] = {{100.5f, -1937.0f, 20.8f}, {338.0f, -2034.0f, 21.6f}, {982.0f, -103.0f, 74.8f}};
-        static const int gang[3] = {2, 0, 1};
-        if (st < 3) {
-            Step p = Pickup("Steal the ~g~product~s~ from the gang.", V3(spots[st][0], spots[st][1], spots[st][2]), 1, "prop_drug_package");
-            p.snapFoot = true;
-            m.steps.push_back(Enemies(p, 6, GANGS[gang[st]][0], GANGS[gang[st]][1]));
-            m.steps.push_back(Escape("Lose the ~r~gang~s~ and the cops.", V3(spots[st][0], spots[st][1], 0.f), 150.f));
-        } else m.steps.push_back(Goto("Deliver everything to ~y~Trevor~s~ in Sandy Shores.", V3(1395.f, 3613.f, 34.9f), 6.f));
+    case 3:   // Series A
+        SeriesA(m, st);
         break;
-    }
     case 4:   // Pacific Standard
-        if (st == 0) { m.steps.push_back(Steal("Steal the ~g~security van~s~.", park, parkH, "boxville"));
-                       m.steps.push_back(Deliver("Leave it near the ~y~Pacific Standard~s~.", V3(220.f, 200.f, 105.5f))); }
-        else if (st == 1) { m.steps.push_back(prep(Pickup("Steal the ~g~hacking device~s~.", PickSpot(HOSTILE_SPOTS), 1, "prop_laptop_01a"), 5, 3));
-                            m.steps.push_back(Goto("Bring it to your ~y~safehouse~s~.", safe, 5.f)); }
-        else if (st == 2) { m.steps.push_back(Enemies(Steal("Steal the ~g~Lectro~s~ getaway bike.", park, parkH, "lectro"), 3, "g_m_y_lost_01", "weapon_pistol"));
-                            m.steps.push_back(Deliver("Hide it at your ~y~safehouse~s~.", safe)); }
+        if (st == 0) { m.steps.push_back(Steal("Steal the ~g~Post OP van~s~.", park, parkH, "boxville4"));
+                       Step e = Escape("Lose the ~r~cops~s~."); e.wanted = 2; m.steps.push_back(e);
+                       m.steps.push_back(Deliver("Take it to ~y~Lester's factory~s~.", LESTER_FACTORY)); }
+        else if (st == 1) { Step g = Goto("Find ~y~Avi Schwartzman~s~ at the Paleto Bay pier.", V3(-275.f, 6638.f, 7.5f), 25.f);
+                            m.steps.push_back(g);
+                            m.steps.push_back(KillAll("Clear the ~r~cops~s~.", V3(-275.f, 6638.f, 7.5f), 6, "s_m_y_cop_01", "weapon_pistol"));
+                            Step e = Escape("Get ~b~Avi~s~ out and lose the ~r~cops~s~.", V3(-275.f, 6638.f, 7.5f), 300.f); e.ally = "a_m_y_hipster_01"; e.wanted = 2;
+                            m.steps.push_back(e);
+                            m.steps.push_back(Goto("Take him to the ~y~drop-off~s~.", safe, 6.f)); }
+        else if (st == 2) { m.steps.push_back(Enemies(Steal("Take the rival crew's ~g~van~s~ with the hacking rig in Vinewood.", V3(300.f, 200.f, 104.f), 0.f, "gburrito2"), 6, "g_m_y_korean_01", "weapon_microsmg"));
+                            Step d = Deliver("Lose the rival crew and reach ~y~Lester's factory~s~.", LESTER_FACTORY); d.chasers = 3; m.steps.push_back(d); }
+        else if (st == 3) { m.steps.push_back(Enemies(Steal("Hijack the ~g~Barracks~s~ from the Merryweather convoy in Raton Canyon.", V3(-1000.f, 4400.f, 15.f), 0.f, "barracks"), 8, "s_m_y_blackops_01", "weapon_carbinerifle"));
+                            Step d = Deliver("Escape Merryweather and reach the ~y~drop-off~s~.", safe); d.chasers = 3; m.steps.push_back(d); }
+        else if (st == 4) { m.steps.push_back(Steal("Steal the ~g~Lectro~s~ at the Lost MC clubhouse.", V3(980.f, -110.f, 74.f), 0.f, "lectro"));
+                            m.steps.push_back(Deliver("Store it near the ~y~Pacific Standard~s~.", V3(220.f, 200.f, 105.5f))); }
         else PacificFinale(m, HEISTS[h].payout);
         break;
     case 5:   // Diamond Casino
@@ -3306,6 +3469,7 @@ static void StartHeist(int h) {
         break;
     }
     m.coopPay = finale ? HEISTS[h].payout * g_heistCut[h] / 100 : 5000;   // a crew member's cut (the lobby's Crew Cut)
+    if (finale) N(N_SET_PED_ARMOUR, Me(), 100);   // the crew comes dressed for it
     m.onSuccess = [h, finale] { HeistStageDone(h, finale); };
     StartMission(m);
 }
@@ -3954,7 +4118,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
     }
     case M_ACTIVITIES: {
         title = "Activities"; sub = "ACTIVITIES";
-        items.push_back({"Contact Missions", ">", "Gerald, Simeon, Lamar, Martin, Ron and Trevor's jobs, by rank.", [] { Open((MenuId)CMM_LIST); }});
+        items.push_back({"Contact Missions", ">", "Jobs from Gerald, Simeon, Lamar, Martin, Ron, Trevor, Lester, Agent 14, SecuroServ and Ms. Baker, by rank.", [] { Open((MenuId)CMM_LIST); }});
         items.push_back({"Heists", ">", "Preps and finales with Lester.", [] { Open(M_HEISTS); }});
         items.push_back({"Races", g_race.phase == RP_LOBBY ? "Lobby >" : ">", "Races: solo or with the other players, paid by position.", [] { Open((MenuId)RM_LIST); }});
         items.push_back({"Arena War", g_aw.phase == AWP_LOBBY ? "Lobby >" : g_aw.phase != AWP_NONE ? "Playing >" : ">", "Events in the Maze Bank Arena, alone against bots or online.", [] { Open((MenuId)AW_MENU); }});
@@ -4182,6 +4346,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
         title = "Services"; sub = "CONTACTS";
         SpvServiceItems(items);
         AcidServiceItems(items);
+        items.push_back({"Lester's Jobs", ">", "Lester's contact missions, by rank.", [] { Open((MenuId)(CMM_CONTACT + 6)); }});
         items.push_back({"Lester: Remove Wanted Level", "$500/star", "Lester makes the cops lose you.", [] {
             int stars = N<int>(N_GET_PLAYER_WANTED_LEVEL, Player());
             if (stars == 0) { Notify("Lester: \"You're not wanted. Stop wasting my time.\""); return; }
@@ -4741,6 +4906,7 @@ static void CommandTick() {
             if (g_mActive) { N(N_FREEZE_ENTITY_POSITION, Me(), 0); NextStep(); }
             if (!g_mActive) N(N_CLEAR_PLAYER_WANTED_LEVEL, Player());
         }
+        else if (a[0] == "doorslide" && a.size() > 6) HgDoorSlide(a[1].c_str(), F(2), F(3), F(4), F(5), F(6));   // doorslide model x y z dx dy (test)
         else if (a[0] == "doorlock" && a.size() > 5) HgDoorLock(a[1].c_str(), F(2), F(3), F(4), a[5] == "1");   // doorlock model x y z 0|1 (test)
         else if (a[0] == "doorturn" && a.size() > 5) HgDoorTurn(a[1].c_str(), F(2), F(3), F(4), F(5));         // doorturn model x y z heading (test)
         else if (a[0] == "walkto" && a.size() > 3) N(N_TASK_FOLLOW_NAV_MESH_TO_COORD, Me(), F(1), F(2), F(3), 1.f, 20000, 0.5f, 0, 0.f);   // walkto x y z: on foot (does a door let you through?)
@@ -4799,6 +4965,16 @@ static void CommandTick() {
             for (int t0 = Now(); Now() - t0 < 5000;) { N(N_DRAW_SPRITE, a[1].c_str(), a[2].c_str(), 0.5f, 0.5f, 0.15f, 0.26f, 0.f, 255, 255, 255, 255, 0, 0); Wait(0); }
         }
         else if (a[0] == "dose") StartFirstDose(std::max(0, std::min(5, std::atoi(rest.c_str()))));
+        else if (a[0] == "cmsweep" && a.size() > 2) {   // cmsweep <contact> <from>: is each target reachable? (test) the log tells
+            int c = std::atoi(a[1].c_str()) % NCONTACTS;
+            for (int i = std::atoi(a[2].c_str()); i < CONTACTS[c].count; ++i) {
+                const ContactMission &cm = CONTACTS[c].missions[i];
+                N(N_SET_ENTITY_COORDS_NO_OFFSET, Me(), cm.x, cm.y, cm.z + 2.f, 0, 0, 0);
+                Wait(1500);
+                Vec3 r = ReachableSpot(V3(cm.x, cm.y, cm.z));
+                Log("cmsweep %s: %s target %.0f %.0f %.0f -> %.0f %.0f %.0f (%.0f m)", CONTACTS[c].name, cm.name, cm.x, cm.y, cm.z, r.x, r.y, r.z, Dist(r, V3(cm.x, cm.y, cm.z)));
+            }
+        }
         else if (a[0] == "cm" && a.size() > 2) { int c = std::atoi(a[1].c_str()) % NCONTACTS; StartContactMission(c, std::min(std::atoi(a[2].c_str()), CONTACTS[c].count - 1)); }   // cm <contact> <mission>
         else if (a[0] == "sv" && a.size() > 1) SvHost(std::max(0, std::min(NSV_LOCS - 1, std::atoi(a[1].c_str()))), a.size() > 2 && a[2] == "solo");   // sv <place> [solo]
         else if (a[0] == "svstart") SvHostStart();

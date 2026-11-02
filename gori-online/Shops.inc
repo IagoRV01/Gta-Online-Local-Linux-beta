@@ -190,10 +190,10 @@ static void AmmuClerkTick() {
 static void ShopsTick() {
     if (!YouActive()) { if (Exists(g_clerk)) DeleteEntity(g_clerk); return; }
     AmmuClerkTick();
-    // the story shop scripts misbehave with the freemode character: Gori's shops replace them
+    // the story shop scripts misbehave with the freemode character: Gori's shops replace them (and the story's race launcher has no place in Online)
     if (Now() > g_shopNext) {
         g_shopNext = Now() + 1000;
-        for (const char *s : {"carmod_shop", "gunclub_shop"})
+        for (const char *s : {"carmod_shop", "gunclub_shop", "launcher_racing"})
             if (N<int>(N_GET_NUMBER_OF_THREADS_RUNNING_THE_SCRIPT_WITH_THIS_HASH, Joaat(s)) > 0) { N(N_TERMINATE_ALL_SCRIPTS_WITH_THIS_NAME, s); Log("shops: stopped %s (YOU uses Gori's shop)", s); }
     }
     if (g_menuOpen || g_lscAt >= 0 || g_mActive) return;

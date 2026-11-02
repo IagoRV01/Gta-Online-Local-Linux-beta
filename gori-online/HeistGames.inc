@@ -58,6 +58,15 @@ static int HgDoorTurn(const char *model, float x, float y, float z, float toHead
     return o;
 }
 
+static int HgDoorSlide(const char *model, float x, float y, float z, float dx, float dy) {   // a sliding gate: moved aside, or back with -dx -dy
+    int o = N<int>(N_GET_CLOSEST_OBJECT_OF_TYPE, x, y, z, 15.f, Joaat(model), 0, 0, 0);
+    if (!o) { Log("heist: no gate %s", model); return 0; }
+    N(N_SET_ENTITY_AS_MISSION_ENTITY, o, 1, 1);
+    N(N_FREEZE_ENTITY_POSITION, o, 1);
+    N(N_SET_ENTITY_COORDS_NO_OFFSET, o, x + dx, y + dy, z, 0, 0, 0);
+    return o;
+}
+
 // ---- the drill
 static void DrillStart() {
     int me = Me();

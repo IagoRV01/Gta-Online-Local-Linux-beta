@@ -6,13 +6,21 @@
 // every in-game day, plus the business's own jobs (co-op jobs online).
 
 // Salvage Yard: steal a high-end car from a guarded garage, bring it to the yard and salvage it on the lift
+struct SalvageJob { const char *name, *text, *enemy, *weapon; float x, y, z; };
+static const SalvageJob SALVAGE_JOBS[] = {
+    {"THE DUGGAN ROBBERY", "Steal the ~g~target vehicle~s~ from the Duggans' men.", "s_m_m_highsec_01", "weapon_carbinerifle", -1525.f, 80.f, 56.f},
+    {"THE GANGBANGER ROBBERY", "Steal the ~g~target vehicle~s~ from the gang's garage.", "g_m_y_ballaorig_01", "weapon_microsmg", 100.f, -1940.f, 20.f},
+    {"THE CARGO SHIP ROBBERY", "Steal the ~g~target vehicle~s~ off the cargo dock.", "s_m_y_dockwork_01", "weapon_assaultrifle", 1180.f, -3110.f, 5.9f},
+    {"THE PODIUM ROBBERY", "Steal the ~g~target vehicle~s~ at the casino.", "s_m_m_highsec_01", "weapon_smg", 925.f, 47.f, 81.f},
+    {"THE MCTONY ROBBERY", "Steal the ~g~target vehicle~s~ from McTony's crew.", "g_m_y_lost_01", "weapon_assaultrifle", -1050.f, -510.f, 36.f},
+};
 static void SalvageRobbery(int pi) {
     Mission m;
-    m.name = "SALVAGE YARD ROBBERY";
-    const char *(&gang)[2] = GANGS[Rand(6)];
+    const SalvageJob &job = SALVAGE_JOBS[Rand((int)(sizeof SALVAGE_JOBS / sizeof *SALVAGE_JOBS))];
+    m.name = job.name;
     const char *car = STEAL_CARS[Rand((int)(sizeof STEAL_CARS / sizeof *STEAL_CARS))];
-    Step s = Steal(std::string("Steal the ~g~target vehicle~s~ from the guarded garage."), PickSpot(HOSTILE_SPOTS), 0.f, car);
-    m.steps.push_back(Enemies(s, 7, gang[0], gang[1]));
+    Step s = Steal(std::string(job.text), V3(job.x, job.y, job.z), 0.f, car);
+    m.steps.push_back(Enemies(s, 7, job.enemy, job.weapon));
     Step d = Deliver("Take it to your ~y~Salvage Yard~s~.", PropExt(pi));
     d.chasers = 2; d.wanted = 2;
     m.steps.push_back(d);

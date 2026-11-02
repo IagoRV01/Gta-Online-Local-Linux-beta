@@ -61,7 +61,7 @@ static void NjSend(const char *kind, const std::string &text) { if (LO().sendPla
 static NjJob NjContactJob(int c, int i) {
     const ContactMission &cm = CONTACTS[c].missions[i];
     NjJob j;
-    j.name = cm.name; j.type = "FM_NXT_MIS"; j.icon = 0; j.minP = 1; j.maxP = 4;
+    j.name = cm.name; j.type = "FM_NXT_MIS"; j.icon = 0; j.minP = 1; j.maxP = cm.players;
     j.desc = ContactCorona(c, i).desc;
     j.at = V3(cm.x, cm.y, cm.z);
     j.key = "c," + std::to_string(c) + "," + std::to_string(i);

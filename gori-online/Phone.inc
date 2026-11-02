@@ -130,8 +130,8 @@ static std::vector<PhoneContact> &PhoneContacts() {
         {86, (MenuId)271, "Gerald: \"Ain't nobody got time for small talk.\""}, {84, M_INV, "Brucie: \"Bull Shark, bro!\""},
         {89, M_VEH, "Mechanic: \"Which one do you want brought round?\""}, {41, M_VEH, "Pegasus: \"Pegasus Lifestyle Management.\""},
         {85, M_SERVICES, "Merryweather Security: \"State your request.\""}, {91, M_VEH, "Mors Mutual Insurance: \"How can we help?\""},
-        {76, M_HEISTS, "Agent 14: \"Go ahead.\""}, {74, M_BIZ, "Assistant: \"Good to hear from you, boss.\""},
-        {151, M_BIZ, "Tony: \"Speak to me, partner.\""}, {157, M_MAIN, "Ms. Baker: \"The Diamond Casino & Resort.\""},
+        {76, (MenuId)278, "Agent 14: \"Go ahead.\""}, {74, M_BIZ, "Assistant: \"Good to hear from you, boss.\""},
+        {151, M_BIZ, "Tony: \"Speak to me, partner.\""}, {157, (MenuId)280, "Ms. Baker: \"The Diamond Casino & Resort.\""},
     };
     return c;
 }
