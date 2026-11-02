@@ -2188,13 +2188,16 @@ static void BuyProperty(int i, int price = -1) {   // price: the website's total
 }
 
 // ---------------------------------------------------------------- Missions (jobs, sell missions, heists)
-enum StepType { S_GOTO, S_PICKUP, S_STEAL, S_DELIVER, S_HOLD, S_ESCAPE };
+enum StepType { S_GOTO, S_PICKUP, S_STEAL, S_DELIVER, S_HOLD, S_ESCAPE, S_HACK, S_DRILL };
+#include "HeistGames.inc"   // the heists' minigames: the drill, the hack
+static int g_hgTest = 0;     // hgame: 1 drill, 2 hack
 struct Step {
     StepType type = S_GOTO;
     std::string text;
     Vec3 pos{};
     float radius = 6.f, heading = 0.f;
     bool snapRoad = false, snapFoot = false;   // move the target to the nearest road / walkable spot
+    bool indoors = false;                      // the target is inside a building: keep it exactly there
     std::string vehicle;                       // S_STEAL
     int enemies = 0;
     const char *enemyModel = "g_m_y_mexgoon_01", *enemyWeapon = "weapon_carbinerifle";
@@ -2210,6 +2213,7 @@ struct Mission {
     std::vector<Step> steps;
     int timeLimitMs = 0;
     std::function<void()> onSuccess, onFail;
+    std::function<void()> onCleanup;   // however it ends (a door opened for it closed again)
     bool keepVehicle = false;
     int coopPay = -1;   // what each co-op member gets when it passes (-1: by its length)
     bool corona = false; int resultCash = 0, resultRp = 0;   // started from a lobby: the results board at the end
@@ -2302,6 +2306,10 @@ static void ClearStepThings() {
     g_mObjs.clear();
 }
 static void CleanupMission() {
+    if (g_hack.on) HackEnd();
+    if (g_drill.on) DrillEnd();
+    HgCamOff();
+    if (g_m.onCleanup) g_m.onCleanup();
     ClearStepThings();
     for (int &b : g_mPedBlips) RemoveBlip(b);
     g_mPedBlips.clear();
@@ -2451,7 +2459,7 @@ static void MissionTick() {
     float d = Dist(mp, s.pos);
     // Every target onto a spot you can reach, once the area (collision, navmesh) is streamed in: roads for vehicles,
     // otherwise walkable ground outside closed interiors and water, never a rooftop high above the street
-    bool snapAny = s.snapRoad || s.snapFoot || s.type == S_GOTO || s.type == S_PICKUP || s.type == S_HOLD || s.type == S_DELIVER;
+    bool snapAny = !s.indoors && (s.snapRoad || s.snapFoot || s.type == S_GOTO || s.type == S_PICKUP || s.type == S_HOLD || s.type == S_DELIVER);
     if (!g_snapped && d < 150.f && snapAny) {
         g_snapped = true;
         Vec3 out{}, before = s.pos;
@@ -2462,6 +2470,18 @@ static void MissionTick() {
         d = Dist(mp, s.pos);
     }
     if (s.enemies && !g_enemiesUp && d < 230.f) { g_enemiesUp = true; SpawnEnemies(s); }
+    // a minigame has the screen: no objective, no HUD
+    if (g_hack.on || g_drill.on) {
+        int won = g_hack.on ? HackTick() : DrillTick();
+        if (won) {
+            if (g_hack.on) HackEnd();
+            if (g_drill.on) DrillEnd();
+            HgCamOff();
+            N(N_FREEZE_ENTITY_POSITION, me, 0);
+            if (won > 0) NextStep();
+        }
+        return;
+    }
     DrawObjective(s.text, s.type == S_STEAL || s.type == S_DELIVER);
     CoopTrack((int)g_mStep, s.type == S_STEAL && g_mVeh && Exists(g_mVeh) ? Pos(g_mVeh) : s.pos, s.text);
     bool inMissionVeh = g_mVeh && MyVehicle() == g_mVeh;
@@ -2533,6 +2553,25 @@ static void MissionTick() {
         if (frac >= 1.f) NextStep();
         break;
     }
+    case S_HACK:
+    case S_DRILL:
+        if (d < 30.f) Marker(s.pos, 240, 200, 80);
+        if (d < s.radius && !InAnyVehicle()) {
+            Help(s.type == S_HACK ? "Press ~INPUT_CONTEXT~ to hack the keypad." : "Press ~INPUT_CONTEXT~ to start drilling.");
+            if (JustPressed(51)) {
+                N(N_SET_ENTITY_COORDS_NO_OFFSET, me, s.pos.x, s.pos.y, s.pos.z, 0, 0, 0);
+                N(N_SET_ENTITY_HEADING, me, s.heading);
+                N(N_FREEZE_ENTITY_POSITION, me, 1);
+                if (s.type == S_HACK) HackStart();
+                else {
+                    DrillStart();
+                    float r = s.heading * 0.0174533f;   // over the shoulder, onto the lockers
+                    HgCamOn(V3(s.pos.x + std::sin(r) * 0.9f + std::cos(r) * 0.5f, s.pos.y - std::cos(r) * 0.9f + std::sin(r) * 0.5f, s.pos.z + 0.75f),
+                            V3(s.pos.x - std::sin(r) * 0.9f, s.pos.y + std::cos(r) * 0.9f, s.pos.z + 0.45f), 50.f);
+                }
+            }
+        }
+        break;
     case S_ESCAPE: {
         int wanted = N<int>(N_GET_PLAYER_WANTED_LEVEL, Player());
         bool farEnough = s.escapeDist <= 0.f || Dist2(mp, s.pos) > s.escapeDist;
@@ -2550,6 +2589,9 @@ static Step Pickup(const std::string &t, Vec3 p, int n = 1, const char *model = 
 static Step Steal(const std::string &t, Vec3 p, float h, const char *vehicle) { Step s; s.type = S_STEAL; s.text = t; s.pos = p; s.heading = h; s.vehicle = vehicle; return s; }
 static Step Deliver(const std::string &t, Vec3 p, bool inVehicle = true) { Step s; s.type = S_DELIVER; s.text = t; s.pos = p; s.radius = 8.f; s.needMissionVehicle = inVehicle; s.snapRoad = inVehicle; return s; }
 static Step Hold(const std::string &t, Vec3 p, int seconds) { Step s; s.type = S_HOLD; s.text = t; s.pos = p; s.radius = 2.5f; s.seconds = seconds; return s; }
+// the heists' minigames: at this spot, facing this way, on E
+static Step HackAt(const std::string &t, Vec3 p, float h) { Step s; s.type = S_HACK; s.text = t; s.pos = p; s.heading = h; s.radius = 1.5f; s.indoors = true; return s; }
+static Step DrillAt(const std::string &t, Vec3 p, float h) { Step s; s.type = S_DRILL; s.text = t; s.pos = p; s.heading = h; s.radius = 1.5f; s.indoors = true; return s; }
 static Step Escape(const std::string &t, Vec3 p = V3(0, 0, 0), float dist = 0.f) { Step s; s.type = S_ESCAPE; s.text = t; s.pos = p; s.escapeDist = dist; return s; }
 static Step Enemies(Step s, int n, const char *model, const char *weapon) { s.enemies = n; s.enemyModel = model; s.enemyWeapon = weapon; return s; }
 
@@ -2830,6 +2872,55 @@ static Step Interior(Step s, const char *interiorId) {    // reaching the step t
     s.onDone = [interiorId, prev] { if (prev) prev(); if (const InteriorDef *d = FindInterior(interiorId)) TeleportInside(*d); };
     return s;
 }
+// The Fleeca Job's finale, as Online's: the bank held up, the keypad hacked, the vault open, a deposit box drilled for its cash,
+// out with the police on you (Great Ocean Highway branch; points measured in game)
+static std::vector<int> g_fleecaPeds;
+static void FleecaHostages() {   // the staff and a customer, hands up
+    static const struct { const char *model; float x, y, h; } P[] = {{"cs_bankman", -2961.1f, 485.9f, 90.f}, {"a_f_y_business_01", -2961.1f, 479.6f, 90.f}, {"a_m_y_business_02", -2964.2f, 481.5f, 300.f}};
+    for (auto &p : P) {
+        uint32_t m = Joaat(p.model);
+        if (!LoadModel(m)) continue;
+        int ped = N<int>(N_CREATE_PED, 4, m, p.x, p.y, 15.7f, p.h, 0, 0);
+        N(N_SET_MODEL_AS_NO_LONGER_NEEDED, m);
+        if (!ped) continue;
+        N(N_SET_BLOCKING_OF_NON_TEMPORARY_EVENTS, ped, 1);
+        N(N_TASK_HANDS_UP, ped, -1, Me(), -1, 0);
+        g_fleecaPeds.push_back(ped);
+    }
+}
+static void FleecaFinale(Mission &m) {
+    Step in = Goto("Go into the ~y~Fleeca~s~ bank.", V3(-2963.5f, 482.0f, 15.7f), 3.f);
+    in.indoors = true;
+    in.onStart = [] {   // the bank's doors let you in
+        HgDoorLock("v_ilev_gb_teldr", -2960.176f, 479.01f, 15.97f, false);
+        HgDoorLock("v_ilev_genbankdoor1", -2965.7f, 481.6f, 15.9f, false);
+        HgDoorLock("v_ilev_genbankdoor2", -2965.7f, 484.1f, 15.9f, false);
+    };
+    in.onDone = [] { FleecaHostages(); Notify("Lester: \"Keep the staff calm. The keypad is by the vault.\""); };
+    m.steps.push_back(in);
+    Step hack = HackAt("~y~Hack~s~ the keypad by the vault door.", V3(-2957.0f, 481.0f, 15.7f), 0.f);
+    hack.onDone = [] {
+        HgDoorTurn("hei_prop_heist_sec_door", -2958.539f, 482.271f, 15.836f, 267.5f);
+        Sound("OPENING", "MP_PROPERTIES_ELEVATOR_DOORS");
+    };
+    m.steps.push_back(hack);
+    Step drill = DrillAt("~y~Drill~s~ the safety deposit box.", V3(-2958.1f, 485.0f, 15.7f), 90.f);
+    drill.onDone = [] {   // the box's cash is yours, and that trips the alarm
+        Sound("PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+        N(N_SET_PLAYER_WANTED_LEVEL, Player(), 3, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0);
+        Notify("Lester: \"You've got the cash. The alarm's tripped: get out of there.\"");
+    };
+    m.steps.push_back(drill);
+    Step out = Goto("Get out of the ~y~bank~s~.", V3(-2968.5f, 482.5f, 15.0f), 4.f);
+    out.indoors = true;
+    m.steps.push_back(out);
+    m.steps.push_back(Escape("Lose the ~r~cops~s~."));
+    m.onCleanup = [] {
+        HgDoorTurn("hei_prop_heist_sec_door", -2958.539f, 482.271f, 15.836f, 357.5f);
+        for (int &p : g_fleecaPeds) ForgetEntity(p);
+        g_fleecaPeds.clear();
+    };
+}
 static void StartHeist(int h) {
     std::string why;
     if (!HeistUnlocked(h, why)) { Notify("~r~" + why); return; }
@@ -2852,12 +2943,7 @@ static void StartHeist(int h) {
         if (st == 0) { m.steps.push_back(Goto("Scope out the ~y~Fleeca~s~ on the Great Ocean Highway.", V3(-2966.f, 482.9f, 15.7f), 10.f)); }
         else if (st == 1) { m.steps.push_back(Enemies(Steal("Steal the ~g~armored Kuruma~s~.", park, parkH, "kuruma2"), 4, "g_m_y_mexgoon_01", "weapon_microsmg"));
                             m.steps.push_back(Deliver("Take it to your ~y~safehouse~s~.", safe)); m.keepVehicle = true; }
-        else {
-            m.steps.push_back(Goto("Go to the ~y~Fleeca~s~ bank.", V3(-2966.f, 482.9f, 15.7f), 5.f));
-            Step d = Hold("~y~Drill~s~ the vault door. Stay close.", V3(-2958.5f, 482.3f, 15.7f), 40); d.wanted = 3; m.steps.push_back(d);
-            m.steps.push_back(Pickup("Grab the ~g~cash~s~.", V3(-2957.0f, 484.5f, 15.7f), 1, "prop_money_bag_01"));
-            m.steps.push_back(Escape("Lose the ~r~cops~s~."));
-        }
+        else FleecaFinale(m);
         break;
     case 1:   // Prison break
         if (st == 0) { m.steps.push_back(Enemies(Steal("Steal the ~g~Velum~s~ at Sandy Shores airfield.", V3(1708.f, 3254.f, 41.f), 105.f, "velum2"), 4, "g_m_y_lost_01", "weapon_sawnoffshotgun"));
@@ -4396,9 +4482,23 @@ static void CommandTick() {
             g_hbMapOn = (int)F(1); g_hbMapFirst = (int)F(2); g_hbMapSolid = (int)F(3); g_hbMapAhead = F(4); g_hbMapRX = F(5); g_hbMapRY = F(6); g_hbMapRZ = F(7);
             g_hbMapSide = F(8); g_hbMapUp = F(9); g_hbMapScale = F(10);
         }
+        else if (a[0] == "hgame" && a.size() > 1) {   // hgame drill [auto] | hack | ret <n> | stop: a heist minigame here (test)
+            g_hgAuto = a.size() > 2 && a[2] == "auto";
+            if (a[1] == "drill") { DrillStart(); g_hgTest = 1; } else if (a[1] == "hack") { HackStart(); g_hgTest = 2; }
+            else if (a[1] == "ret" && a.size() > 2) g_hack.inject = std::atoi(a[2].c_str());
+            else if (a[1] == "bg" && a.size() > 2) g_hack.background = std::atoi(a[2].c_str());
+            else { if (g_drill.on) DrillEnd(); if (g_hack.on) HackEnd(); g_hgTest = 0; }
+        }
+        else if (a[0] == "walkto" && a.size() > 3) N(N_TASK_FOLLOW_NAV_MESH_TO_COORD, Me(), F(1), F(2), F(3), 1.f, 20000, 0.5f, 0, 0.f);   // walkto x y z: on foot (does a door let you through?)
+        else if (a[0] == "objfind" && a.size() > 5) {   // objfind model x y z r: the closest object of a model there (doors for the heists)
+            uint32_t m = Joaat(a[1].c_str());
+            int o = N<int>(N_GET_CLOSEST_OBJECT_OF_TYPE, F(2), F(3), F(4), F(5), m, 0, 0, 0);
+            Vec3 op = o ? Pos(o) : Vec3{};
+            Log("objfind %s: %d at %.3f %.3f %.3f heading %.1f", a[1].c_str(), o, op.x, op.y, op.z, o ? N<float>(N_GET_ENTITY_HEADING, o) : 0.f);
+        }
         else if (a[0] == "heiststart" && a.size() > 1) StartHeist(std::atoi(a[1].c_str()) % NHEISTS);   // heiststart <h>: its current stage, no lobby (test)
-        else if (a[0] == "hbstage") {   // hbstage [h s]: log the heists' stages, or set one (test, not saved here; set it back after)
-            if (a.size() > 2) { int h = std::atoi(a[1].c_str()) % NHEISTS; g_heistStage[h] = std::clamp(std::atoi(a[2].c_str()), 0, HEISTS[h].stages - 1); g_hb.heist = h; }
+        else if (a[0] == "hbstage") {   // hbstage [h s]: log the heists' stages, or set one and save it (test: set it back after)
+            if (a.size() > 2) { int h = std::atoi(a[1].c_str()) % NHEISTS; g_heistStage[h] = std::clamp(std::atoi(a[2].c_str()), 0, HEISTS[h].stages - 1); g_hb.heist = h; Save(); }
             std::string t; for (int h = 0; h < NHEISTS; ++h) t += std::to_string(g_heistStage[h]) + " ";
             Log("heist stages: %s", t.c_str());
         }
@@ -5114,6 +5214,8 @@ static void ScriptMain() {
         if (!g_menuOpen) DrawRank(false);
         DrawShard();
         JobCelebrationTick();
+        if (g_hgTest == 1 && g_drill.on && DrillTick() > 0) { DrillEnd(); g_hgTest = 0; Log("hgame: drill done"); }
+        if (g_hgTest == 2 && g_hack.on) { int hr = HackTick(); if (hr) { HackEnd(); g_hgTest = 0; Log("hgame: hack %s", hr > 0 ? "done" : "left"); } }
         MissionTick();
         CoopTick();
         RaceTick();

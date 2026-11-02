@@ -6,6 +6,7 @@
 #include "game/devcmd.h"
 #include "game/economy.h"
 #include "game/hud.h"
+#include "game/remote.h"
 #include "protocol/protocol.h"
 #include "ui/menu.h"
 
@@ -92,7 +93,7 @@ void Menu(bool atAtm) {
 }
 
 void Frame(int me) {
-    if (gta::InVehicle(me)) { g_atm = 0; return; }
+    if (gta::InVehicle(me) || (remote::MyFlags() & 2)) { g_atm = 0; return; }   // 2: in a job (Gori): no ATMs, as in Online
     int now = gta::GameTimeMs();
     if (now - g_lastScan > 400) { g_lastScan = now; g_atm = NearestAtm(me); }
     if (!g_atm) return;
