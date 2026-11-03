@@ -426,11 +426,11 @@ GTA Online-style races, solo or online, with GTA Online's look: countdown, check
   - HUD: time left, kills, deaths, position. A results board at the end, and the weapons given are removed again.
   - The server counts kills/deaths in HandleDeath, ranks by kills then deaths, and pays everyone who played by position (payout $10k per 5 min).
   - Verified with netprobe `dmhost`/`dmjoin` on an isolated server: 11 kills / 6 deaths won $20,000, second $15,000. Not in game yet.
-- **Contact missions** (ContactMissions.inc). 148 missions for Gerald, Simeon, Lamar, Martin, Ron, Trevor, Lester, Agent 14 (Mobile Operations), SecuroServ (Special Vehicle Work) and Ms. Baker (Casino Story), using GTA Online's mission names, unlock ranks and player counts (2026-11-02; the first version had 32).
+- **Contact missions** (ContactMissions.inc). 203 missions for Gerald, Simeon, Lamar, Martin, Ron, Trevor, Lester, Agent 14 (Mobile Operations), SecuroServ (Special Vehicle Work), Ms. Baker (Casino Story), Sessanta and KDJ (Robbery Contracts), Franklin (VIP Contract), Brendan Darcy, Agent ULP, Charlie Reed, Vincent, Jenette, Jodi and Oscar, using GTA Online's mission names, unlock ranks and player counts (2026-11-02; the first version had 32).
   - Includes the later strands: Gerald's Last Play, Premium Deluxe Repo Work, Lamar's Lowriders, Short Trips, Madrazo Dispatch Services.
   - These are recreations, not Rockstar's scripts: built from 6 templates (eliminate, steal a vehicle, grab a package, destroy, rescue, hold up). Targets, briefings and pay are ours, placed from the mission's name or its known area.
   - Unlocked by rank (strand missions from rank 1, without Online's strand order), co-op jobs. Aircraft are landed at the Grapeseed airstrip.
-  - Interaction Menu → Contact Missions, or call the contact (the phone now opens his missions instead of the heists). Test: `cm <contact> <mission>`.
+  - Interaction Menu → Contact Missions, or call the contact (the phone now opens his missions instead of the heists). Test: `cm <contact> <mission>`; `mauto 1` makes any mission play its own steps by moving the player onto them and end unpaid, logging each step, the enemies and the vehicles; `cmsweep <contact> <from>` logs how far each target is from a reachable spot.
 - **Ammu-Nation clerk.** `s_m_y_ammucity_01` / `s_m_m_ammucountry` behind each counter; he turns to face you. Verified at Pillbox Hill.
 - **Lester's phone picture.** The phone shows a silhouette for him because the CHAR_LESTER texture is one: that is the game's own picture. An earlier label swap to `CELL_E_311` was removed (2026-10-14).
 - **Deployed 2026-10-13 21:55** (Gori + LocalOnline with kind 2). In game: The Last Dose starts as a co-op job with Dax's text, objective and timer.
@@ -651,7 +651,7 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
   - Heist setups with Online's names and order: Prison Break (Plane, Bus, Station, Wet Work), Humane Labs (Key Codes, Insurgents, EMP, Valkyrie, Deliver EMP), Series A (Coke, Trash Truck, Bikers, Weed, Steal Meth, then holding the warehouse) and Pacific Standard (Vans, Signal, Hack, Convoy, Bikes). Recreations for a solo-or-co-op crew: Online's two-team objectives are played one after the other. The Coke and EMP setups load the heist yacht and the USS Luxington (`hei_yacht_heist*`, `hei_carrier*`).
   - The story's race launcher (`launcher_racing`) is stopped in YOU mode, so its prompts don't appear in Online.
 - **Next.**
-  - The newer strands (Brendan Darcy, Sessanta and KDJ, Franklin's VIP Contract, and others).
+  - Raf De Angelis's Mr. Faber Work and Avi Schwartzman's KnoWay Out.
   - Second-player checks: shared votes, heist cuts, roles.
 
 ## Co-op jobs (protocol v9, 2026-10-12)

@@ -262,6 +262,7 @@ constexpr uint64_t N_IS_ENTITY_A_MISSION_ENTITY = 0x0A7B270912999B3C; // BOOL IS
 constexpr uint64_t N_IS_ENTITY_DEAD = 0x5F9532F3B5CC2551; // BOOL IS_ENTITY_DEAD(Entity entity, BOOL p1)
 constexpr uint64_t N_IS_ENTITY_IN_AIR = 0x886E37EC497200B6; // BOOL IS_ENTITY_IN_AIR(Entity entity)
 constexpr uint64_t N_IS_ENTITY_IN_ANGLED_AREA = 0x51210CED3DA1C78A; // BOOL IS_ENTITY_IN_ANGLED_AREA(Entity entity, float x1, float y1, float z1, float x2, float y2, float z2, float width, BOOL debug, BOOL includeZ, Any p10)
+constexpr uint64_t N_IS_ENTITY_IN_WATER = 0xCFB0A0D8EDD145A3; // BOOL IS_ENTITY_IN_WATER(Entity entity)
 constexpr uint64_t N_IS_ENTITY_ON_SCREEN = 0xE659E47AF827484B; // BOOL IS_ENTITY_ON_SCREEN(Entity entity)
 constexpr uint64_t N_IS_ENTITY_PLAYING_ANIM = 0x1F0B79228E461EC9; // BOOL IS_ENTITY_PLAYING_ANIM(Entity entity, const char* animDict, const char* animName, int taskFlag)
 constexpr uint64_t N_IS_ENTITY_TOUCHING_ENTITY = 0x17FFC1B2BA35A494; // BOOL IS_ENTITY_TOUCHING_ENTITY(Entity entity, Entity targetEntity)

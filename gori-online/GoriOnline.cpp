@@ -2403,15 +2403,29 @@ static void PassMission() {
     if (cb) cb();
     if (done.corona && g_missionEnd) g_missionEnd(true, "", done);
 }
+static bool g_mVehHeld = false;   // the vehicle to steal waits frozen until you're near: where the ground isn't loaded yet it would fall through it
+static void VehRelease(Vec3 at) {
+    if (!g_mVehHeld) return;
+    g_mVehHeld = false;
+    if (!g_mVeh || !Exists(g_mVeh)) return;
+    N(N_SET_ENTITY_COORDS_NO_OFFSET, g_mVeh, at.x, at.y, at.z, 0, 0, 0);
+    N(N_FREEZE_ENTITY_POSITION, g_mVeh, 0);
+    N<int>(N_SET_VEHICLE_ON_GROUND_PROPERLY, g_mVeh, 5.0f);
+}
+static bool g_mAuto = false;   // mauto: a test plays the mission's steps by itself, and it ends unpaid
 static void NextStep() {
     Step &s = g_m.steps[g_mStep];
+    VehRelease(s.pos);
     if (s.onDone) s.onDone();
     if (!g_mActive) return;
     ClearStepThings();
     if (g_holding) { N(N_CLEAR_PED_TASKS, Me()); g_holding = 0; }
     g_mStep++;
     g_stepInit = false;
-    if (g_mStep >= g_m.steps.size()) PassMission();
+    if (g_mStep >= g_m.steps.size()) {
+        if (g_mAuto) { Log("mauto: ALL STEPS DONE %s", g_m.name.c_str()); g_mStep = g_m.steps.size() - 1; FailMission("Test over."); }
+        else PassMission();
+    }
 }
 static void InitStep(Step &s) {
     g_stepInit = true; g_enemiesUp = false; g_snapped = false; g_holdMs = 0; g_collected = 0; g_holdLast = Now();
@@ -2444,6 +2458,8 @@ static void InitStep(Step &s) {
             if (g_mVeh) {
                 N(N_SET_ENTITY_AS_MISSION_ENTITY, g_mVeh, 1, 1);
                 N<int>(N_SET_VEHICLE_ON_GROUND_PROPERLY, g_mVeh, 5.0f);
+                g_mVehHeld = Dist(Pos(Me()), p) > 120.f;
+                if (g_mVehHeld) N(N_FREEZE_ENTITY_POSITION, g_mVeh, 1);
                 g_mVehBlip = AddBlip(g_mVeh, 225, 3, "Target vehicle");   // blue, like Online's vehicles to take
                 s.pos = p;
             }
@@ -2474,6 +2490,62 @@ static void DrawObjective(std::string t, bool vehicle = false) {
     }
     if (g_mTake) RaceBar(1, "TAKE", Money(g_mTake), false);
 }
+// mauto: every step done by moving the player onto it, as a check that each one starts, has what it needs and can end
+static void MissionAuto(Step &s) {
+    static int step = -1, at = 0, t0 = 0, lastPeds = -1;
+    int now = Now(), me = Me();
+    if (step != (int)g_mStep || now - t0 > 600000) {
+        step = (int)g_mStep; t0 = now; at = now + 1500; lastPeds = -1;
+        Log("mauto: step %d/%d type %d \"%s\" target %.0f %.0f %.0f", step + 1, (int)g_m.steps.size(), (int)s.type, s.text.c_str(), s.pos.x, s.pos.y, s.pos.z);
+        return;
+    }
+    int alive = 0; float spread = 0.f;
+    for (int p : g_mPeds) if (Exists(p) && !Dead(p)) { ++alive; spread = std::max(spread, Dist(Pos(p), s.pos)); }
+    if (g_enemiesUp && alive != lastPeds && lastPeds < 0) Log("mauto:   %d enemies, furthest %.0f m from the target", alive, spread);
+    if (g_enemiesUp) lastPeds = alive;
+    if (now - t0 > 25000 + s.seconds * 1000) {
+        Vec3 p = Pos(me);
+        Log("mauto: STUCK step %d: player %.0f %.0f %.0f, target %.0f %.0f %.0f, enemies %d, veh %d", step + 1, p.x, p.y, p.z, s.pos.x, s.pos.y, s.pos.z, alive, g_mVeh);
+        NextStep();
+        return;
+    }
+    if (now < at) return;
+    at = now + 2000;
+    auto go = [&](Vec3 v) { if (InAnyVehicle()) N(N_CLEAR_PED_TASKS_IMMEDIATELY, me); N(N_SET_ENTITY_COORDS_NO_OFFSET, me, v.x, v.y, v.z + 1.f, 0, 0, 0); };
+    auto killAll = [&] { for (int p : g_mPeds) if (Exists(p) && !Dead(p)) N(N_SET_ENTITY_HEALTH, p, 0, 0, 0); };
+    switch (s.type) {
+    case S_GOTO: case S_HOLD: if (Dist(Pos(me), s.pos) > 1.f) go(s.pos); break;
+    case S_KILL: if (g_enemiesUp) killAll(); else go(s.pos); break;
+    case S_PICKUP: {
+        int o = 0;
+        for (int e : g_mObjs) if (e) { o = e; break; }
+        go(o ? Pos(o) : s.pos);
+        break;
+    }
+    case S_STEAL:
+        if (!g_mVeh) { Log("mauto: NO VEHICLE %s", s.vehicle.c_str()); NextStep(); return; }
+        if (Dist(Pos(me), s.pos) > 40.f) { go(V3(s.pos.x + 8.f, s.pos.y, s.pos.z + 3.f)); break; }
+        if (g_mVehHeld) break;
+        {
+            Vec3 v = Pos(g_mVeh);
+            Log("mauto:   %s at %.1f %.1f %.1f, %.1f m above ground, %s", s.vehicle.c_str(), v.x, v.y, v.z, N<float>(N_GET_ENTITY_HEIGHT_ABOVE_GROUND, g_mVeh), NB(N<int>(N_IS_ENTITY_IN_WATER, g_mVeh)) ? "IN WATER" : "dry");
+            N(N_SET_PED_INTO_VEHICLE, me, g_mVeh, -1);
+        }
+        break;
+    case S_DELIVER:
+        if (s.needMissionVehicle && g_mVeh) { N(N_SET_PED_INTO_VEHICLE, me, g_mVeh, -1); N(N_SET_ENTITY_COORDS_NO_OFFSET, g_mVeh, s.pos.x, s.pos.y, s.pos.z + 1.f, 0, 0, 0); }
+        else go(s.pos);
+        break;
+    case S_ESCAPE: {
+        killAll();
+        N(N_CLEAR_PLAYER_WANTED_LEVEL, Player());
+        Vec3 h = V3(713.3f, -1090.1f, 21.4f);
+        if (s.escapeDist > 0.f) go(Dist2(h, s.pos) > s.escapeDist ? h : V3(-1200.f, -1400.f, 4.5f));
+        break;
+    }
+    default: Log("mauto:   minigame step skipped"); NextStep(); break;
+    }
+}
 static void MissionTick() {
     if (!g_mActive || g_mStep >= g_m.steps.size()) return;
     int me = Me(); Vec3 mp = Pos(me);
@@ -2482,6 +2554,9 @@ static void MissionTick() {
     Step &s = g_m.steps[g_mStep];
     if (!g_stepInit) InitStep(s);
     if (!g_mActive) return;
+    if (g_mAuto) { MissionAuto(s); if (!g_mActive || g_mStep >= g_m.steps.size()) return; }
+    Step &cur = g_m.steps[g_mStep];
+    if (&cur != &s) return;
     if (g_mAlly && (!Exists(g_mAlly) || Dead(g_mAlly))) { g_mAlly = 0; FailMission("Your crew member died."); return; }
     if (g_mVeh && (s.type == S_DELIVER || s.needMissionVehicle) && (!Exists(g_mVeh) || Dead(g_mVeh) || !NB(N<int>(N_IS_VEHICLE_DRIVEABLE, g_mVeh, 0)))) {
         g_mVeh = 0; FailMission("The vehicle was destroyed."); return;
@@ -2526,13 +2601,17 @@ static void MissionTick() {
         if (d < 60.f) Marker(s.pos, 240, 200, 80);
         if (d < s.radius) NextStep();
         break;
-    case S_KILL: {   // all of them down
+    case S_KILL: {   // all of them down, those left alive far behind on earlier steps aside
         bool any = false;
-        for (int p : g_mPeds) if (Exists(p) && !Dead(p)) any = true;
+        for (int p : g_mPeds) if (Exists(p) && !Dead(p) && Dist(Pos(p), s.pos) < 150.f) any = true;
         if (g_enemiesUp && !any) NextStep();
         break;
     }
     case S_STEAL:
+        if (g_mVehHeld && d < 120.f) {
+            N(N_REQUEST_COLLISION_AT_COORD, s.pos.x, s.pos.y, s.pos.z);
+            if (d < 80.f) VehRelease(s.pos);
+        }
         if (g_mVeh && inMissionVeh) { RemoveBlip(g_mVehBlip); NextStep(); }
         break;
     case S_DELIVER: {
@@ -3374,7 +3453,7 @@ static void StartHeist(int h) {
                             m.steps.push_back(Enemies(Air(Steal("Steal the ~g~Hydra~s~ with the EMP.", V3(3044.f, -4640.f, 15.4f), 20.f, "hydra")), 6, "s_m_y_marine_01", "weapon_carbinerifle"));
                             m.steps.push_back(Land("Fly it to the ~y~drop-off~s~.", HEIST_SANDY, 40.f));
                             m.onCleanup = [] { HeistCarrier(false); }; }
-        else if (st == 3) { m.steps.push_back(Enemies(Air(Steal("Steal the ~g~Valkyrie~s~ from Merryweather at the Naval Port.", V3(490.f, -3220.f, 6.1f), 0.f, "valkyrie")), 8, "s_m_y_blackops_01", "weapon_carbinerifle"));
+        else if (st == 3) { m.steps.push_back(Enemies(Steal("Steal the ~g~Valkyrie~s~ from Merryweather at the Naval Port.", V3(490.f, -3220.f, 6.1f), 0.f, "valkyrie"), 8, "s_m_y_blackops_01", "weapon_carbinerifle"));
                             m.steps.push_back(Land("Take it to the ~y~drop-off~s~.", HEIST_MCKENZIE)); }
         else if (st == 4) { m.steps.push_back(Steal("Get in the ~g~Insurgent~s~ with the EMP.", park, parkH, "insurgent"));
                             Step d = Deliver("Drive it into the ~y~lab's bay~s~.", V3(3617.f, 3739.f, 28.7f));
@@ -3408,7 +3487,7 @@ static void StartHeist(int h) {
                             m.steps.push_back(Goto("Take him to the ~y~drop-off~s~.", safe, 6.f)); }
         else if (st == 2) { m.steps.push_back(Enemies(Steal("Take the rival crew's ~g~van~s~ with the hacking rig in Vinewood.", V3(300.f, 200.f, 104.f), 0.f, "gburrito2"), 6, "g_m_y_korean_01", "weapon_microsmg"));
                             Step d = Deliver("Lose the rival crew and reach ~y~Lester's factory~s~.", LESTER_FACTORY); d.chasers = 3; m.steps.push_back(d); }
-        else if (st == 3) { m.steps.push_back(Enemies(Steal("Hijack the ~g~Barracks~s~ from the Merryweather convoy in Raton Canyon.", V3(-1000.f, 4400.f, 15.f), 0.f, "barracks"), 8, "s_m_y_blackops_01", "weapon_carbinerifle"));
+        else if (st == 3) { m.steps.push_back(Enemies(Steal("Hijack the ~g~Barracks~s~ from the Merryweather convoy near Grapeseed.", V3(1705.f, 4720.f, 42.1f), 0.f, "barracks"), 8, "s_m_y_blackops_01", "weapon_carbinerifle"));
                             Step d = Deliver("Escape Merryweather and reach the ~y~drop-off~s~.", safe); d.chasers = 3; m.steps.push_back(d); }
         else if (st == 4) { m.steps.push_back(Steal("Steal the ~g~Lectro~s~ at the Lost MC clubhouse.", V3(980.f, -110.f, 74.f), 0.f, "lectro"));
                             m.steps.push_back(Deliver("Store it near the ~y~Pacific Standard~s~.", V3(220.f, 200.f, 105.5f))); }
@@ -4118,7 +4197,7 @@ static void BuildMenu(const Frame &f, std::string &title, std::string &sub, std:
     }
     case M_ACTIVITIES: {
         title = "Activities"; sub = "ACTIVITIES";
-        items.push_back({"Contact Missions", ">", "Jobs from Gerald, Simeon, Lamar, Martin, Ron, Trevor, Lester, Agent 14, SecuroServ and Ms. Baker, by rank.", [] { Open((MenuId)CMM_LIST); }});
+        items.push_back({"Contact Missions", ">", "Your contacts' jobs, by rank: from Gerald and Simeon to Sessanta, Franklin and Oscar.", [] { Open((MenuId)CMM_LIST); }});
         items.push_back({"Heists", ">", "Preps and finales with Lester.", [] { Open(M_HEISTS); }});
         items.push_back({"Races", g_race.phase == RP_LOBBY ? "Lobby >" : ">", "Races: solo or with the other players, paid by position.", [] { Open((MenuId)RM_LIST); }});
         items.push_back({"Arena War", g_aw.phase == AWP_LOBBY ? "Lobby >" : g_aw.phase != AWP_NONE ? "Playing >" : ">", "Events in the Maze Bank Arena, alone against bots or online.", [] { Open((MenuId)AW_MENU); }});
@@ -4900,6 +4979,8 @@ static void CommandTick() {
             else if (a[1] == "bg" && a.size() > 2) g_hack.background = std::atoi(a[2].c_str());
             else { if (g_drill.on) DrillEnd(); if (g_hack.on) HackEnd(); g_hgTest = 0; }
         }
+        else if (a[0] == "die") { N(N_SET_ENTITY_INVINCIBLE, Me(), 0); N(N_SET_ENTITY_HEALTH, Me(), 0, 0, 0); }   // die: the character dies, to see the respawn (test)
+        else if (a[0] == "mauto" && a.size() > 1) { g_mAuto = a[1] == "1"; Log("mauto %d", g_mAuto ? 1 : 0); }   // mauto 1|0: missions play themselves and end unpaid (test)
         else if (a[0] == "mskip") {   // mskip: the mission's current step done (test)
             if (g_drill.on) DrillEnd();
             if (g_hack.on) HackEnd();

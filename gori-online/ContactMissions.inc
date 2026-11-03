@@ -180,6 +180,79 @@ static const ContactMission CM_AGATHA[] = {
     {"Bad Beat", CM_DESTROY, 1, 25000, 4, -1200.f, -1400.f, 4.f, "g_m_y_korean_01", "weapon_assaultrifle", nullptr, "Ms. Baker: \"A rival's cash room in Vespucci. Shut it down.\""},
     {"Cashing Out", CM_ELIM, 1, 25000, 4, 925.f, 47.f, 81.f, "g_m_y_korean_01", "weapon_assaultrifle", nullptr, "Ms. Baker: \"The Cheng family is at our door. Defend the Diamond.\""},
 };
+static const ContactMission CM_SESSANTA[] = {
+    {"The Bank Contract", CM_ROB, 1, 30000, 4, 150.f, -1040.f, 29.4f, "s_m_m_security_01", "weapon_carbinerifle", nullptr, "Sessanta: \"A Fleeca in Legion Square. KDJ's paying well for what's in it.\""},
+    {"The Data Contract", CM_PACKAGE, 1, 30000, 4, -1080.f, -250.f, 37.f, "s_m_m_security_01", "weapon_smg", nullptr, "Sessanta: \"Lifeinvader has a drive we want. In and out, love.\""},
+    {"The Superdollar Deal", CM_PACKAGE, 1, 30000, 4, 1180.f, -3110.f, 5.9f, "s_m_y_dockwork_01", "weapon_assaultrifle", nullptr, "Sessanta: \"Counterfeit plates at the docks. Take them before the buyer does.\""},
+    {"The Prison Contract", CM_RESCUE, 1, 30000, 4, 1855.f, 3690.f, 38.f, "s_m_y_sheriff_01", "weapon_carbinerifle", nullptr, "Sessanta: \"Our client's in the Sandy Shores lockup. Bust him out.\""},
+    {"The Agency Deal", CM_PACKAGE, 1, 30000, 4, -50.f, -790.f, 44.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Sessanta: \"Something downtown the agencies would pay for. So would we.\""},
+    {"The E.C.U Job", CM_STEAL, 1, 30000, 4, 850.f, -2350.f, 30.f, "g_m_y_mexgoon_01", "weapon_assaultrifle", "stockade", "Sessanta: \"An armored Stockade in Cypress Flats. Everything's in the back.\""},
+    {"The Lost Contract", CM_ELIM, 1, 30000, 4, 975.f, -120.f, 74.f, "g_m_y_lost_01", "weapon_assaultrifle", nullptr, "Sessanta: \"The Lost crossed the wrong people. Finish it at their clubhouse.\""},
+    {"The Union Depository Contract", CM_PACKAGE, 1, 30000, 4, -5.f, -700.f, 46.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Sessanta: \"The Union Depository. Yes, really. Bring me the box.\""},
+};
+static const ContactMission CM_FRANKLIN[] = {
+    {"On Course", CM_ELIM, 1, 35000, 4, -1180.f, 60.f, 53.f, "s_m_m_highsec_01", "weapon_smg", nullptr, "Franklin: \"A problem at the Los Santos Golf Club, homie. Solve it.\""},
+    {"Setup: Data Recovery", CM_PACKAGE, 1, 35000, 4, -1390.f, -420.f, 36.f, "s_m_m_security_01", "weapon_pistol", nullptr, "Franklin: \"Dre's phone data is on a drive in Del Perro. Go get it.\""},
+    {"Nightlife Leak", CM_ELIM, 1, 35000, 4, -1388.f, -586.f, 30.f, "s_m_m_highsec_01", "weapon_smg", nullptr, "Franklin: \"The leak's at a Del Perro club. Shut it down.\""},
+    {"High Society Leak", CM_PACKAGE, 1, 35000, 4, -820.f, 180.f, 72.f, "s_m_m_security_01", "weapon_carbinerifle", nullptr, "Franklin: \"Somebody rich in Rockford Hills has the phone now. Take it.\""},
+    {"South Central Leak", CM_ELIM, 1, 35000, 4, 100.f, -1940.f, 20.f, "g_m_y_ballaorig_01", "weapon_microsmg", nullptr, "Franklin: \"Ballas on Grove Street got the tracks. I know, I know.\""},
+    {"Studio Time", CM_RESCUE, 1, 35000, 4, -840.f, -230.f, 37.f, "g_m_y_korean_01", "weapon_assaultrifle", nullptr, "Franklin: \"They're holding our guy outside Record A Studios. Move.\""},
+    {"Don't Fuck With Dre", CM_ELIM, 1, 35000, 4, -130.f, -1600.f, 34.f, "g_m_y_ballaorig_01", "weapon_assaultrifle", nullptr, "Franklin: \"Last one. Chamberlain Hills. Make it loud.\""},
+};
+static const ContactMission CM_DARCY[] = {
+    {"Overboard", CM_RESCUE, 1, 30000, 4, -1820.f, -1210.f, 13.f, "g_m_y_korean_01", "weapon_microsmg", nullptr, "Brendan: \"One of my crew's being held on the Del Perro waterfront. Fetch him.\""},
+    {"Salvage", CM_PACKAGE, 1, 30000, 4, -275.f, 6638.f, 7.5f, "g_m_y_lost_01", "weapon_assaultrifle", nullptr, "Brendan: \"Salvage from my yacht ended up at the Paleto Bay pier. It's mine.\""},
+    {"All Hands", CM_ELIM, 1, 30000, 4, 1010.f, -3100.f, 5.9f, "s_m_y_dockwork_01", "weapon_assaultrifle", nullptr, "Brendan: \"Thieves at the docks took my crew's pay. All hands on them.\""},
+    {"Icebreaker", CM_DESTROY, 1, 30000, 4, -300.f, -2750.f, 5.f, "s_m_y_dockwork_01", "weapon_assaultrifle", nullptr, "Brendan: \"A rival's cargo at the port. Break it open.\""},
+    {"Bon Voyage", CM_STEAL, 1, 30000, 4, -1600.f, -400.f, 40.f, "s_m_m_highsec_01", "weapon_carbinerifle", "comet3", "Brendan: \"A Comet in Del Perro for the captain's farewell. Bring it.\""},
+    {"D-Day", CM_ELIM, 1, 30000, 4, 490.f, -3220.f, 6.f, "s_m_y_blackops_01", "weapon_carbinerifle", nullptr, "Brendan: \"Merryweather at the Naval Port. This ends today.\""},
+};
+static const ContactMission CM_ULP[] = {
+    {"ULP - Intelligence", CM_PACKAGE, 1, 30000, 4, 100.f, -730.f, 45.f, "s_m_m_fibsec_01", "weapon_carbinerifle", nullptr, "Agent ULP: \"A dead drop downtown. Get it before the IAA's friends do.\""},
+    {"Counterintelligence", CM_ELIM, 1, 30000, 4, -1390.f, -420.f, 36.f, "s_m_m_fibsec_01", "weapon_carbinerifle", nullptr, "Agent ULP: \"Their team is in Del Perro. Put them out of the game.\""},
+    {"Extraction", CM_RESCUE, 1, 30000, 4, -620.f, -900.f, 25.f, "g_m_y_korean_01", "weapon_assaultrifle", nullptr, "Agent ULP: \"An asset of mine is in Little Seoul. Extract her.\""},
+    {"ULP - Asset Seizure", CM_STEAL, 1, 30000, 4, 850.f, -2350.f, 30.f, "g_m_y_mexgoon_01", "weapon_assaultrifle", "insurgent2", "Agent ULP: \"An Insurgent in Cypress Flats. We're seizing it.\""},
+    {"Operation Paper Trail", CM_DESTROY, 1, 30000, 4, 2950.f, 2790.f, 41.f, "s_m_y_blackops_01", "weapon_carbinerifle", nullptr, "Agent ULP: \"The proof is at the quarry. It burns tonight.\""},
+    {"ULP - Cleanup", CM_ELIM, 1, 30000, 4, 490.f, -3220.f, 6.f, "s_m_y_blackops_01", "weapon_carbinerifle", nullptr, "Agent ULP: \"Last loose ends, at the Naval Port. Tie them off.\""},
+};
+static const ContactMission CM_REED[] = {
+    {"Reporting for Duty", CM_ELIM, 1, 35000, 4, -2550.f, 2320.f, 33.f, "g_m_y_lost_01", "weapon_assaultrifle", nullptr, "Charlie Reed: \"First test, recruit: the camp off the Great Ocean Highway.\""},
+    {"Falling In", CM_PACKAGE, 1, 35000, 4, 2050.f, 2950.f, 47.f, "s_m_y_blackops_01", "weapon_carbinerifle", nullptr, "Charlie Reed: \"Stolen orders at the desert array. Recover them.\""},
+    {"On Parade", CM_STEAL, 1, 35000, 4, -2140.f, 3240.f, 32.8f, "s_m_y_marine_01", "weapon_carbinerifle", "barracks", "Charlie Reed: \"A Barracks at Zancudo, off the parade ground. Bring it.\""},
+    {"Breaking Ranks", CM_RESCUE, 1, 35000, 4, -440.f, 6020.f, 31.f, "s_m_y_sheriff_01", "weapon_carbinerifle", nullptr, "Charlie Reed: \"One of mine is in the Paleto Bay station. Get him out.\""},
+    {"Unconventional Warfare", CM_DESTROY, 1, 35000, 4, 1690.f, 3580.f, 35.f, "g_m_y_lost_01", "weapon_assaultrifle", nullptr, "Charlie Reed: \"A militia's supplies in Sandy Shores. Burn them.\""},
+    {"Shock & Awe", CM_ELIM, 1, 35000, 4, -2140.f, 3240.f, 32.8f, "s_m_y_marine_01", "weapon_carbinerifle", nullptr, "Charlie Reed: \"Zancudo. Everything we've got. Go.\""},
+};
+static const ContactMission CM_VINCENT[] = {
+    {"Slush Fund", CM_PACKAGE, 1, 35000, 4, -1050.f, -510.f, 36.f, "s_m_m_security_01", "weapon_pistol", nullptr, "Vincent: \"The money's at Richards Majestic. Keep this off the books.\""},
+    {"Breaking and Entering", CM_PACKAGE, 1, 35000, 4, -70.f, 6260.f, 31.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Vincent: \"The Cluckin' Bell plant in Paleto. Get me their records.\""},
+    {"Hit and Run", CM_STEAL, 1, 35000, 4, 440.f, -980.f, 30.f, "s_m_y_cop_01", "weapon_pistol", "sentinel", "Vincent: \"An unmarked Sentinel by Mission Row. Don't ask why.\""},
+    {"Concealed Weapons", CM_PACKAGE, 1, 35000, 4, 840.f, -2200.f, 30.f, "g_m_y_mexgoon_01", "weapon_assaultrifle", nullptr, "Vincent: \"A gun stash in Cypress Flats. It disappears today.\""},
+    {"Disorganized Crime", CM_ELIM, 1, 35000, 4, 110.f, -1290.f, 29.f, "g_m_y_mexgoon_01", "weapon_smg", nullptr, "Vincent: \"These clowns at the Unicorn are in the way. Move them.\""},
+    {"Scene of the Crime", CM_DESTROY, 1, 35000, 4, -70.f, 6260.f, 31.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Vincent: \"Back to the Cluckin' Bell farm. Time to end this.\""},
+};
+static const ContactMission CM_JENETTE[] = {
+    {"Most Wanted: Whitney", CM_ELIM, 1, 25000, 4, 1960.f, 3820.f, 32.f, "g_m_y_lost_01", "weapon_pumpshotgun", nullptr, "Jenette: \"Whitney's hiding out in Sandy Shores with friends. Bring it to an end.\""},
+    {"Most Wanted: Song", CM_ELIM, 1, 25000, 4, -620.f, -900.f, 25.f, "g_m_y_korean_01", "weapon_microsmg", nullptr, "Jenette: \"Song runs a crew in Little Seoul. He's worth a lot to us.\""},
+    {"Most Wanted: Thompson", CM_ELIM, 1, 25000, 4, 2000.f, 4900.f, 42.5f, "a_m_m_hillbilly_01", "weapon_pumpshotgun", nullptr, "Jenette: \"Thompson's on a Grapeseed farm. Mind the shotguns.\""},
+    {"Most Wanted: Lieberman", CM_ELIM, 1, 25000, 4, -1525.f, 80.f, 56.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Jenette: \"Lieberman has a mansion and a private army. Good luck.\""},
+    {"Most Wanted: O'Neil", CM_ELIM, 1, 25000, 4, 2430.f, 4970.f, 46.f, "a_m_m_hillbilly_01", "weapon_pumpshotgun", nullptr, "Jenette: \"O'Neil's at the ranch. The family won't let him go quietly.\""},
+    {"Most Wanted: Garcia", CM_ELIM, 1, 25000, 4, 470.f, -1310.f, 29.f, "g_m_y_mexgoon_01", "weapon_assaultrifle", nullptr, "Jenette: \"Garcia, in Strawberry. Last name on the board.\""},
+};
+static const ContactMission CM_JODI[] = {
+    {"The Brute Force File", CM_ELIM, 1, 40000, 4, 100.f, -730.f, 45.f, "s_m_m_fibsec_01", "weapon_carbinerifle", nullptr, "Jodi: \"Bureau men downtown have the file. Do it the direct way.\""},
+    {"The Black Box File", CM_PACKAGE, 1, 40000, 4, -1040.f, -2730.f, 20.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Jodi: \"A black box at the airport. It never reached the Bureau.\""},
+    {"The Fine Art File", CM_PACKAGE, 1, 40000, 4, -2300.f, 320.f, 174.f, "s_m_m_security_01", "weapon_carbinerifle", nullptr, "Jodi: \"The Kortz Center holds more than paintings. Bring it.\""},
+    {"The Project Breakaway File", CM_DESTROY, 1, 40000, 4, 2050.f, 2950.f, 47.f, "s_m_y_blackops_01", "weapon_carbinerifle", nullptr, "Jodi: \"Project Breakaway ends at the desert array. Blow it.\""},
+};
+static const ContactMission CM_OSCAR[] = {
+    {"Up and Running", CM_PACKAGE, 1, 40000, 4, 1708.f, 3254.f, 41.f, "g_m_y_lost_01", "weapon_assaultrifle", nullptr, "Oscar: \"Parts for my planes, at the Sandy Shores airfield. Bring them.\""},
+    {"Setup: Mogul", CM_STEAL, 1, 40000, 4, 1708.f, 3254.f, 41.f, "g_m_y_lost_01", "weapon_assaultrifle", "mogul", "Oscar: \"A Mogul at the airfield. She flies. Land her at Grapeseed.\""},
+    {"Setup: Intel", CM_PACKAGE, 1, 40000, 4, -50.f, -790.f, 44.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Oscar: \"Flight plans in a downtown office. I want them.\""},
+    {"Setup: Iron Mule", CM_STEAL, 1, 40000, 4, -1336.f, -3044.f, 13.9f, "s_m_y_marine_01", "weapon_carbinerifle", "titan", "Oscar: \"The big one, at the airport. Bring me the Titan.\""},
+    {"Setup: Ammunition", CM_PACKAGE, 1, 40000, 4, -2140.f, 3240.f, 32.8f, "s_m_y_marine_01", "weapon_carbinerifle", nullptr, "Oscar: \"Ammunition from Zancudo. They have plenty.\""},
+    {"The Titan Job", CM_ELIM, 1, 40000, 4, -1336.f, -3044.f, 13.9f, "s_m_y_marine_01", "weapon_carbinerifle", nullptr, "Oscar: \"The airport, one more time. Clear the runway.\""},
+};
 static const ContactDef CONTACTS[] = {
     {"Gerald", 86, "Gerald: \"Ain't nobody got time for small talk.\"", CM_GERALD, (int)(sizeof CM_GERALD / sizeof *CM_GERALD)},
     {"Simeon", 18, "Simeon: \"My friend! I have work for you.\"", CM_SIMEON, (int)(sizeof CM_SIMEON / sizeof *CM_SIMEON)},
@@ -191,6 +264,15 @@ static const ContactDef CONTACTS[] = {
     {"Agent 14", 76, "Agent 14: \"Go ahead.\"", CM_AGENT14, (int)(sizeof CM_AGENT14 / sizeof *CM_AGENT14)},
     {"SecuroServ", -1, "SecuroServ: \"SecuroServ. How can we help?\"", CM_SECURO, (int)(sizeof CM_SECURO / sizeof *CM_SECURO)},
     {"Ms. Baker", 157, "Ms. Baker: \"The Diamond Casino & Resort.\"", CM_AGATHA, (int)(sizeof CM_AGATHA / sizeof *CM_AGATHA)},
+    {"Sessanta", -1, "Sessanta: \"Got a job for you.\"", CM_SESSANTA, (int)(sizeof CM_SESSANTA / sizeof *CM_SESSANTA)},
+    {"Franklin", -1, "Franklin: \"Got a job for you.\"", CM_FRANKLIN, (int)(sizeof CM_FRANKLIN / sizeof *CM_FRANKLIN)},
+    {"Brendan", -1, "Brendan: \"Got a job for you.\"", CM_DARCY, (int)(sizeof CM_DARCY / sizeof *CM_DARCY)},
+    {"Agent ULP", -1, "Agent ULP: \"Got a job for you.\"", CM_ULP, (int)(sizeof CM_ULP / sizeof *CM_ULP)},
+    {"Charlie Reed", -1, "Charlie Reed: \"Got a job for you.\"", CM_REED, (int)(sizeof CM_REED / sizeof *CM_REED)},
+    {"Vincent", -1, "Vincent: \"Got a job for you.\"", CM_VINCENT, (int)(sizeof CM_VINCENT / sizeof *CM_VINCENT)},
+    {"Jenette", -1, "Jenette: \"Got a job for you.\"", CM_JENETTE, (int)(sizeof CM_JENETTE / sizeof *CM_JENETTE)},
+    {"Jodi", -1, "Jodi: \"Got a job for you.\"", CM_JODI, (int)(sizeof CM_JODI / sizeof *CM_JODI)},
+    {"Oscar", -1, "Oscar: \"Got a job for you.\"", CM_OSCAR, (int)(sizeof CM_OSCAR / sizeof *CM_OSCAR)},
 };
 static const int NCONTACTS = (int)(sizeof CONTACTS / sizeof *CONTACTS);
 enum { CMM_LIST = 270, CMM_CONTACT = 271 };   // CMM_CONTACT + contact index
@@ -212,7 +294,7 @@ static void StartContactMission(int c, int i, int diff = 1) {   // diff: 0 easy,
         { Step e = Escape("Lose the ~r~cops~s~."); e.wanted = 2; m.steps.push_back(e); }
         break;
     case CM_STEAL: {
-        static const char *const AIR[] = {"lazer", "luxor", "titan", "buzzard2", "frogger", "maverick"};
+        static const char *const AIR[] = {"lazer", "luxor", "titan", "buzzard2", "frogger", "maverick", "mogul"};
         bool air = false;
         for (const char *a : AIR) if (!strcmp(cm.vehicle, a)) air = true;
         Step s = Steal(std::string("Steal the ~g~vehicle~s~."), t, 0.f, cm.vehicle);
