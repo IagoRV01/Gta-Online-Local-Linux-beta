@@ -5,7 +5,7 @@
 // moves everyone to the next wave once all the players have cleared the current one or are down. A player who
 // dies is down until the next wave; when everyone is down it is over. Each player reports kills and waves
 // (RaceProgress: checkpoints = kills, finishMs = waves | SV_DOWN) and the server pays payout * waves / 10.
-enum { SV_LIST = 290, SV_LOC };
+enum { SV_LIST = 296, SV_LOC };
 struct SvLoc { const char *name; float x, y, z, r; };
 static const SvLoc SV_LOCS[] = {
     {"Stab City", 66.f, 3705.f, 39.7f, 45.f}, {"Boneyard", 2390.f, 3100.f, 48.2f, 55.f},

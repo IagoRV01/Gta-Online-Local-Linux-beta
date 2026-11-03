@@ -253,6 +253,22 @@ static const ContactMission CM_OSCAR[] = {
     {"Setup: Ammunition", CM_PACKAGE, 1, 40000, 4, -2140.f, 3240.f, 32.8f, "s_m_y_marine_01", "weapon_carbinerifle", nullptr, "Oscar: \"Ammunition from Zancudo. They have plenty.\""},
     {"The Titan Job", CM_ELIM, 1, 40000, 4, -1336.f, -3044.f, 13.9f, "s_m_y_marine_01", "weapon_carbinerifle", nullptr, "Oscar: \"The airport, one more time. Clear the runway.\""},
 };
+static const ContactMission CM_RAF[] = {
+    {"Liquid Market", CM_PACKAGE, 1, 40000, 4, -1581.f, -558.f, 34.f, "s_m_m_security_01", "weapon_smg", nullptr, "Raf: \"Mr. Faber wants what's in that Lombank office. Discreetly, if possible.\""},
+    {"ROI", CM_ELIM, 1, 40000, 4, -1388.f, -586.f, 30.f, "s_m_m_highsec_01", "weapon_smg", nullptr, "Raf: \"An investor at a Del Perro club stopped returning calls. Find out why.\""},
+    {"Compound Interest", CM_STEAL, 1, 40000, 4, -1050.f, -510.f, 36.f, "s_m_m_security_01", "weapon_carbinerifle", "schafter3", "Raf: \"A debtor's Schafter at Richards Majestic. The interest is due.\""},
+    {"Mutual Funds", CM_PACKAGE, 1, 40000, 4, -50.f, -790.f, 44.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Raf: \"Bearer bonds in a downtown office. They're ours now, in a sense.\""},
+    {"Current Liabilities", CM_DESTROY, 1, 40000, 4, 840.f, -2200.f, 30.f, "g_m_y_mexgoon_01", "weapon_assaultrifle", nullptr, "Raf: \"A warehouse in Cypress Flats is a liability. Write it off.\""},
+    {"The Monopoly", CM_ELIM, 1, 40000, 4, -5.f, -700.f, 46.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Raf: \"The last competitor, at the Union Depository. Then the market's ours.\""},
+};
+static const ContactMission CM_AVI[] = {
+    {"Negative Press", CM_DESTROY, 1, 40000, 4, -1080.f, -250.f, 37.f, "s_m_m_security_01", "weapon_carbinerifle", nullptr, "Avi: \"KnoWay's servers at Lifeinvader are saying bad things about me. Stop them.\""},
+    {"Inside Job", CM_PACKAGE, 1, 40000, 4, -1390.f, -420.f, 36.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Avi: \"The KnoWay executive keeps a drive in Del Perro. I need it.\""},
+    {"Tunnel Vision", CM_ELIM, 1, 40000, 4, -531.f, -1270.f, 27.f, "s_m_m_fibsec_01", "weapon_carbinerifle", nullptr, "Avi: \"Their people are around the Metro in La Puerta. Clear them.\""},
+    {"Trash Talking", CM_PACKAGE, 1, 40000, 4, -350.f, -1540.f, 27.f, "g_m_y_mexgoon_01", "weapon_microsmg", nullptr, "Avi: \"The real data's in the South L.S. Recycling yard. Dig it out.\""},
+    {"A Clean Break", CM_RESCUE, 1, 40000, 4, 100.f, -730.f, 45.f, "s_m_y_blackops_01", "weapon_carbinerifle", nullptr, "Avi: \"Get me out from downtown. No more KnoWay. A clean break.\""},
+    {"Home Sweet Home", CM_ELIM, 1, 40000, 4, -820.f, 180.f, 72.f, "s_m_m_highsec_01", "weapon_carbinerifle", nullptr, "Avi: \"Someone's waiting at the mansion in Rockford Hills. Your home now. Clear it.\""},
+};
 static const ContactDef CONTACTS[] = {
     {"Gerald", 86, "Gerald: \"Ain't nobody got time for small talk.\"", CM_GERALD, (int)(sizeof CM_GERALD / sizeof *CM_GERALD)},
     {"Simeon", 18, "Simeon: \"My friend! I have work for you.\"", CM_SIMEON, (int)(sizeof CM_SIMEON / sizeof *CM_SIMEON)},
@@ -273,6 +289,8 @@ static const ContactDef CONTACTS[] = {
     {"Jenette", -1, "Jenette: \"Got a job for you.\"", CM_JENETTE, (int)(sizeof CM_JENETTE / sizeof *CM_JENETTE)},
     {"Jodi", -1, "Jodi: \"Got a job for you.\"", CM_JODI, (int)(sizeof CM_JODI / sizeof *CM_JODI)},
     {"Oscar", -1, "Oscar: \"Got a job for you.\"", CM_OSCAR, (int)(sizeof CM_OSCAR / sizeof *CM_OSCAR)},
+    {"Raf", -1, "Raf: \"Got a job for you.\"", CM_RAF, (int)(sizeof CM_RAF / sizeof *CM_RAF)},
+    {"Avi", -1, "Avi: \"Got a job for you.\"", CM_AVI, (int)(sizeof CM_AVI / sizeof *CM_AVI)},
 };
 static const int NCONTACTS = (int)(sizeof CONTACTS / sizeof *CONTACTS);
 enum { CMM_LIST = 270, CMM_CONTACT = 271 };   // CMM_CONTACT + contact index

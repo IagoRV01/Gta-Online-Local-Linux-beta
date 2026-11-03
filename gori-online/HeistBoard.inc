@@ -52,6 +52,8 @@ static int HbDefaultHeist() {   // the first unlocked heist (Online: the one Les
 }
 static bool HbFinale(int h) { return g_heistStage[h] >= HEISTS[h].stages - 1; }
 
+static std::string g_hbTex;                 // the slots' pictures (hbslot: fmmc_launcher passes MPHEIST_BIOLAB)
+static int g_hbDone = 1, g_hbOpen = -1;     // a slot's state: 1 crossed out in red, -1 not (and the next one gets its yellow "To do" note)
 // fills the movie for heist h: its setups, or the finale's heist board
 static void HbBuild(int h) {
     const HeistDef &d = HEISTS[h];
@@ -63,9 +65,9 @@ static void HbBuild(int h) {
         HbBegin("INITIALISE_PLANNINGBOARD"); HbEnd();
         for (int i = 0; i < setups; ++i) {
             HbBegin("UPDATE_PLANNING_SLOT");
-            HbInt(i); HbTex(""); HbName(d.stageNames[i]);
+            HbInt(i); HbTex(g_hbTex); HbName(d.stageNames[i]);
             HbTex(""); HbName(""); HbTex(""); HbName(""); HbTex(""); HbName("");
-            HbInt(i < st ? 1 : 0);   // completed
+            HbInt(i < st ? g_hbDone : g_hbOpen);   // completed
             HbBool(i <= st);         // available: done, or the next one
             HbBool(i == g_hb.sel); HbBool(false);
             HbEnd();
@@ -107,7 +109,28 @@ static void HbBuild(int h) {
 // the spot of the planning board of the apartment you are in (AptActs 'P'), if any
 static bool HbSpot(Vec3 &p, float &h) {
     const char *id = AptIdInside();
-    if (!id) return false;
+    if (!id) {
+        // Online's high-end apartments: the bare wall of the planning room (rm_high_planning), measured in Del Perro Heights
+        // Apt 20 (o7, entered at -1468.67 -533.32 68.15, heading 125); the others are the same room turned with their heading
+        if (g_inside < 0) return false;
+        const InteriorDef *d = PropInterior(g_inside);
+        if (!d) return false;
+        // the High Life apartments: the same room, entered elsewhere (measured from Del Perro Heights Apt 4, entered at -1462.28 -539.63 72.44, heading 35)
+        for (const char *k : {"hl_delperro", "hl_richards", "hl_tinsel", "hl_eclipse", "hl_integrity", "apt_dp7", "apt_iw30"}) if (!std::strcmp(d->id, k)) {
+            float r = (d->h - 35.f) * 3.14159265f / 180.f, cs = std::cos(r), sn = std::sin(r), dx = 8.73f, dy = 7.23f;
+            p = V3(d->x + dx * cs - dy * sn, d->y + dx * sn + dy * cs, d->z - 2.94f);
+            h = std::fmod(215.f + d->h - 35.f + 360.f, 360.f);
+            return true;
+        }
+        static const char *const HIGH_END[] = {"o1", "o2", "o3", "o4", "o5", "o6", "o7", "o35", "o36", "o37", "o39", "o40", "o41", "o42", "o43"};
+        bool high = false;
+        for (const char *k : HIGH_END) if (!std::strcmp(d->id, k)) high = true;
+        if (!high) return false;
+        float r = (d->h - 125.f) * 3.14159265f / 180.f, cs = std::cos(r), sn = std::sin(r), dx = 15.12f, dy = 0.92f;
+        p = V3(d->x + dx * cs - dy * sn, d->y + dx * sn + dy * cs, d->z + 0.41f);
+        h = std::fmod(215.f + d->h - 125.f + 360.f, 360.f);
+        return true;
+    }
     for (int i = 0; i < NNEW_APT_ACTS; ++i)
         if (NEW_APT_ACTS[i].kind == 'P' && !std::strcmp(NEW_APT_ACTS[i].id, id)) { p = V3(NEW_APT_ACTS[i].x, NEW_APT_ACTS[i].y, NEW_APT_ACTS[i].z); h = NEW_APT_ACTS[i].h; return true; }
     return false;
@@ -167,6 +190,12 @@ static void HbFrame() {
         uint32_t room = N<uint32_t>(N_GET_ROOM_KEY_FROM_ENTITY, Me());
         if (in && room && room != g_hbRoom) { N(N_FORCE_ROOM_FOR_ENTITY, g_hb.prop, in, room); g_hbRoom = room; }
     }
+    static int reloadAt = 0;
+    if (g_hb.movie && g_hb.built >= 0 && g_hb.built != g_hb.heist) {   // another heist: a fresh movie (the old one keeps its title); asked for at once it's the old one again
+        N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_hb.movie);
+        g_hb.movie = 0; g_hb.built = -1; reloadAt = Now() + 400;
+    }
+    if (Now() < reloadAt) return;
     if (!g_hb.movie) g_hb.movie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "HEIST_MP");
     if (!NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.movie))) return;
     if (g_hb.heist < 0) g_hb.heist = HbDefaultHeist();
@@ -192,7 +221,14 @@ static void HbFrame() {
     }
     else N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.movie, c.x, c.y, c.z, g_hbRotX, 0.f, h + g_hbRot, 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
     if (!g_hbMapFirst) drawMap();
-    if (!g_hb.using_) { HbShowMe(); return; }
+    if (!g_hb.using_) {
+        HbShowMe();
+        if (!AptIdInside() && !g_menuOpen && !g_mActive && Dist(Pos(Me()), p) < 2.5f) {   // Online's apartments have no activity list: the prompt is here
+            Help("Press ~INPUT_CONTEXT~ to use the planning board.");
+            if (JustPressed(51)) HbOpen();
+        }
+        return;
+    }
     N(N_DISABLE_ALL_CONTROL_ACTIONS, 0);
     int setups = HEISTS[g_hb.heist].stages - 1;
     bool fin = HbFinale(g_hb.heist);

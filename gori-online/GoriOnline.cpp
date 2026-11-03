@@ -4979,6 +4979,56 @@ static void CommandTick() {
             else if (a[1] == "bg" && a.size() > 2) g_hack.background = std::atoi(a[2].c_str());
             else { if (g_drill.on) DrillEnd(); if (g_hack.on) HackEnd(); g_hgTest = 0; }
         }
+        else if (a[0] == "menuat" && a.size() > 1) OpenMenuAt((MenuId)std::atoi(a[1].c_str()));   // menuat <id>: that menu (test)
+        else if (a[0] == "menuoff") { CloseMenu(); }
+        else if (a[0] == "cminvite" && a.size() > 1) ContactRequestJob(std::atoi(a[1].c_str()) % NCONTACTS);   // cminvite <contact>: the job invite (test)
+        else if (a[0] == "hbtest" && a.size() > 1) { g_hb.heist = std::atoi(a[1].c_str()) % NHEISTS; HbOpen(); }   // hbtest <heist>: the board, inside an apartment (test)
+        else if (a[0] == "hboff") HbClose();
+        else if (a[0] == "hbslot" && a.size() > 3) {   // hbslot <dict|-> <done> <open>: how the slots are filled (test)
+            g_hbTex = a[1] == "-" ? "" : a[1]; g_hbDone = std::atoi(a[2].c_str()); g_hbOpen = std::atoi(a[3].c_str()); g_hb.builtStage = -1;
+            if (!g_hbTex.empty()) N(N_REQUEST_STREAMED_TEXTURE_DICT, g_hbTex.c_str(), 0);
+        }
+        else if (a[0] == "roomscan") {   // roomscan: the rooms around you, each with its extent, in the log (test: finds a property's planning room)
+            int me = Me(); Vec3 c = Pos(me);
+            N(N_FREEZE_ENTITY_POSITION, me, 1);
+            struct Box { int n; float x0, x1, y0, y1, z0, z1; };
+            std::map<uint32_t, Box> rooms;
+            for (float dz : {0.f, 3.5f, -3.5f, -7.f, -10.5f}) for (float dx = -30.f; dx <= 30.f; dx += 2.f) for (float dy = -30.f; dy <= 30.f; dy += 2.f) {
+                float x = c.x + dx, y = c.y + dy, z = c.z + dz;
+                N(N_SET_ENTITY_COORDS_NO_OFFSET, me, x, y, z, 0, 0, 0);
+                Wait(0);
+                uint32_t k = N<uint32_t>(N_GET_ROOM_KEY_FROM_ENTITY, me);
+                if (!k) continue;
+                auto it = rooms.find(k);
+                if (it == rooms.end()) rooms[k] = {1, x, x, y, y, z, z};
+                else { Box &b = it->second; ++b.n; b.x0 = std::min(b.x0, x); b.x1 = std::max(b.x1, x); b.y0 = std::min(b.y0, y); b.y1 = std::max(b.y1, y); b.z0 = std::min(b.z0, z); b.z1 = std::max(b.z1, z); }
+            }
+            N(N_SET_ENTITY_COORDS_NO_OFFSET, me, c.x, c.y, c.z, 0, 0, 0);
+            N(N_FREEZE_ENTITY_POSITION, me, 0);
+            Log("roomscan %s: at %.2f %.2f %.2f, %d rooms, planning %08x, study %08x, stilts a %08x, stilts b %08x", g_inside >= 0 ? PROPS[g_inside].name : "-", c.x, c.y, c.z, (int)rooms.size(), Joaat("rm_high_planning"), Joaat("mp_apt_h_01_study"), Joaat("mr_mp_stilts_a_plan"), Joaat("mr_mp_stilts_b_PlanRm"));
+            for (auto &kv : rooms) Log("roomscan   %08x n %d x %.0f..%.0f y %.0f..%.0f z %.1f..%.1f", kv.first, kv.second.n, kv.second.x0, kv.second.x1, kv.second.y0, kv.second.y1, kv.second.z0, kv.second.z1);
+        }
+        else if (a[0] == "ray" && a.size() > 4) {   // ray x y z heading: what's ahead, in the log (test: measures walls)
+            float x = F(1), y = F(2), z = F(3), r = F(4) * 3.14159f / 180.f;
+            int t = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, x, y, z, x - std::sin(r) * 30.f, y + std::cos(r) * 30.f, z, 1 | 16, Me(), 7);
+            int hit = 0, ent = 0; Vec3 e{}, n{};
+            N<int>(N_GET_SHAPE_TEST_RESULT, t, &hit, &e, &n, &ent);
+            Log("ray from %.2f %.2f %.2f h %.0f: hit %d at %.2f %.2f %.2f (%.2f m)", x, y, z, F(4), hit, e.x, e.y, e.z, hit ? Dist(e, V3(x, y, z)) : -1.f);
+        }
+        else if (a[0] == "hbcheck") {   // hbcheck: this apartment's planning spot: the room there, the wall ahead, in the log (test)
+            Vec3 p; float h;
+            if (!HbSpot(p, h)) Log("hbcheck %s: no spot", g_inside >= 0 ? PROPS[g_inside].name : "-");
+            else {
+                N(N_SET_ENTITY_COORDS_NO_OFFSET, Me(), p.x, p.y, p.z + 1.f, 0, 0, 0);
+                Wait(500);
+                uint32_t room = N<uint32_t>(N_GET_ROOM_KEY_FROM_ENTITY, Me());
+                float r = h * 3.14159f / 180.f;
+                int t = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, p.x, p.y, p.z + 1.7f, p.x - std::sin(r) * 10.f, p.y + std::cos(r) * 10.f, p.z + 1.7f, 1 | 16, Me(), 7);
+                int hit = 0, ent = 0; Vec3 e{}, n{};
+                N<int>(N_GET_SHAPE_TEST_RESULT, t, &hit, &e, &n, &ent);
+                Log("hbcheck %s: spot %.2f %.2f %.2f h %.0f, %s, wall %.2f m", PROPS[g_inside].name, p.x, p.y, p.z, h, room == Joaat("rm_high_planning") ? "PLANNING ROOM" : "ANOTHER ROOM", hit ? Dist(e, V3(p.x, p.y, p.z + 1.7f)) : -1.f);
+            }
+        }
         else if (a[0] == "die") { N(N_SET_ENTITY_INVINCIBLE, Me(), 0); N(N_SET_ENTITY_HEALTH, Me(), 0, 0, 0); }   // die: the character dies, to see the respawn (test)
         else if (a[0] == "mauto" && a.size() > 1) { g_mAuto = a[1] == "1"; Log("mauto %d", g_mAuto ? 1 : 0); }   // mauto 1|0: missions play themselves and end unpaid (test)
         else if (a[0] == "mskip") {   // mskip: the mission's current step done (test)
