@@ -115,13 +115,14 @@ static bool HbSpot(Vec3 &p, float &h) {
         if (g_inside < 0) return false;
         const InteriorDef *d = PropInterior(g_inside);
         if (!d) return false;
-        // the High Life apartments: the same room, entered elsewhere (measured from Del Perro Heights Apt 4, entered at -1462.28 -539.63 72.44, heading 35)
-        for (const char *k : {"hl_delperro", "hl_richards", "hl_tinsel", "hl_eclipse", "hl_integrity", "apt_dp7", "apt_iw30"}) if (!std::strcmp(d->id, k)) {
-            float r = (d->h - 35.f) * 3.14159265f / 180.f, cs = std::cos(r), sn = std::sin(r), dx = 8.73f, dy = 7.23f;
-            p = V3(d->x + dx * cs - dy * sn, d->y + dx * sn + dy * cs, d->z - 2.94f);
-            h = std::fmod(215.f + d->h - 35.f + 360.f, 360.f);
-            return true;
-        }
+        // the High Life apartments and the two of ours in Online's towers: the same room, in another place of the tower
+        static const struct { const char *id; float x, y, z, h; } HIGH_LIFE[] = {
+            {"hl_delperro", -1453.55f, -532.40f, 68.56f, 215.f}, {"hl_richards", -911.53f, -378.57f, 108.45f, 207.4f},
+            {"hl_tinsel", -598.27f, 54.58f, 92.63f, 0.f}, {"hl_eclipse", -780.85f, 327.76f, 206.63f, 180.f},
+            {"apt_dp7", -1453.55f, -532.40f, 55.93f, 215.f}, {"apt_iw30", -25.88f, -592.29f, 89.11f, 160.f},
+            {"house1", -172.24f, 489.76f, 129.04f, 190.f}, {"house2", 334.82f, 434.09f, 140.77f, 110.f},
+        };
+        for (const auto &k : HIGH_LIFE) if (!std::strcmp(d->id, k.id)) { p = V3(k.x, k.y, k.z); h = k.h; return true; }
         static const char *const HIGH_END[] = {"o1", "o2", "o3", "o4", "o5", "o6", "o7", "o35", "o36", "o37", "o39", "o40", "o41", "o42", "o43"};
         bool high = false;
         for (const char *k : HIGH_END) if (!std::strcmp(d->id, k)) high = true;

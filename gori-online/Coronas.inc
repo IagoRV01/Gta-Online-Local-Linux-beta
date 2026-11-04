@@ -130,12 +130,13 @@ static void OpenHeistCorona(int h) {
              (st == 0 ? "  Setup cost " + Money(HEISTS[h].fee) + "." : "");
     d.theme = 0; d.maxPlayers = 4; d.payout = finale ? HEISTS[h].payout : 20000;
     d.at = Pos(Me());
+    d.opts.push_back({"Difficulty", {"Easy", "Normal", "Hard"}, 1, finale ? "Easy: half the take, fewer enemies. Hard: a quarter more, and more of them." : "Easy: fewer enemies. Hard: more of them."});
     if (finale) {   // Online's cuts: the leader sets the crew's share of the take; the leader keeps the rest (at least 15%)
         CoronaOpt cut{"Crew Cut", {}, 2, "Each crew member's cut of the take. The rest is yours, the leader's (at least 15%)."};
         for (int p = 15; p <= 35; p += 5) cut.values.push_back(std::to_string(p) + "% each");
         d.opts.push_back(cut);
-        d.memberPay = [h](const std::vector<int> &sel) { return HEISTS[h].payout * (15 + 5 * (sel.empty() ? 2 : sel[0])) / 100; };
+        d.memberPay = [h](const std::vector<int> &sel) { g_heistDiff = sel.empty() ? 1 : sel[0]; return HeistTake(h) * (15 + 5 * (sel.size() < 2 ? 2 : sel[1])) / 100; };
     }
-    d.onPlay = [h, finale](const std::vector<int> &sel) { g_heistCut[h] = finale ? 15 + 5 * (sel.empty() ? 2 : sel[0]) : 25; StartHeist(h); };
+    d.onPlay = [h, finale](const std::vector<int> &sel) { g_heistDiff = sel.empty() ? 1 : sel[0]; g_heistCut[h] = finale ? 15 + 5 * (sel.size() < 2 ? 2 : sel[1]) : 25; StartHeist(h); };
     OpenCorona(d);
 }

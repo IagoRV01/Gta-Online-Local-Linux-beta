@@ -368,6 +368,7 @@ static void StartContactMission(int c, int i, int diff = 1) {   // diff: 0 easy,
     std::string name = cm.name, who = CONTACTS[c].name;
     m.coopPay = pay / 2;
     m.corona = true; m.resultCash = pay; m.resultRp = rp;
+    m.restart = [c, i, diff] { StartContactMission(c, i, diff); };
     m.onSuccess = [pay, rp] { AddCash(pay); GiveRP(rp, "contact mission"); };
     Notify(cm.text);
     StartMission(m);
@@ -427,6 +428,7 @@ static void ContactResults(bool passed, const std::string &why, const Mission &m
     CoronaResults(title, passed, why, rows);
     bool shared = rows.size() > 1;
     g_cor.after = [title, shared] { NextJobContact(title, shared, true); };   // then Online's vote on the next job, with the crew
+    if (!passed) g_cor.retry = m.restart;
 }
 static bool ContactMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     int id = (int)f.id;

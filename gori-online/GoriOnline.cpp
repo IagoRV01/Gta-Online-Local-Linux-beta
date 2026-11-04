@@ -218,6 +218,10 @@ static bool Freemode();
 static int g_jobStartedAt = 0;   // when the current job's session began
 static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash, const std::string &why = "");
 static int g_celPbBy = -1;
+struct CelHeistRow { float from, to; std::string title, desc, sub, right; int icon, sound, titleNumber; };   // a line of a heist's end screen
+struct CelHeist { bool on = false; std::vector<CelHeistRow> rows; };
+static CelHeist g_celHeist;   // the next end screen is a heist finale's
+static int g_celShowMs = 9000;   // how long the last end screen shows
 static int g_celWave = -1; static bool g_celWaveSurvived = false;   // the next end screen's wave (a survival's): reached, or all survived   // the next end screen's time is a personal best, by this many ms (a race's); -1: just the time
 static bool JobCelebrating();
 static int AddBlip(int ent, int sprite, int colour, const char *name) {
@@ -539,6 +543,7 @@ static std::vector<BizState> g_biz;
 static const int NHEISTS = 8;
 static int g_heistStage[NHEISTS] = {0};
 static int g_heistCut[NHEISTS] = {25, 25, 25, 25, 25, 25, 25, 25};
+static struct { int first = 0, next = 0; bool broken = false, dead = false, crewBroken = false, crewSet = false; std::string crew; } g_ha;   // the heists' one-time bonuses: finales passed before, the next in Online's order, what's been lost
 static int g_lastHeistPay = -1;   // the leader's cut of the finale just passed (its results show it, not the whole take)   // the crew's cut of each heist's finale, % per member (its lobby)
 // Island colours (logical colour -> stunt prop tint index), tunable in GoriOnline.ini ("tints=")
 static int g_bestTrial = 0;   // Isla Neon time trial record (ms)
@@ -571,6 +576,8 @@ static std::string Serialize() {
     if (!g_yachtName.empty()) out += "yachtname=" + g_yachtName + "\n";
     for (auto &c : g_cust) out += "cust=" + c.first + "|" + std::to_string(c.second) + "\n";
     for (int i = 0; i < NHEISTS; ++i) if (g_heistStage[i]) out += "heist=" + std::to_string(i) + "|" + std::to_string(g_heistStage[i]) + "\n";
+    if (g_ha.first || g_ha.next || g_ha.broken || g_ha.dead || g_ha.crewBroken || g_ha.crewSet)
+        out += "heistaward=" + std::to_string(g_ha.first) + "|" + std::to_string(g_ha.next) + "|" + std::to_string((int)g_ha.broken) + "|" + std::to_string((int)g_ha.dead) + "|" + std::to_string((int)g_ha.crewBroken) + "|" + std::to_string((int)g_ha.crewSet) + "|" + g_ha.crew + "\n";
     for (auto &p : g_props) out += "prop=" + p + "\n";
     for (auto &z : g_biz) { std::snprintf(b, sizeof b, "biz=%s|%.2f|%.2f|%d\n", z.prop.c_str(), z.supplies, z.stock, z.safe); out += b; }
     for (auto &c : g_garage) out += "veh=" + c.prop + "|" + c.model + "|" + c.plate + "|" + c.data + "\n";
@@ -623,6 +630,7 @@ static void LoadText(const std::string &text) {
         else if (k == "wheelnext") g_wheelNext = std::atoll(v.c_str());
         else if (k == "yachtname") g_yachtName = v;
         else if (k == "outfit") { size_t b = v.find('|'); int i = std::atoi(v.c_str()); if (b != std::string::npos && i >= 0 && i < 6) g_outfit[i] = v.substr(b + 1); }
+        else if (k == "heistaward") { auto p = Split(v, '|'); if (p.size() > 5) { g_ha.first = std::atoi(p[0].c_str()); g_ha.next = std::atoi(p[1].c_str()); g_ha.broken = p[2] == "1"; g_ha.dead = p[3] == "1"; g_ha.crewBroken = p[4] == "1"; g_ha.crewSet = p[5] == "1"; g_ha.crew = p.size() > 6 ? p[6] : ""; } }
         else if (k == "heist") { auto p = Split(v, '|'); int i = std::atoi(p[0].c_str()); if (i >= 0 && i < NHEISTS && p.size() > 1) g_heistStage[i] = std::atoi(p[1].c_str()); }
         else if (k == "prop") { std::string n = Renamed(v); if (FindProp(n) >= 0 && !Owns(n)) g_props.push_back(n); }
         else if (k == "biz") {
@@ -2221,6 +2229,7 @@ struct Mission {
     bool keepVehicle = false;
     int coopPay = -1;   // what each co-op member gets when it passes (-1: by its length)
     bool corona = false; int resultCash = 0, resultRp = 0;   // started from a lobby: the results board at the end
+    std::function<void()> restart;   // Online's Quick Restart on the failed board: the same job again
 };
 static Mission g_m;
 static bool g_mActive = false, g_stepInit = false, g_enemiesUp = false, g_snapped = false;
@@ -2546,10 +2555,13 @@ static void MissionAuto(Step &s) {
     default: Log("mauto:   minigame step skipped"); NextStep(); break;
     }
 }
+static void EliteTick();
+static void EliteDied();
 static void MissionTick() {
     if (!g_mActive || g_mStep >= g_m.steps.size()) return;
     int me = Me(); Vec3 mp = Pos(me);
-    if (Dead(me)) { FailMission("You died."); return; }
+    if (Dead(me)) { EliteDied(); FailMission("You died."); return; }
+    EliteTick();
     if (g_mEnds && Now() > g_mEnds) { FailMission("You ran out of time."); return; }
     Step &s = g_m.steps[g_mStep];
     if (!g_stepInit) InitStep(s);
@@ -3093,6 +3105,12 @@ static const HeistDef HEISTS[NHEISTS] = {
     {"The Kortz Center Heist", "Steal the masterpiece from the Kortz Center exhibition.", -1, 100000, 1600000, 8000, 3, {"Blueprints", "Cutting Tools", "Finale"}},
 };
 static bool g_heistTest = false;   // heiststart: no property needed
+static bool g_heistRetry = false;   // a Quick Restart: the setup's fee is already paid
+static int g_heistRun = -1;         // the heist whose job is being played
+static int g_heistDiff = 1;         // the lobby's difficulty: 0 Easy, 1 Normal, 2 Hard
+// the take at the difficulty chosen: Online's easy pays half, hard a quarter more
+static int HeistTake(int h) { return HEISTS[h].payout * (g_heistDiff == 0 ? 50 : g_heistDiff == 2 ? 125 : 100) / 100; }
+#include "HeistElite.inc"
 static bool HeistUnlocked(int h, std::string &why) {
     int need = HEISTS[h].needType;
     if (need == -1 || g_heistTest) return true;
@@ -3106,6 +3124,7 @@ static bool HeistUnlocked(int h, std::string &why) {
     return false;
 }
 static void HeistStageDone(int h, bool finale) {
+    HeistAwardsStage(h);
     if (finale) {
         g_heistStage[h] = 0;
         g_heistReadyAt = g_playMin + 20;
@@ -3113,11 +3132,24 @@ static void HeistStageDone(int h, bool finale) {
         int crew = 0;
         for (auto &n : Split(g_coop.members, ',')) if (!n.empty()) ++crew;
         int leaderPct = std::max(15, 100 - g_heistCut[h] * crew);
-        int pay = HEISTS[h].payout * leaderPct / 100;
+        int pay = HeistTake(h) * leaderPct / 100;
+        // what the end screen shows: the first time, and at the end of the five in order the one-time bonuses
+        bool first = h < 5 && !(g_ha.first >> h & 1);
+        if (h < 5) g_ha.first |= 1 << h;
+        bool order = false, loyal = false, master = false;
+        if (h < 5 && h == g_ha.next) {
+            ++g_ha.next;
+            if (g_ha.next == 5) { order = !g_ha.broken; loyal = !g_ha.crewBroken; master = order && loyal && !g_ha.dead; }
+        }
+        int nowMs = Now();
+        int extra = EliteLines(h, pay, leaderPct, g_elite.on ? nowMs - g_elite.startMs : 0, g_elite.allyStart ? nowMs - g_elite.allyStart : 0, g_elite.vehDamage, g_elite.allyDamage, g_mKills, g_elite.noose, first, order, loyal, master);
+        Log("heist %s: elite time %d extract %d veh %.1f%% ally %.1f%% kills %d noose %d; first %d order %d loyal %d master %d; bonuses %d", HEISTS[h].name, g_elite.on ? nowMs - g_elite.startMs : 0, g_elite.allyStart ? nowMs - g_elite.allyStart : 0, g_elite.vehDamage, g_elite.allyDamage, g_mKills, (int)g_elite.noose, (int)first, (int)order, (int)loyal, (int)master, extra);
+        g_elite.on = false;
+        pay += extra;
         g_lastHeistPay = pay;
         AddCash(pay);
         GiveRP(HEISTS[h].rp, "heist complete");
-        Log("heist %s: leader cut %d%% (%d crew at %d%%) = %d", HEISTS[h].name, leaderPct, crew, g_heistCut[h], pay);
+        Log("heist %s: leader cut %d%% (%d crew at %d%%), with bonuses = %d", HEISTS[h].name, leaderPct, crew, g_heistCut[h], pay);
     } else {
         g_heistStage[h]++;
         GiveRP(1500, "heist prep done");
@@ -3204,6 +3236,7 @@ static void PacificFinale(Mission &m, int payout) {
         HgDoorTurn("v_ilev_bk_vaultdoor", VAULT.x, VAULT.y, VAULT.z, 70.f);
         Sound("OPENING", "MP_PROPERTIES_ELEVATOR_DOORS");
         AlarmStart("BIG_SCORE_HEIST_VAULT_ALARMS");
+        EliteAlarm();
         Notify("Lester: \"The vault's open and the alarm's gone. Burn the inner gates and grab what you can, the cops are on their way.\"");
     };
     m.steps.push_back(hack);
@@ -3284,7 +3317,7 @@ static void FleecaFinale(Mission &m) {
     Step drill = DrillAt("~y~Drill~s~ the safety deposit box.", V3(-2958.1f, 485.0f, 15.7f), 90.f);
     drill.onDone = [] {   // the box's cash is yours, and that trips the alarm
         Sound("PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET");
-        g_mTake = HEISTS[0].payout;
+        g_mTake = HeistTake(0);
         N(N_SET_PLAYER_WANTED_LEVEL, Player(), 3, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0);
         Notify("Lester: \"You've got the cash. The alarm's tripped: get out of there.\"");
     };
@@ -3381,8 +3414,20 @@ static void SeriesA(Mission &m, int st) {
     default: {  // the finale: hold the warehouse, then the Mule to Trevor
         Step g = Goto("Get to the ~y~warehouse~s~ at El Gordo Lighthouse.", HEIST_WAREHOUSE, 15.f);
         m.steps.push_back(g);
-        m.steps.push_back(KillAll("Defend the warehouse from the ~r~attackers~s~.", HEIST_WAREHOUSE, 10, "g_m_y_mexgoon_02", "weapon_assaultrifle"));
-        m.steps.push_back(KillAll("Hold your position: more ~r~attackers~s~ are coming.", HEIST_WAREHOUSE, 12, "g_m_y_lost_02", "weapon_assaultrifle"));
+        // the waves: 76 attackers, enough for the Elite Challenge's 75 kills; the crew re-arms between them
+        struct W { const char *t, *model, *weapon; int n; };
+        static const W WAVES[] = {
+            {"Defend the warehouse from the ~r~attackers~s~.", "g_m_y_mexgoon_02", "weapon_microsmg", 14},
+            {"Hold your position: more ~r~attackers~s~ are coming.", "g_m_y_lost_02", "weapon_pistol", 16},
+            {"They're coming from the road: keep the ~r~attackers~s~ off the warehouse.", "g_m_y_mexgoon_02", "weapon_smg", 16},
+            {"More ~r~attackers~s~. Don't let them near the product.", "g_m_y_lost_02", "weapon_microsmg", 16},
+            {"The last of the ~r~attackers~s~.", "g_m_y_mexgoon_02", "weapon_assaultrifle", 14},
+        };
+        for (const W &w : WAVES) {
+            Step k = KillAll(w.t, HEIST_WAREHOUSE, w.n, w.model, w.weapon);
+            k.onDone = [] { N(N_SET_PED_ARMOUR, Me(), 100); };
+            m.steps.push_back(k);
+        }
         m.steps.push_back(Steal("Get in the ~g~Mule~s~.", HEIST_WAREHOUSE, 0.f, "mule"));
         Step d = Deliver("Take the product to ~y~Trevor~s~ at the Sandy Shores airfield.", HEIST_SANDY); d.chasers = 3;
         m.steps.push_back(d);
@@ -3396,9 +3441,9 @@ static void StartHeist(int h) {
     if (g_playMin < g_heistReadyAt) { Notify("Lester: \"Lay low for a while. Next job in " + std::to_string(g_heistReadyAt - g_playMin) + " minutes.\""); return; }
     int st = g_heistStage[h];
     bool finale = st == HEISTS[h].stages - 1;
-    if (st == 0 && !g_heistTest) { PayWhat what("heist setup (job)"); if (!Pay(HEISTS[h].fee)) return; }
+    if (st == 0 && !g_heistTest && !g_heistRetry) { PayWhat what("heist setup (job)"); if (!Pay(HEISTS[h].fee)) return; }
     Mission m;
-    m.corona = true; m.resultCash = finale ? HEISTS[h].payout : 0; m.resultRp = finale ? HEISTS[h].rp : 1500;   // the results board at the end
+    m.corona = true; m.resultCash = finale ? HeistTake(h) : 0; m.resultRp = finale ? HEISTS[h].rp : 1500;   // the results board at the end
     m.name = std::string(HEISTS[h].name) + (finale ? "" : std::string(": ") + HEISTS[h].stageNames[st]);
     for (auto &c : m.name) c = (char)toupper((unsigned char)c);
     m.timeLimitMs = 30 * 60000;
@@ -3469,7 +3514,9 @@ static void StartHeist(int h) {
             m.steps.push_back(d);
             Step c = Pickup("Steal the ~g~compound~s~.", V3(3536.7f, 3666.5f, 28.1f), 1, "prop_ld_case_01"); c.indoors = true;
             m.steps.push_back(c);
-            m.steps.push_back(Escape("Lose the ~r~cops~s~."));
+            m.steps.push_back(Goto("Get out through the cooling tunnel to the ~y~beach~s~.", V3(3738.f, 3810.f, 5.f), 15.f));
+            m.steps.push_back(Air(Steal("Board the ~g~Valkyrie~s~.", V3(3738.f, 3810.f, 5.f), 90.f, "valkyrie")));
+            m.steps.push_back(Land("Fly to the ~y~meeting point~s~ at McKenzie Airfield.", HEIST_MCKENZIE));
         }
         break;
     case 3:   // Series A
@@ -3491,7 +3538,7 @@ static void StartHeist(int h) {
                             Step d = Deliver("Escape Merryweather and reach the ~y~drop-off~s~.", safe); d.chasers = 3; m.steps.push_back(d); }
         else if (st == 4) { m.steps.push_back(Steal("Steal the ~g~Lectro~s~ at the Lost MC clubhouse.", V3(980.f, -110.f, 74.f), 0.f, "lectro"));
                             m.steps.push_back(Deliver("Store it near the ~y~Pacific Standard~s~.", V3(220.f, 200.f, 105.5f))); }
-        else PacificFinale(m, HEISTS[h].payout);
+        else PacificFinale(m, HeistTake(h));
         break;
     case 5:   // Diamond Casino
         if (st == 0) { m.steps.push_back(prep(Pickup("Steal the ~g~vault keycards~s~.", PickSpot(HOSTILE_SPOTS), 1, "prop_cs_swipe_card"), 5, 3));
@@ -3503,8 +3550,8 @@ static void StartHeist(int h) {
             Step d = HackAt("~y~Hack~s~ the lock of the ~y~cashier cage~s~.", V3(1117.8f, 219.9f, -49.44f), 90.f);
             d.enemies = 8; d.enemyModel = "s_m_m_highsec_01"; d.enemyWeapon = "weapon_smg";
             m.steps.push_back(d);
-            m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the trolley.", V3(1119.15f, 222.f, -49.44f), 90.f, HEISTS[h].payout / 2, 12));
-            m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the other trolley.", V3(1119.15f, 218.f, -49.44f), 90.f, HEISTS[h].payout - HEISTS[h].payout / 2, 12));
+            m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the trolley.", V3(1119.15f, 222.f, -49.44f), 90.f, HeistTake(h) / 2, 12));
+            m.steps.push_back(LootAt("Grab the ~g~cash~s~ on the other trolley.", V3(1119.15f, 218.f, -49.44f), 90.f, HeistTake(h) - HeistTake(h) / 2, 12));
             Step out = Goto("Leave the ~y~casino~s~.", V3(1089.97f, 206.0f, -49.0f), 3.f);
             out.onDone = [] { Teleport(918.f, 51.f, 80.9f, 330.f); N(N_SET_PLAYER_WANTED_LEVEL, Player(), 4, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0); };
             m.steps.push_back(out);
@@ -3547,9 +3594,15 @@ static void StartHeist(int h) {
         }
         break;
     }
-    m.coopPay = finale ? HEISTS[h].payout * g_heistCut[h] / 100 : 5000;   // a crew member's cut (the lobby's Crew Cut)
+    // Hard: a third more enemies; Easy: a third fewer (not the hordes you must clear: the Elite Challenge counts them)
+    if (g_heistDiff != 1) for (Step &st2 : m.steps) if (st2.enemies && (g_heistDiff == 2 || st2.type != S_KILL)) st2.enemies = std::max(1, st2.enemies * (g_heistDiff == 2 ? 4 : 2) / 3);
+    m.coopPay = finale ? HeistTake(h) * g_heistCut[h] / 100 : 5000;   // a crew member's cut (the lobby's Crew Cut)
     if (finale) N(N_SET_PED_ARMOUR, Me(), 100);   // the crew comes dressed for it
-    m.onSuccess = [h, finale] { HeistStageDone(h, finale); };
+    g_heistRun = h;
+    EliteBegin(finale ? h : -1);
+    m.onSuccess = [h, finale] { HeistStageDone(h, finale); g_heistRun = -1; };
+    m.onFail = [] { g_heistRun = -1; };
+    { bool test = g_heistTest; m.restart = [h, test] { g_heistTest = test; g_heistRetry = true; StartHeist(h); g_heistRetry = false; g_heistTest = false; }; }
     StartMission(m);
 }
 
@@ -5023,12 +5076,107 @@ static void CommandTick() {
                 Wait(500);
                 uint32_t room = N<uint32_t>(N_GET_ROOM_KEY_FROM_ENTITY, Me());
                 float r = h * 3.14159f / 180.f;
-                int t = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, p.x, p.y, p.z + 1.7f, p.x - std::sin(r) * 10.f, p.y + std::cos(r) * 10.f, p.z + 1.7f, 1 | 16, Me(), 7);
-                int hit = 0, ent = 0; Vec3 e{}, n{};
-                N<int>(N_GET_SHAPE_TEST_RESULT, t, &hit, &e, &n, &ent);
-                Log("hbcheck %s: spot %.2f %.2f %.2f h %.0f, %s, wall %.2f m", PROPS[g_inside].name, p.x, p.y, p.z, h, room == Joaat("rm_high_planning") ? "PLANNING ROOM" : "ANOTHER ROOM", hit ? Dist(e, V3(p.x, p.y, p.z + 1.7f)) : -1.f);
+                auto probe = [&](float x2, float y2, float z2, float z1) {   // the map only: the board itself must not count as the wall
+                    int t = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, p.x, p.y, z1, x2, y2, z2, 1, Me(), 7);
+                    int hit = 0, ent = 0; Vec3 e{}, n{};
+                    N<int>(N_GET_SHAPE_TEST_RESULT, t, &hit, &e, &n, &ent);
+                    return hit ? Dist(e, V3(p.x, p.y, z1)) : -1.f;
+                };
+                float wall = probe(p.x - std::sin(r) * 10.f, p.y + std::cos(r) * 10.f, p.z + 1.7f, p.z + 1.7f);
+                float back = probe(p.x + std::sin(r) * 10.f, p.y - std::cos(r) * 10.f, p.z + 1.7f, p.z + 1.7f);
+                float floorAt = probe(p.x, p.y, p.z - 5.f, p.z + 1.5f);
+                Log("hbcheck %s: spot %.2f %.2f %.2f h %.0f, %s %08x, wall %.2f m, behind %.2f m, floor %.2f m below the spot's feet", PROPS[g_inside].name, p.x, p.y, p.z, h, room == Joaat("rm_high_planning") ? "PLANNING" : "other", room, wall, back, floorAt - 1.5f);
             }
         }
+        else if (a[0] == "hbfind") {   // hbfind [heading]: this property's planning room and its board's spot, in the log (test)
+            int me = Me(); Vec3 c = Pos(me);
+            const InteriorDef *d = g_inside >= 0 ? PropInterior(g_inside) : nullptr;
+            float wallH = a.size() > 1 ? F(1) : d ? d->h : 0.f;
+            N(N_FREEZE_ENTITY_POSITION, me, 1);
+            float sx = 0.f, sy = 0.f, sz = 0.f; int n = 0; uint32_t which = 0;
+            for (float dz : {0.f, 3.5f, -3.5f, -7.f, -10.5f}) for (float dx = -30.f; dx <= 30.f; dx += 2.f) for (float dy = -30.f; dy <= 30.f; dy += 2.f) {
+                float x = c.x + dx, y = c.y + dy, z = c.z + dz;
+                N(N_SET_ENTITY_COORDS_NO_OFFSET, me, x, y, z, 0, 0, 0);
+                Wait(0);
+                uint32_t k = N<uint32_t>(N_GET_ROOM_KEY_FROM_ENTITY, me);
+                if (k == Joaat("rm_high_planning") || k == Joaat("mr_mp_stilts_a_plan") || k == Joaat("mr_mp_stilts_b_PlanRm")) { sx += x; sy += y; sz += z; ++n; which = k; }
+            }
+            if (!n) Log("hbfind %s: no planning room", g_inside >= 0 ? PROPS[g_inside].name : "-");
+            else {
+                Vec3 m = V3(sx / n, sy / n, sz / n);
+                auto probe = [&](Vec3 from, float hd) {
+                    float r = hd * 3.14159f / 180.f;
+                    int t = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, from.x, from.y, from.z, from.x - std::sin(r) * 15.f, from.y + std::cos(r) * 15.f, from.z, 1, me, 7);
+                    int hit = 0, ent = 0; Vec3 e{}, nn{};
+                    N<int>(N_GET_SHAPE_TEST_RESULT, t, &hit, &e, &nn, &ent);
+                    return hit ? Dist(e, from) : -1.f;
+                };
+                N(N_SET_ENTITY_COORDS_NO_OFFSET, me, m.x, m.y, m.z, 0, 0, 0);
+                Wait(300);
+                int ft = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, m.x, m.y, m.z, m.x, m.y, m.z - 6.f, 1, me, 7);
+                int fh = 0, fe = 0; Vec3 fp{}, fn{};
+                N<int>(N_GET_SHAPE_TEST_RESULT, ft, &fh, &fp, &fn, &fe);
+                float floorZ = fh ? fp.z : m.z - 1.f;
+                Vec3 eye = V3(m.x, m.y, floorZ + 1.1f);
+                float ahead = probe(eye, wallH), left = probe(eye, wallH + 90.f), right = probe(eye, wallH - 90.f);
+                float r = wallH * 3.14159f / 180.f, fx = -std::sin(r), fy = std::cos(r), lx = -std::cos(r), ly = -std::sin(r);
+                float shift = (left - right) / 2.f;
+                Vec3 spot = V3(m.x + fx * (ahead - 0.56f) + lx * shift, m.y + fy * (ahead - 0.56f) + ly * shift, floorZ);
+                Log("hbfind %s (%s): {%.2ff, %.2ff, %.2ff, %.1ff} room %s, wall ahead %.2f, left %.2f, right %.2f", PROPS[g_inside].name, d ? d->id : "-", spot.x, spot.y, spot.z, wallH, which == Joaat("rm_high_planning") ? "high" : which == Joaat("mr_mp_stilts_a_plan") ? "stilts a" : "stilts b", ahead, left, right);
+            }
+            N(N_SET_ENTITY_COORDS_NO_OFFSET, me, c.x, c.y, c.z, 0, 0, 0);
+            N(N_FREEZE_ENTITY_POSITION, me, 0);
+        }
+        else if (a[0] == "heistcel" && a.size() > 1) {   // heistcel h [elite 0/1] [awards 0/1]: a finale's end screen, nothing paid (test)
+            int h = std::atoi(a[1].c_str()) % NHEISTS; bool ok = a.size() < 3 || a[2] != "0", aw = a.size() > 3 && a[3] == "1";
+            int cut = HEISTS[h].payout * 55 / 100;
+            int e = h < 5 ? (ok ? 60000 : 900000) : 0;
+            EliteLines(h, cut, 55, e, e, ok ? 0.f : 40.f, ok ? 0.f : 40.f, ok ? 80 : 10, !ok, aw, aw, aw, aw);
+            JobCelebrate(HEISTS[h].name, 0, true, 0, g_rp, HEISTS[h].rp, 0, "");
+        }
+        else if (a[0] == "hbaward") {    // hbaward [clear]: the one-time bonuses' state (test)
+            if (a.size() > 1 && a[1] == "clear") { g_ha.first = g_ha.next = 0; g_ha.broken = g_ha.dead = g_ha.crewBroken = g_ha.crewSet = false; g_ha.crew.clear(); Save(); }
+            Log("hbaward: first %d next %d broken %d dead %d crewBroken %d crewSet %d crew %s", g_ha.first, g_ha.next, (int)g_ha.broken, (int)g_ha.dead, (int)g_ha.crewBroken, (int)g_ha.crewSet, g_ha.crew.c_str());
+        }
+        else if (a[0] == "hbrays") {   // hbrays: from here, the interior's heading and the walls all around, in the log (test)
+            int me = Me(); Vec3 c = Pos(me);
+            int in = N<int>(N_GET_INTERIOR_FROM_ENTITY, me);
+            uint32_t k = N<uint32_t>(N_GET_ROOM_KEY_FROM_ENTITY, me);
+            std::string line;
+            for (int d = 0; d < 360; d += 10) {
+                float r = d * 3.14159f / 180.f;
+                int t = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, c.x, c.y, c.z, c.x - std::sin(r) * 15.f, c.y + std::cos(r) * 15.f, c.z, 1, me, 7);
+                int hit = 0, ent = 0; Vec3 e{}, nn{};
+                N<int>(N_GET_SHAPE_TEST_RESULT, t, &hit, &e, &nn, &ent);
+                char b[24]; std::snprintf(b, sizeof b, "%.2f ", hit ? Dist(e, c) : -1.f); line += b;
+            }
+            Log("hbrays %s at %.2f %.2f %.2f: interior %d heading %.1f room %08x rays %s", g_inside >= 0 ? PROPS[g_inside].name : "-", c.x, c.y, c.z, in, N<float>(N_GET_INTERIOR_HEADING, in), k, line.c_str());
+        }
+        else if (a[0] == "hbwall" && a.size() > 1) {   // hbwall h: from the middle of a room, the wall that way: its exact heading (by its normal) and a board's spot on it (test)
+            int me = Me(); Vec3 c = Pos(me);
+            auto ray = [&](Vec3 from, float hd, Vec3 *nrm) {
+                float r = hd * 3.14159f / 180.f;
+                int t = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, from.x, from.y, from.z, from.x - std::sin(r) * 15.f, from.y + std::cos(r) * 15.f, from.z, 1, me, 7);
+                int hit = 0, ent = 0; Vec3 e{}, nn{};
+                N<int>(N_GET_SHAPE_TEST_RESULT, t, &hit, &e, &nn, &ent);
+                if (nrm) *nrm = nn;
+                return hit ? Dist(e, from) : -1.f;
+            };
+            Vec3 n{};
+            float d0 = ray(c, F(1), &n);
+            float w = std::atan2(n.x, -n.y) * 180.f / 3.14159f;
+            if (w < 0.f) w += 360.f;
+            float ahead = ray(c, w, nullptr), left = ray(c, w + 90.f, nullptr), right = ray(c, w - 90.f, nullptr);
+            int ft = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, c.x, c.y, c.z, c.x, c.y, c.z - 6.f, 1, me, 7);
+            int fh = 0, fe = 0; Vec3 fp{}, fn{};
+            N<int>(N_GET_SHAPE_TEST_RESULT, ft, &fh, &fp, &fn, &fe);
+            float r = w * 3.14159f / 180.f, fx = -std::sin(r), fy = std::cos(r), lx = -std::cos(r), ly = -std::sin(r);
+            float shift = (left - right) / 2.f;
+            Log("hbwall %s (%s) toward %s: first hit %.2f; {%.2ff, %.2ff, %.2ff, %.1ff} ahead %.2f left %.2f right %.2f", g_inside >= 0 ? PROPS[g_inside].name : "-", g_inside >= 0 && PropInterior(g_inside) ? PropInterior(g_inside)->id : "-", a[1].c_str(), d0,
+                c.x + fx * (ahead - 0.56f) + lx * shift, c.y + fy * (ahead - 0.56f) + ly * shift, fh ? fp.z : c.z - 1.1f, w, ahead, left, right);
+        }
+        else if (a[0] == "heistcor" && a.size() > 1) { g_heistTest = true; OpenHeistCorona(std::atoi(a[1].c_str()) % NHEISTS); g_heistTest = false; }   // heistcor h: a heist's lobby (test)
+        else if (a[0] == "pedvis" && a.size() > 1) { N(N_SET_ENTITY_VISIBLE, Me(), a[1] != "0", 0); }   // pedvis 0|1: the character hidden for a photo (test)
         else if (a[0] == "die") { N(N_SET_ENTITY_INVINCIBLE, Me(), 0); N(N_SET_ENTITY_HEALTH, Me(), 0, 0, 0); }   // die: the character dies, to see the respawn (test)
         else if (a[0] == "mauto" && a.size() > 1) { g_mAuto = a[1] == "1"; Log("mauto %d", g_mAuto ? 1 : 0); }   // mauto 1|0: missions play themselves and end unpaid (test)
         else if (a[0] == "mskip") {   // mskip: the mission's current step done (test)
@@ -5047,7 +5195,7 @@ static void CommandTick() {
             Vec3 op = o ? Pos(o) : Vec3{};
             Log("objfind %s: %d at %.3f %.3f %.3f heading %.1f", a[1].c_str(), o, op.x, op.y, op.z, o ? N<float>(N_GET_ENTITY_HEADING, o) : 0.f);
         }
-        else if (a[0] == "heiststart" && a.size() > 1) { g_heistReadyAt = 0; g_heistTest = true; StartHeist(std::atoi(a[1].c_str()) % NHEISTS); g_heistTest = false; }   // heiststart <h>: its current stage, no lobby (test)
+        else if (a[0] == "heiststart" && a.size() > 1) { g_heistReadyAt = 0; g_heistTest = true; g_heistDiff = a.size() > 2 ? std::atoi(a[2].c_str()) : 1; StartHeist(std::atoi(a[1].c_str()) % NHEISTS); g_heistTest = false; }   // heiststart <h>: its current stage, no lobby (test)
         else if (a[0] == "hbstage") {   // hbstage [h s]: log the heists' stages, or set one and save it (test: set it back after)
             if (a.size() > 2) { int h = std::atoi(a[1].c_str()) % NHEISTS; g_heistStage[h] = std::clamp(std::atoi(a[2].c_str()), 0, HEISTS[h].stages - 1); g_hb.heist = h; Save(); }
             std::string t; for (int h = 0; h < NHEISTS; ++h) t += std::to_string(g_heistStage[h]) + " ";

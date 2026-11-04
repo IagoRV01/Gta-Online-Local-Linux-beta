@@ -30,6 +30,7 @@ struct CoronaState {
     int resultsUntil = 0; bool passed = false; std::string why;
     std::vector<CoronaResultRow> results;
     std::function<void()> after;   // when the results board is done (the next job vote)
+    std::function<void()> retry;   // a failed job's Quick Restart
     int navHeld = 0, navNext = 0;
 };
 static CoronaState g_cor;
@@ -127,7 +128,7 @@ static void CoronaResults(const std::string &title, bool passed, const std::stri
     for (const CoronaResultRow &r : rows) if (r.me) { rp = r.rp; cash = r.cash; }
     // Online's end screen first (MISSION PASSED / FAILED, the time, the RP and the cash), then this board
     JobCelebrate(title, 0, passed, g_jobStartedAt ? Now() - g_jobStartedAt : 0, g_rp - rp, rp, cash, why);
-    g_cor.resultsUntil = Now() + 9000 + 15000;
+    g_cor.resultsUntil = Now() + g_celShowMs + 15000;
 }
 
 // ---- drawing
@@ -203,6 +204,7 @@ static void CoronaDraw() {
         }
         int left = std::max(0, (g_cor.resultsUntil - Now()) / 1000);
         Text("Continue (0:" + std::string(left < 10 ? "0" : "") + std::to_string(left) + ")", L + w, 0.9f, 0.35f, 0, 255, 255, 255, 255, 2, L + w);
+        if (g_cor.retry) Text("Quick Restart (Space / X)", L, 0.9f, 0.35f, 0, 255, 255, 255, 255, 1);
         return;
     }
     // left: settings / invite (the host), or waiting (a member)
@@ -292,9 +294,18 @@ static void CoronaTick() {
     if (g_myName.empty() && LO().getPlayerName) { char b[64] = {0}; LO().getPlayerName(b, sizeof b); g_myName = b; }
     if (g_cor.page == CRP_RESULTS) {
         CoronaDraw();
+        if (g_cor.retry && !JobCelebrating() && NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 2, 203))) {   // the same job again, with the same settings
+            std::function<void()> retry = g_cor.retry;
+            g_cor.page = CRP_NONE; g_cor.after = nullptr; g_cor.retry = nullptr;
+            Sound("CONTINUE", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+            N(N_DO_SCREEN_FADE_OUT, 400); Wait(450);
+            retry();
+            N(N_DO_SCREEN_FADE_IN, 600);
+            return;
+        }
         if (Now() > g_cor.resultsUntil || NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 2, 201))) {
             std::function<void()> after = g_cor.after;
-            g_cor.page = CRP_NONE; g_cor.after = nullptr;
+            g_cor.page = CRP_NONE; g_cor.after = nullptr; g_cor.retry = nullptr;
             Sound("CONTINUE", "HUD_FRONTEND_DEFAULT_SOUNDSET");
             if (after) after();
         }

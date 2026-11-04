@@ -74,6 +74,8 @@ static CelArg CelF(float v) { return {1, 0, v, ""}; }
 static CelArg CelB(bool v) { return {2, v ? 1 : 0, 0.f, ""}; }
 static CelArg CelS(const std::string &v) { return {3, 0, 0.f, v}; }
 static CelArg CelL(const std::string &label) { return {3, 0, 0.f, label}; }   // a game text label: its name, the movie looks it up (as Online passes them)
+static CelArg CelText(const std::string &label, const std::string &sub = "", int n = -1) { return {sub.empty() ? (n >= 0 ? 6 : 4) : 5, n, 0.f, label + (sub.empty() ? "" : "\n" + sub)}; }   // a text command: a label, with its ~a~ or its number
+static CelArg CelRaw(const std::string &t) { return {5, 0, 0.f, "STRING\n" + t}; }
 static struct { int mv[3] = {0, 0, 0}; int until = 0; bool on = false; } g_cel;
 static void CelCall(const char *method, const std::vector<CelArg> &args) {   // the same call on all three movies, as Online does
     for (int m : g_cel.mv) {
@@ -82,6 +84,18 @@ static void CelCall(const char *method, const std::vector<CelArg> &args) {   // 
             if (a.t == 0) N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, a.i);
             else if (a.t == 1) N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, a.f);
             else if (a.t == 2) N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, a.i);
+            else if (a.t == 4 || a.t == 6) {
+                N(N_BEGIN_TEXT_COMMAND_SCALEFORM_STRING, a.s.c_str());
+                if (a.t == 6) N(N_ADD_TEXT_COMPONENT_INTEGER, a.i);
+                N(N_END_TEXT_COMMAND_SCALEFORM_STRING);
+            }
+            else if (a.t == 5) {
+                size_t nl = a.s.find('\n');
+                const std::string lab = a.s.substr(0, nl), sub = a.s.substr(nl + 1);
+                N(N_BEGIN_TEXT_COMMAND_SCALEFORM_STRING, lab.c_str());
+                N(N_ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, sub.c_str());
+                N(N_END_TEXT_COMMAND_SCALEFORM_STRING);
+            }
             else N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_TEXTURE_NAME_STRING, a.s.c_str());
         }
         N(N_END_SCALEFORM_MOVIE_METHOD);
@@ -105,7 +119,14 @@ static const char *CelJobType(const std::string &job) {
 // position > 0: a race / deathmatch place; 0: a mission (passed or failed, why: the line under it). rpBefore: RP before
 // this job's RP was given.
 static void JobCelebrate(const std::string &job, int position, bool passed, int timeMs, int rpBefore, int rpGained, long long cash, const std::string &why) {
-    const char *names[3] = {"MP_CELEBRATION_BG", "MP_CELEBRATION_FG", "MP_CELEBRATION"};
+    const bool heist = g_celHeist.on && passed;
+    // any heist job has Online's heist screen (fm_mission_controller: HUD_COLOUR_HSHARD, the sounds of a prep 1, a fail 2,
+    // a finale 3, the money behind it); a mission's is the plain one
+    const std::string jt = position > 0 ? "" : CelJobType(job);
+    const bool heistJob = jt == "CELEB_HEIST" || jt == "FMMC_RSTAR_HP";
+    static const char *const MP_NAMES[3] = {"MP_CELEBRATION_BG", "MP_CELEBRATION_FG", "MP_CELEBRATION"};
+    static const char *const HEIST_NAMES[3] = {"HEIST_CELEBRATION_BG", "HEIST_CELEBRATION_FG", "HEIST_CELEBRATION"};
+    const char *const *names = heistJob ? HEIST_NAMES : MP_NAMES;
     for (int k = 0; k < 3; ++k) g_cel.mv[k] = N<int>(N_REQUEST_SCALEFORM_MOVIE, names[k]);
     for (int i = 0; i < 60; ++i) {
         bool all = true;
@@ -115,12 +136,26 @@ static void JobCelebrate(const std::string &job, int position, bool passed, int 
     }
     const std::string w = "ch";
     CelCall("CLEANUP", {CelS(w)});
-    CelCall("CREATE_STAT_WALL", {CelS(w), CelS("HUD_COLOUR_BLACK"), CelI(-1)});
+    if (heistJob) CelCall("CREATE_STAT_WALL", {CelS(w), CelS("HUD_COLOUR_HSHARD"), CelI(!passed ? 2 : jt == "CELEB_HEIST" ? 3 : 1)});
+    else CelCall("CREATE_STAT_WALL", {CelS(w), CelS("HUD_COLOUR_BLACK"), CelI(-1)});
     if (position > 0) CelCall("ADD_POSITION_TO_WALL", {CelS(w), CelI(position), CelS(job), CelB(true), CelB(false)});
     else CelCall("ADD_MISSION_RESULT_TO_WALL", {CelS(w), CelL(CelJobType(job)), CelL(passed ? "CELEB_PASSED" : "CELEB_FAILED"), CelS(why), CelB(true)});
     if (g_celWave >= 0)   // Online's survival block: WAVE n, REACHED / SURVIVED
         CelCall("ADD_WAVE_REACHED_TO_WALL", {CelS(w), CelS("WAVE " + std::to_string(g_celWave)), CelL(g_celWaveSurvived ? "CELEB_SURVIVED" : "CELEB_REACHED")});
     g_celWave = -1;
+    int showMs = 9000;
+    if (heist) {   // fm_mission_controller's case 5: the cash lines, one after another, then the RP
+        CelCall("CREATE_INCREMENTAL_CASH_ANIMATION", {CelS(w), CelS("CASH")});
+        for (const CelHeistRow &r : g_celHeist.rows) {
+            CelCall("ADD_INCREMENTAL_CASH_WON_STEP", {CelS(w), CelS("CASH"), CelF(r.from), CelF(r.to), CelText(r.title, "", r.titleNumber), CelText(r.desc, r.sub), CelRaw(r.right), CelI(r.icon), CelI(r.sound)});
+        }
+        CelCall("ADD_INCREMENTAL_CASH_ANIMATION_TO_WALL", {CelS(w), CelS("CASH")});
+        int ms = 3000 * (int)g_celHeist.rows.size() + 333;
+        CelCall("PAUSE", {CelS(w), CelF(ms / 1000.f)});
+        showMs = 2666 + ms + 2666 + 5000;
+        cash = 0; timeMs = 0;
+    }
+    g_celHeist = CelHeist();
     if (timeMs > 0 && g_celPbBy >= 0) CelCall("ADD_TIME_TO_WALL", {CelS(w), CelI(timeMs), CelS("PERSONAL BEST"), CelI(g_celPbBy)});   // Online's, a race beaten
     else if (timeMs > 0) CelCall("ADD_TIME_TO_WALL", {CelS(w), CelI(timeMs), CelS("TIME"), CelI(0)});
     g_celPbBy = -1;
@@ -129,10 +164,11 @@ static void JobCelebrate(const std::string &job, int position, bool passed, int 
         CelCall("ADD_REP_POINTS_AND_RANK_BAR_TO_WALL", {CelS(w), CelI(rpGained), CelI(rpBefore), CelI(RpFor(lvl)), CelI(RpFor(lvl + 1)), CelI(lvl), CelI(lvl + 1),
                                                          CelS(std::to_string(lvl)), CelS(std::to_string(lvl + 1))});
     if (cash > 0) CelCall("ADD_CASH_TO_WALL", {CelS(w), CelI((int)std::min<long long>(cash, 2000000000LL)), CelI(1)});
-    CelCall("ADD_BACKGROUND_TO_WALL", {CelS(w), CelI(75), CelI(0)});
+    CelCall("ADD_BACKGROUND_TO_WALL", {CelS(w), CelI(75), CelI(heistJob ? 2 : 0)});
     CelCall("SHOW_STAT_WALL", {CelS(w)});
     g_cel.on = true;
-    g_cel.until = Now() + 9000;
+    g_celShowMs = showMs;
+    g_cel.until = Now() + showMs;
     if (position > 0) Sound(position == 1 ? "FIRST_PLACE" : "CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET");
     else Sound(passed ? "Mission_Pass_Notify" : "ScreenFlash", passed ? "DLC_HEISTS_GENERAL_FRONTEND_SOUNDS" : "MissionFailedSounds");
     Log("celebration: %s, position %d, %s, %d ms, +%d RP, $%lld", job.c_str(), position, passed ? "passed" : "failed", timeMs, rpGained, cash);
