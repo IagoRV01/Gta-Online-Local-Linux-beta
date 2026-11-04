@@ -5046,7 +5046,9 @@ static void CommandTick() {
             N(N_FREEZE_ENTITY_POSITION, me, 1);
             struct Box { int n; float x0, x1, y0, y1, z0, z1; };
             std::map<uint32_t, Box> rooms;
-            for (float dz : {0.f, 3.5f, -3.5f, -7.f, -10.5f}) for (float dx = -30.f; dx <= 30.f; dx += 2.f) for (float dy = -30.f; dy <= 30.f; dy += 2.f) {
+            std::vector<float> levels = {0.f, 3.5f, -3.5f, -7.f, -10.5f, 7.f, 10.5f, 14.f};
+            if (a.size() > 1) { levels.clear(); for (size_t i = 1; i < a.size(); ++i) levels.push_back(F(i)); }   // roomscan [dz...]: the heights to look at
+            for (float dz : levels) for (float dx = -30.f; dx <= 30.f; dx += 2.f) for (float dy = -30.f; dy <= 30.f; dy += 2.f) {
                 float x = c.x + dx, y = c.y + dy, z = c.z + dz;
                 N(N_SET_ENTITY_COORDS_NO_OFFSET, me, x, y, z, 0, 0, 0);
                 Wait(0);

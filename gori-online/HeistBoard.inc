@@ -121,6 +121,8 @@ static bool HbSpot(Vec3 &p, float &h) {
             {"hl_tinsel", -598.27f, 54.58f, 92.63f, 0.f}, {"hl_eclipse", -780.85f, 327.76f, 206.63f, 180.f},
             {"apt_dp7", -1453.55f, -532.40f, 55.93f, 215.f}, {"apt_iw30", -25.88f, -592.29f, 89.11f, 160.f},
             {"house1", -172.24f, 489.76f, 129.04f, 190.f}, {"house2", 334.82f, 434.09f, 140.77f, 110.f},
+            // Eclipse Towers' penthouses: the same room and white wall
+            {"exec3", -775.01f, 329.61f, 175.81f, 0.0f}, {"exec1", -781.01f, 327.64f, 206.63f, 180.0f},
             // the stilt houses: the white wall of the planning room, 3.7 m from its right-hand end
             {"house3", 376.68f, 433.61f, 137.30f, 346.0f}, {"house4", -676.80f, 586.59f, 136.77f, 220.5f}, {"house5", -766.00f, 616.11f, 135.53f, 108.5f}, {"house6", -860.10f, 701.56f, 144.25f, 4.5f},
             {"house7", 116.75f, 570.30f, 175.70f, 6.0f}, {"house8", -1289.21f, 460.02f, 89.29f, 0.0f}, {"o78", -568.77f, 671.83f, 137.23f, 345.5f}, {"o79", -735.50f, 603.07f, 137.66f, 331.0f},

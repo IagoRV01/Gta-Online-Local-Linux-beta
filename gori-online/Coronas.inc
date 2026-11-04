@@ -126,9 +126,16 @@ static void OpenHeistCorona(int h) {
     bool finale = st == HEISTS[h].stages - 1;
     CoronaDef d;
     d.title = std::string(HEISTS[h].name) + (finale ? " - Finale" : std::string(" - ") + HEISTS[h].stageNames[st]);
-    d.desc = std::string("Lester: ") + HEISTS[h].desc + (finale ? "  The finale: " + Money(HEISTS[h].payout) + "." : "  A prep for the finale.") +
-             (st == 0 ? "  Setup cost " + Money(HEISTS[h].fee) + "." : "");
-    d.theme = 0; d.maxPlayers = 4; d.payout = finale ? HEISTS[h].payout : 20000;
+    // what the lobby says follows the Difficulty chosen
+    auto text = [h, st, finale](CoronaDef &c, int diff) {
+        int take = HEISTS[h].payout * (diff == 0 ? 50 : diff == 2 ? 125 : 100) / 100;
+        c.desc = std::string("Lester: ") + HEISTS[h].desc + (finale ? "  The finale: " + Money(take) + "." : "  A prep for the finale.") +
+                 (st == 0 ? "  Setup cost " + Money(HEISTS[h].fee) + "." : "");
+        c.payout = finale ? take : 20000;
+    };
+    text(d, 1);
+    d.onChange = [text](CoronaDef &c) { text(c, c.opts.empty() ? 1 : c.opts[0].sel); };
+    d.theme = 0; d.maxPlayers = 4;
     d.at = Pos(Me());
     d.opts.push_back({"Difficulty", {"Easy", "Normal", "Hard"}, 1, finale ? "Easy: half the take, fewer enemies. Hard: a quarter more, and more of them." : "Easy: fewer enemies. Hard: more of them."});
     if (finale) {   // Online's cuts: the leader sets the crew's share of the take; the leader keeps the rest (at least 15%)
