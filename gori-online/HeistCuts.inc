@@ -1,0 +1,152 @@
+// ---------------------------------------------------------------- Online's heist cutscenes (MPH_* / APA_*), played in your apartment
+// As fmmc_launcher.c does (func_8181, func_10522, func_10525, func_10539): the cut file gives the number of sections; the crew's
+// roles are MP_1..MP_4 (you as MP_1, without helmet, hat or mask, nobody in the others; the Fleeca Job has only two roles; Online
+// uses a clone of you, but in story mode the scene takes the player's own ped for MP_1 whatever is registered, so it's you who
+// plays it, in your clothes (the scene would dress the role in its own), and you're put back where you were); each section is placed by SET_CUTSCENE_ORIGIN at the apartment's metadata point 304, and the second part of the APA_
+// intros at point 546. Those two also have a playback list for each kind of apartment. A scene you have already watched can
+// be skipped; the watched ones are kept in the profile. Our own apartments have no such points: no cutscene there.
+enum { CUT_INT, CUT_MID, CUT_FIN };
+static const char *HeistCutName(int h, int which) {
+    static const char *const NAMES[5][3] = {
+        {"MPH_TUT_INT", "MPH_TUT_MID", "MPH_TUT_FIN_INT"}, {"APA_PRI_INT", "MPH_PRI_MID", "MPH_PRI_FIN_INT"},
+        {"MPH_HUM_INT", "MPH_HUM_MID", "APA_HUM_FIN_INT"}, {"APA_NAR_INT", "APA_NAR_MID", "MPH_NAR_FIN_INT"},
+        {"MPH_PAC_INT", "MPH_PAC_MID", "MPH_PAC_FIN_INT"}};
+    return h >= 0 && h < 5 && which >= 0 && which < 3 ? NAMES[h][which] : nullptr;
+}
+static int CutPlaylist(const char *name, int map) {
+    bool pri = !std::strcmp(name, "APA_PRI_INT"), nar = !std::strcmp(name, "APA_NAR_INT");
+    if (!pri && !nar) return -1;
+    switch (map) {
+        case 1: return pri ? 482 : 69;   // the Del Perro Heights kind
+        case 2: return pri ? 488 : 81;   // stilt houses
+        case 3: return pri ? 484 : 73;
+        case 4: return pri ? 496 : 97;   // the custom apartments
+        default: return pri ? 481 : 67;
+    }
+}
+static void HbFrame();
+static void HbDrawOnlineSpot();
+static void HbSetHeist(int h);
+static bool g_hbInCut = false;   // the board is being drawn for a scene: no prompt
+struct CutOutfit { int d[12], t[12], pal[12], pd[8], pt[8]; };
+static CutOutfit CutOutfitOf(int me) {
+    CutOutfit f{};
+    for (int k = 0; k < 12; ++k) { f.d[k] = N<int>(N_GET_PED_DRAWABLE_VARIATION, me, k); f.t[k] = N<int>(N_GET_PED_TEXTURE_VARIATION, me, k); f.pal[k] = N<int>(N_GET_PED_PALETTE_VARIATION, me, k); }
+    for (int k = 0; k < 8; ++k) { f.pd[k] = N<int>(N_GET_PED_PROP_INDEX, me, k); f.pt[k] = N<int>(N_GET_PED_PROP_TEXTURE_INDEX, me, k); }
+    return f;
+}
+static void CutOutfitRestore(int me, const CutOutfit &f) {
+    for (int k = 0; k < 12; ++k) N(N_SET_PED_COMPONENT_VARIATION, me, k, f.d[k], f.t[k], f.pal[k]);
+    for (int k = 0; k < 8; ++k) { if (f.pd[k] >= 0) N(N_SET_PED_PROP_INDEX, me, k, f.pd[k], f.pt[k], 1); else N(N_CLEAR_PED_PROP, me, k, 1); }
+}
+// in the scene: your clothes again whenever it changes them, no mask, no hat
+static void CutDress(int me, const CutOutfit &f) {
+    for (int k = 2; k < 12; ++k)
+        if (N<int>(N_GET_PED_DRAWABLE_VARIATION, me, k) != f.d[k] || N<int>(N_GET_PED_TEXTURE_VARIATION, me, k) != f.t[k]) N(N_SET_PED_COMPONENT_VARIATION, me, k, f.d[k], f.t[k], f.pal[k]);
+    if (N<int>(N_GET_PED_DRAWABLE_VARIATION, me, 1) != 0) N(N_SET_PED_COMPONENT_VARIATION, me, 1, 0, 0, 0);
+    if (N<int>(N_GET_PED_PROP_INDEX, me, 0) >= 0) N(N_CLEAR_PED_PROP, me, 0, 1);
+}
+static int g_cutDebug = 0;   // cutdbg: log who plays the crew's roles (test)
+static bool PlayCut(const char *name, int roles, bool canSkip) {
+    Vec3 o{}, o2{}; float oh = 0.f, oh2 = 0.f;
+    if (g_inside < 0 || !OnlinePoint(g_inside, 304, o, oh)) { Log("cut %s: not in an Online apartment (inside %d)", name, g_inside); return false; }
+    bool two = OnlinePoint(g_inside, 546, o2, oh2);
+    const OInterior *t = PIntOf(g_inside);
+    int sections = 1, t0 = Now();
+    while (Now() - t0 < 8000) {
+        N(N_REQUEST_CUT_FILE, name);
+        if (NB(N<int>(N_HAS_CUT_FILE_LOADED, name))) { sections = N<int>(N_GET_CUT_FILE_CONCAT_COUNT, name); N(N_REMOVE_CUT_FILE, name); break; }
+        Wait(0);
+    }
+    int list = CutPlaylist(name, t ? t->map : 0);
+    Log("cut %s: %d sections, list %d, origin %.2f %.2f %.2f h %.1f", name, sections, list, o.x, o.y, o.z, oh);
+    if (list >= 0) N(N_REQUEST_CUTSCENE_WITH_PLAYBACK_LIST, name, list, 8);
+    else N(N_REQUEST_CUTSCENE, name, 8);
+    const char *const R[] = {"MP_1", "MP_2", "MP_3", "MP_4"};
+    t0 = Now(); bool flags = false;
+    while (Now() - t0 < 45000 && !NB(N<int>(N_HAS_CUTSCENE_LOADED))) {
+        if (!flags && NB(N<int>(N_CAN_REQUEST_ASSETS_FOR_CUTSCENE_ENTITY))) {
+            flags = true;
+            for (int i = 0; i < roles; ++i) N(N_SET_CUTSCENE_ENTITY_STREAMING_FLAGS, R[i], 0, 1);
+        }
+        Wait(0);
+    }
+    if (!NB(N<int>(N_HAS_CUTSCENE_LOADED))) { Log("cut %s: NOT loaded after 45 s", name); N(N_REMOVE_CUTSCENE); return false; }
+    int me = Me();
+    Vec3 at = Pos(me); float heading = N<float>(N_GET_ENTITY_HEADING, me);
+    CutOutfit outfit = CutOutfitOf(me);
+    N(N_SET_PED_HELMET, me, 0); N(N_REMOVE_PED_HELMET, me, 1);
+    for (int i = 0; i < roles; ++i) {
+        if (i == 0) N(N_REGISTER_ENTITY_FOR_CUTSCENE, me, R[i], 0, 0, 67);
+        else N(N_REGISTER_ENTITY_FOR_CUTSCENE, 0, R[i], 3, 0, 67);
+    }
+    N(N_SET_ENTITY_INVINCIBLE, me, 1);   // nothing can hurt you meanwhile
+    N(N_START_CUTSCENE, 0);
+    bool pri = !std::strcmp(name, "APA_PRI_INT"), nar = !std::strcmp(name, "APA_NAR_INT");
+    for (int i = 0; i < std::max(sections, 1); ++i) {
+        bool second = two && ((pri && i >= 2 && i <= 4) || (nar && i >= 3 && i <= 5));
+        if (second) N(N_SET_CUTSCENE_ORIGIN, o2.x, o2.y, o2.z, oh2, i);
+        else N(N_SET_CUTSCENE_ORIGIN, o.x, o.y, o.z, oh, i);
+    }
+    t0 = Now();
+    while (Now() - t0 < 15000 && !NB(N<int>(N_IS_CUTSCENE_PLAYING))) Wait(0);
+    int t1 = Now(), dressed = 0; bool skipped = false, told = false;
+    // the board on the wall: in the midpoints and the finales' scenes; in Fleeca's midpoint Lester puts it up as he talks (MARKER_SCALEFORM)
+    bool boardOn = std::strstr(name, "_MID") || std::strstr(name, "FIN_INT"), staged = !std::strcmp(name, "MPH_TUT_MID");
+    g_hbInCut = true;
+    while (!NB(N<int>(N_HAS_CUTSCENE_FINISHED)) && NB(N<int>(N_IS_CUTSCENE_ACTIVE)) && Now() - t1 < 600000) {
+        if (Now() >= dressed) { CutDress(me, outfit); dressed = Now() + 100; }
+        if (staged) {
+            int lester = N<int>(N_GET_ENTITY_INDEX_OF_CUTSCENE_ENTITY, "Lester", 0);
+            if (lester && Exists(lester) && NB(N<int>(N_HAS_ANIM_EVENT_FIRED, lester, Joaat("MARKER_SCALEFORM")))) { staged = false; Log("cut %s: the board goes up after %d ms", name, Now() - t1); }
+        }
+        if (boardOn && !staged) { HbFrame(); HbDrawOnlineSpot(); }
+        if (Now() > g_cutDebug && g_cutDebug) {
+            g_cutDebug = Now() + 5000;
+            Log("cutdbg: me %d comps %d %d mask %d hat %d", me, N<int>(N_GET_PED_DRAWABLE_VARIATION, me, 3), N<int>(N_GET_PED_DRAWABLE_VARIATION, me, 11), N<int>(N_GET_PED_DRAWABLE_VARIATION, me, 1), N<int>(N_GET_PED_PROP_INDEX, me, 0));
+            for (const char *r : R) {
+                int e = N<int>(N_GET_ENTITY_INDEX_OF_CUTSCENE_ENTITY, r, 0);
+                Log("cutdbg: %s exists %d entity %d model %08x visible %d comps %d %d at %.1f %.1f %.1f", r, N<int>(N_DOES_CUTSCENE_ENTITY_EXIST, r, 0), e, e ? N<int>(N_GET_ENTITY_MODEL, e) : 0, e ? N<int>(N_IS_ENTITY_VISIBLE, e) : 0, e ? N<int>(N_GET_PED_DRAWABLE_VARIATION, e, 3) : 0, e ? N<int>(N_GET_PED_DRAWABLE_VARIATION, e, 11) : 0, e ? Pos(e).x : 0.f, e ? Pos(e).y : 0.f, e ? Pos(e).z : 0.f);
+            }
+        }
+        if (canSkip) {
+            if (!told) { told = true; Help("As Heist leader press ~INPUT_SKIP_CUTSCENE~ to skip previously watched scenes."); }
+            if (Now() - t1 > 1000 && (NB(N<int>(N_IS_CONTROL_JUST_PRESSED, 0, 18)) || NB(N<int>(N_IS_CONTROL_JUST_PRESSED, 2, 18)))) {
+                skipped = true;
+                N(N_DO_SCREEN_FADE_OUT, 500); Wait(600);
+                N(N_STOP_CUTSCENE_IMMEDIATELY);
+                break;
+            }
+        }
+        Wait(0);
+    }
+    g_hbInCut = false;
+    N(N_CLEAR_ALL_HELP_MESSAGES);
+    Vec3 end = Pos(me);
+    Log("cut %s: ended after %d ms%s, you at %.2f %.2f %.2f", name, Now() - t1, skipped ? " (skipped)" : "", end.x, end.y, end.z);
+    N(N_REMOVE_CUTSCENE);
+    CutOutfitRestore(me, outfit);
+    // back where you were, on a floor that's there
+    N(N_CLEAR_PED_TASKS_IMMEDIATELY, me);
+    N(N_FREEZE_ENTITY_POSITION, me, 1);
+    N(N_SET_ENTITY_COORDS_NO_OFFSET, me, at.x, at.y, at.z, 0, 0, 0); N(N_SET_ENTITY_HEADING, me, heading);
+    t0 = Now();
+    do { N(N_REQUEST_COLLISION_AT_COORD, at.x, at.y, at.z); Wait(0); } while (Now() - t0 < 5000 && !NB(N<int>(N_HAS_COLLISION_LOADED_AROUND_ENTITY, me)));
+    N(N_FREEZE_ENTITY_POSITION, me, 0); N(N_SET_ENTITY_VISIBLE, me, 1, 0); N(N_SET_ENTITY_INVINCIBLE, me, 0);
+    if (skipped || NB(N<int>(N_IS_SCREEN_FADED_OUT))) N(N_DO_SCREEN_FADE_IN, 500);
+    return true;
+}
+// the scene of a heist before a job: the intro before its first setup, the midpoint halfway through them, the finale's before it
+static void HeistCutFor(int h, int which) {
+    const char *name = HeistCutName(h, which);
+    if (!name) return;
+    int bit = 1 << (h * 3 + which);
+    HbSetHeist(h);
+    if (PlayCut(name, h == 0 ? 2 : 4, (g_heistCuts & bit) != 0)) { g_heistCuts |= bit; Save(); }
+}
+static void HeistCutBeforeSetup(int h) {
+    if (h < 0 || h >= 5) return;
+    int st = g_heistStage[h], setups = HEISTS[h].stages - 1;
+    if (st == 0) HeistCutFor(h, CUT_INT);
+    else if (st == setups / 2 && st < setups) HeistCutFor(h, CUT_MID);
+}

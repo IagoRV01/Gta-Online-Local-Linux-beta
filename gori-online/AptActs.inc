@@ -370,6 +370,7 @@ static bool AptMenu(const Frame &f, std::string &title, std::string &sub, std::v
 
 // every frame: the TV, the drinks, a menu closed under an activity
 static void AptActsFrame() {
+    if (Now() < g_noPauseUntil) for (int g : {0, 2}) for (int k : {199, 200}) N(N_DISABLE_CONTROL_ACTION, g, k, 1);
     DrunkTick();
     if (g_tvOn && (g_inside < 0 || !AptIdInside())) TvOff();
     TvDraw();

@@ -106,6 +106,16 @@ static void HbBuild(int h) {
     Log("heist board: %s, %s (stage %d/%d)", d.name, HbFinale(h) ? "heist board" : "planning board", st + 1, d.stages);
 }
 
+// Online's board in Online's apartments, from the metadata block (am_mp_property_int.c, fmmc_launcher.c): point 141 the
+// hei_prop_dlc_heist_board prop, 142 the planning movie, 143 the map, 144 the camera on the board. The same for every kind of
+// apartment, whichever floor its planning room is on.
+struct HbPoints { Vec3 prop, movie, map, cam; float propH, movieH, mapH, camH, camP; };
+static bool HbOnlinePoints(HbPoints &q) {
+    if (g_inside < 0 || AptIdInside()) return false;
+    const OInterior *t = PIntOf(g_inside);
+    if (!t || t->lit || t->map < 0) return false;
+    return OnlinePoint(g_inside, 141, q.prop, q.propH) && OnlinePoint(g_inside, 142, q.movie, q.movieH) && OnlinePoint(g_inside, 143, q.map, q.mapH) && OnlinePoint(g_inside, 144, q.cam, q.camH, &q.camP);
+}
 // the spot of the planning board of the apartment you are in (AptActs 'P'), if any
 static bool HbSpot(Vec3 &p, float &h) {
     const char *id = AptIdInside();
@@ -113,6 +123,8 @@ static bool HbSpot(Vec3 &p, float &h) {
         // Online's high-end apartments: the bare wall of the planning room (rm_high_planning), measured in Del Perro Heights
         // Apt 20 (o7, entered at -1468.67 -533.32 68.15, heading 125); the others are the same room turned with their heading
         if (g_inside < 0) return false;
+        HbPoints q;
+        if (HbOnlinePoints(q)) { p = V3(q.cam.x, q.cam.y, q.prop.z - 1.6f); h = q.camH; return true; }
         const InteriorDef *d = PropInterior(g_inside);
         if (!d) return false;
         // the High Life apartments and the two of ours in Online's towers: the same room, in another place of the tower
@@ -149,17 +161,34 @@ static void HbOpen() {
     g_hb.using_ = true;
     Vec3 p; float h;
     if (!g_hb.hid) { N(N_SET_ENTITY_VISIBLE, Me(), 0, 0); g_hb.hid = true; }   // out of the camera's way
-    if (HbSpot(p, h)) ActCam(ActAhead(p, h, -2.4f, 1.6f), ActAhead(p, h, g_hbAhead, g_hbUp), 50.f);   // Online's: the whole board, straight on
+    HbPoints q;
+    if (HbOnlinePoints(q)) {   // Online's camera
+        float hr = q.camH * 3.14159265f / 180.f, pr = q.camP * 3.14159265f / 180.f;
+        ActCam(q.cam, V3(q.cam.x - std::sin(hr) * std::cos(pr) * 3.f, q.cam.y + std::cos(hr) * std::cos(pr) * 3.f, q.cam.z + std::sin(pr) * 3.f), 50.f);
+    }
+    else if (HbSpot(p, h)) ActCam(ActAhead(p, h, -2.4f, 1.6f), ActAhead(p, h, g_hbAhead, g_hbUp), 50.f);   // the whole board, straight on
     Sound("Highlight_Accept", "DLC_HEIST_PLANNING_BOARD_SOUNDS");
 }
 static void HbShowMe() { if (g_hb.hid) { N(N_SET_ENTITY_VISIBLE, Me(), 1, 0); g_hb.hid = false; } }
 static void HbClose() {
+    g_noPauseUntil = Now() + 1500;
     g_hb.using_ = false;
     HbShowMe();
     ActEnd(false);
     Sound("Highlight_Cancel", "DLC_HEIST_PLANNING_BOARD_SOUNDS");
 }
 // every frame inside an apartment with a planning spot: the board on the wall; while using it, its controls
+// in a scene the wall has the scene's own board: the movies go where Online draws them, the apartment's metadata points 142
+// (the planning movie, 4.2 x 2.4 m) and 143 (the map, 3.815 x 2.27 m)
+static void HbDrawOnlineSpot() {
+    Vec3 mp, pp; float mh = 0.f, ph = 0.f;
+    if (g_inside < 0 || !OnlinePoint(g_inside, 142, pp, ph) || !OnlinePoint(g_inside, 143, mp, mh)) return;
+    static int said = -1;
+    if (said != g_inside) { said = g_inside; Log("heist board: Online's points: movie %.2f %.2f %.2f h %.1f, map %.2f %.2f %.2f h %.1f", pp.x, pp.y, pp.z, ph, mp.x, mp.y, mp.z, mh); }
+    if (g_hb.map && NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.map))) N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.map, mp.x, mp.y, mp.z, 180.f, -180.f, mh, 1.f, 1.f, 1.f, 3.815f, 2.27f, 1.f, 2);
+    if (g_hb.movie && NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.movie))) N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.movie, pp.x, pp.y, pp.z, 180.f, -180.f, ph, 1.f, 1.f, 1.f, 4.2f, 2.4f, 1.f, 2);
+}
+static void HbSetHeist(int h) { g_hb.heist = h; g_hb.sel = HbFinale(h) ? 0 : g_heistStage[h]; }
 static void HbFrame() {
     Vec3 p; float h;
     if (!HbSpot(p, h)) {
@@ -172,14 +201,15 @@ static void HbFrame() {
     }
     // Online's board on the wall (the apartment script's hei_prop_dlc_heist_board): the cork board the movie is drawn on
     if (g_hb.prop && Dist(g_hb.pos, p) > 0.5f) DeleteEntity(g_hb.prop);   // another apartment's (napt moves you between them)
-    if (!g_hb.prop || !Exists(g_hb.prop)) {
+    if (!g_hbInCut && (!g_hb.prop || !Exists(g_hb.prop))) {
         g_hb.pos = p; g_hb.h = h;
         uint32_t m = Joaat("hei_prop_dlc_heist_board");
         if (LoadModel(m)) {
-            Vec3 bp = ActAhead(p, h, g_hbPropAhead, g_hbPropZ);
+            HbPoints qp; bool onl = HbOnlinePoints(qp);
+            Vec3 bp = onl ? qp.prop : ActAhead(p, h, g_hbPropAhead, g_hbPropZ);
             g_hb.prop = N<int>(N_CREATE_OBJECT_NO_OFFSET, m, bp.x, bp.y, bp.z, 0, 0, 0);
             if (g_hb.prop) {
-                N(N_SET_ENTITY_ROTATION, g_hb.prop, 0.f, 0.f, h + g_hbPropRot, 2, 1);
+                N(N_SET_ENTITY_ROTATION, g_hb.prop, 0.f, 0.f, onl ? qp.propH : h + g_hbPropRot, 2, 1);
                 N(N_FREEZE_ENTITY_POSITION, g_hb.prop, 1);
                 g_hbRoom = 0;
                 Vec3 mn{}, mx{};
@@ -219,6 +249,10 @@ static void HbFrame() {
         Vec3 mc = ActAhead(ActAhead(p, h, g_hbAhead + g_hbMapAhead, g_hbUp + g_hbMapUp), h + 90.f, g_hbMapSide);
         N(g_hbMapSolid ? N_DRAW_SCALEFORM_MOVIE_3D_SOLID : N_DRAW_SCALEFORM_MOVIE_3D, g_hb.map, mc.x, mc.y, mc.z, g_hbMapRX, g_hbMapRY, HbSolidYaw(h, g_hbMapRZ, g_hbMapSolid), 1.f, 1.f, 1.f, mw, mh, 1.f, 2);
     };
+    if (g_hbInCut) return;
+    HbPoints qd;
+    if (HbOnlinePoints(qd)) HbDrawOnlineSpot();
+    else {
     if (g_hbMapFirst) drawMap();
     if (g_hbMode == 2) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_hb.movie, 255, 255, 255, 255, 0);
     else if (g_hbMode == 1) {   // the solid draw: placed by its centre
@@ -227,9 +261,10 @@ static void HbFrame() {
     }
     else N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.movie, c.x, c.y, c.z, g_hbRotX, 0.f, h + g_hbRot, 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
     if (!g_hbMapFirst) drawMap();
+    }
     if (!g_hb.using_) {
         HbShowMe();
-        if (!AptIdInside() && !g_menuOpen && !g_mActive && Dist(Pos(Me()), p) < 2.5f) {   // Online's apartments have no activity list: the prompt is here
+        if (!g_hbInCut && !CoronaActive() && !AptIdInside() && !g_menuOpen && !g_mActive && Dist(Pos(Me()), p) < 2.5f) {   // Online's apartments have no activity list: the prompt is here
             Help("Press ~INPUT_CONTEXT~ to use the planning board.");
             if (JustPressed(51)) HbOpen();
         }
@@ -238,7 +273,7 @@ static void HbFrame() {
     N(N_DISABLE_ALL_CONTROL_ACTIONS, 0);
     int setups = HEISTS[g_hb.heist].stages - 1;
     bool fin = HbFinale(g_hb.heist);
-    auto pressed = [](int c) { return NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 2, c)); };
+    auto pressed = [](int c) { return NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 2, c)) || NB(N<int>(N_IS_CONTROL_JUST_PRESSED, 2, c)); };
     if (!fin && (pressed(174) || pressed(175))) {   // left / right: the setups
         g_hb.sel = (g_hb.sel + (pressed(175) ? 1 : setups - 1)) % std::max(1, setups);
         HbBegin("HIGHLIGHT_ITEM"); HbInt(g_hb.sel); HbInt(0); HbBool(false); HbBool(false); HbEnd();
@@ -257,7 +292,7 @@ static void HbFrame() {
         else if (!fin && g_hb.sel != g_heistStage[hh]) {
             Notify(g_hb.sel < g_heistStage[hh] ? "That setup is done." : "Finish the earlier setups first.");
             Sound("Highlight_Error", "DLC_HEIST_PLANNING_BOARD_SOUNDS");
-        } else { HbClose(); OpenHeistCorona(hh); return; }
+        } else { HbClose(); HeistCutBeforeSetup(hh); OpenHeistCorona(hh); return; }
     }
     if (pressed(202)) { HbClose(); return; }
     std::string help = fin ? "~INPUT_FRONTEND_ACCEPT~ Launch Heist   ~INPUT_FRONTEND_UP~ ~INPUT_FRONTEND_DOWN~ Heist   ~INPUT_FRONTEND_CANCEL~ Back"

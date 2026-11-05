@@ -543,6 +543,8 @@ static std::vector<BizState> g_biz;
 static const int NHEISTS = 8;
 static int g_heistStage[NHEISTS] = {0};
 static int g_heistCut[NHEISTS] = {25, 25, 25, 25, 25, 25, 25, 25};
+static int g_noPauseUntil = 0;   // Esc closed a screen of ours: it would open the pause menu as it's let go
+static int g_heistCuts = 0;   // Online's heist scenes you have watched: bit (heist * 3 + which), HeistCuts.inc
 static struct { int first = 0, next = 0; bool broken = false, dead = false, crewBroken = false, crewSet = false; std::string crew; } g_ha;   // the heists' one-time bonuses: finales passed before, the next in Online's order, what's been lost
 static int g_lastHeistPay = -1;   // the leader's cut of the finale just passed (its results show it, not the whole take)   // the crew's cut of each heist's finale, % per member (its lobby)
 // Island colours (logical colour -> stunt prop tint index), tunable in GoriOnline.ini ("tints=")
@@ -576,6 +578,7 @@ static std::string Serialize() {
     if (!g_yachtName.empty()) out += "yachtname=" + g_yachtName + "\n";
     for (auto &c : g_cust) out += "cust=" + c.first + "|" + std::to_string(c.second) + "\n";
     for (int i = 0; i < NHEISTS; ++i) if (g_heistStage[i]) out += "heist=" + std::to_string(i) + "|" + std::to_string(g_heistStage[i]) + "\n";
+    if (g_heistCuts) out += "heistcuts=" + std::to_string(g_heistCuts) + "\n";
     if (g_ha.first || g_ha.next || g_ha.broken || g_ha.dead || g_ha.crewBroken || g_ha.crewSet)
         out += "heistaward=" + std::to_string(g_ha.first) + "|" + std::to_string(g_ha.next) + "|" + std::to_string((int)g_ha.broken) + "|" + std::to_string((int)g_ha.dead) + "|" + std::to_string((int)g_ha.crewBroken) + "|" + std::to_string((int)g_ha.crewSet) + "|" + g_ha.crew + "\n";
     for (auto &p : g_props) out += "prop=" + p + "\n";
@@ -630,6 +633,7 @@ static void LoadText(const std::string &text) {
         else if (k == "wheelnext") g_wheelNext = std::atoll(v.c_str());
         else if (k == "yachtname") g_yachtName = v;
         else if (k == "outfit") { size_t b = v.find('|'); int i = std::atoi(v.c_str()); if (b != std::string::npos && i >= 0 && i < 6) g_outfit[i] = v.substr(b + 1); }
+        else if (k == "heistcuts") g_heistCuts = std::atoi(v.c_str());
         else if (k == "heistaward") { auto p = Split(v, '|'); if (p.size() > 5) { g_ha.first = std::atoi(p[0].c_str()); g_ha.next = std::atoi(p[1].c_str()); g_ha.broken = p[2] == "1"; g_ha.dead = p[3] == "1"; g_ha.crewBroken = p[4] == "1"; g_ha.crewSet = p[5] == "1"; g_ha.crew = p.size() > 6 ? p[6] : ""; } }
         else if (k == "heist") { auto p = Split(v, '|'); int i = std::atoi(p[0].c_str()); if (i >= 0 && i < NHEISTS && p.size() > 1) g_heistStage[i] = std::atoi(p[1].c_str()); }
         else if (k == "prop") { std::string n = Renamed(v); if (FindProp(n) >= 0 && !Owns(n)) g_props.push_back(n); }
@@ -3111,6 +3115,7 @@ static int g_heistDiff = 1;         // the lobby's difficulty: 0 Easy, 1 Normal,
 // the take at the difficulty chosen: Online's easy pays half, hard a quarter more
 static int HeistTake(int h) { return HEISTS[h].payout * (g_heistDiff == 0 ? 50 : g_heistDiff == 2 ? 125 : 100) / 100; }
 #include "HeistElite.inc"
+#include "HeistCuts.inc"
 static bool HeistUnlocked(int h, std::string &why) {
     int need = HEISTS[h].needType;
     if (need == -1 || g_heistTest) return true;
@@ -5035,7 +5040,12 @@ static void CommandTick() {
         else if (a[0] == "menuat" && a.size() > 1) OpenMenuAt((MenuId)std::atoi(a[1].c_str()));   // menuat <id>: that menu (test)
         else if (a[0] == "menuoff") { CloseMenu(); }
         else if (a[0] == "cminvite" && a.size() > 1) ContactRequestJob(std::atoi(a[1].c_str()) % NCONTACTS);   // cminvite <contact>: the job invite (test)
-        else if (a[0] == "hbtest" && a.size() > 1) { g_hb.heist = std::atoi(a[1].c_str()) % NHEISTS; HbOpen(); }   // hbtest <heist>: the board, inside an apartment (test)
+        else if (a[0] == "hbtest" && a.size() > 1) {   // hbtest <heist>: to the board's spot and on the board, inside an apartment (test)
+            g_hb.heist = std::atoi(a[1].c_str()) % NHEISTS;
+            Vec3 sp; float sh;
+            if (HbSpot(sp, sh)) { N(N_SET_ENTITY_COORDS_NO_OFFSET, Me(), sp.x, sp.y, sp.z + 1.f, 0, 0, 0); N(N_SET_ENTITY_HEADING, Me(), sh); Log("hbtest: spot %.2f %.2f %.2f h %.1f", sp.x, sp.y, sp.z, sh); Wait(1500); }
+            HbOpen();
+        }
         else if (a[0] == "hboff") HbClose();
         else if (a[0] == "hbslot" && a.size() > 3) {   // hbslot <dict|-> <done> <open>: how the slots are filled (test)
             g_hbTex = a[1] == "-" ? "" : a[1]; g_hbDone = std::atoi(a[2].c_str()); g_hbOpen = std::atoi(a[3].c_str()); g_hb.builtStage = -1;
@@ -5137,7 +5147,7 @@ static void CommandTick() {
             JobCelebrate(HEISTS[h].name, 0, true, 0, g_rp, HEISTS[h].rp, 0, "");
         }
         else if (a[0] == "hbaward") {    // hbaward [clear]: the one-time bonuses' state (test)
-            if (a.size() > 1 && a[1] == "clear") { g_ha.first = g_ha.next = 0; g_ha.broken = g_ha.dead = g_ha.crewBroken = g_ha.crewSet = false; g_ha.crew.clear(); Save(); }
+            if (a.size() > 1 && a[1] == "clear") { g_ha.first = g_ha.next = 0; g_ha.broken = g_ha.dead = g_ha.crewBroken = g_ha.crewSet = false; g_ha.crew.clear(); g_heistCuts = 0; Save(); }
             Log("hbaward: first %d next %d broken %d dead %d crewBroken %d crewSet %d crew %s", g_ha.first, g_ha.next, (int)g_ha.broken, (int)g_ha.dead, (int)g_ha.crewBroken, (int)g_ha.crewSet, g_ha.crew.c_str());
         }
         else if (a[0] == "hbrays") {   // hbrays: from here, the interior's heading and the walls all around, in the log (test)
@@ -5181,6 +5191,31 @@ static void CommandTick() {
         else if (a[0] == "pedvis" && a.size() > 1) { N(N_SET_ENTITY_VISIBLE, Me(), a[1] != "0", 0); }   // pedvis 0|1: the character hidden for a photo (test)
         else if (a[0] == "die") { N(N_SET_ENTITY_INVINCIBLE, Me(), 0); N(N_SET_ENTITY_HEALTH, Me(), 0, 0, 0); }   // die: the character dies, to see the respawn (test)
         else if (a[0] == "mauto" && a.size() > 1) { g_mAuto = a[1] == "1"; Log("mauto %d", g_mAuto ? 1 : 0); }   // mauto 1|0: missions play themselves and end unpaid (test)
+        else if (a[0] == "cutdbg") g_cutDebug = a.size() > 1 && a[1] == "0" ? 0 : 1;   // cutdbg [0]: log the roles while a heist scene plays (test)
+        else if (a[0] == "cut" && a.size() > 1) PlayCut(a[1].c_str(), a.size() > 2 ? std::atoi(a[2].c_str()) : 4, true);   // cut <name> [roles]: a heist cutscene in the apartment you're in (test)
+        else if (a[0] == "mgo") { if (g_mActive && g_mStep < g_m.steps.size()) { Vec3 v = g_m.steps[g_mStep].pos; N(N_SET_ENTITY_COORDS_NO_OFFSET, Me(), v.x, v.y, v.z + 1.f, 0, 0, 0); } }   // mgo: to the step's target (test)
+        else if (a[0] == "mshoot") {   // mshoot: a real bullet of yours into every enemy alive, so that the kills count as yours (test)
+            int n = 0;
+            for (int p : g_mPeds) if (Exists(p) && !Dead(p)) {
+                Vec3 t = Pos(p);
+                N(N_SHOOT_SINGLE_BULLET_BETWEEN_COORDS_IGNORE_ENTITY, t.x, t.y, t.z + 1.2f, t.x, t.y, t.z + .6f, 500, 1, Joaat("weapon_heavysniper"), Me(), 0, 1, 2000.f, Me(), 0);
+                ++n;
+            }
+            Log("mshoot: %d shot, kills so far %d", n, g_mKills);
+        }
+        else if (a[0] == "elitestat") {   // elitestat: what the Elite Challenge has counted so far (test)
+            { int alive = 0; for (int p : g_mPeds) if (Exists(p) && !Dead(p)) ++alive;
+              bool act = g_mActive && g_mStep < g_m.steps.size();
+              Log("missionstat: active %d step %d/%d kill %d up %d alive %d ally %d veh %d", (int)g_mActive, (int)g_mStep, (int)g_m.steps.size(), act && g_m.steps[g_mStep].type == S_KILL ? 1 : 0, (int)g_enemiesUp, alive, g_mAlly, MyVehicle()); }
+            Log("elitestat: on %d h %d time %d veh %d %.1f%% ally %d %.1f%% extract %d alarm %d noose %d kills %d wanted %d", (int)g_elite.on, g_elite.h, g_elite.on ? Now() - g_elite.startMs : 0, g_elite.veh, g_elite.vehDamage, g_elite.ally, g_elite.allyDamage, g_elite.allyStart ? Now() - g_elite.allyStart : 0, g_elite.alarmAt ? Now() - g_elite.alarmAt : 0, (int)g_elite.noose, g_mKills, N<int>(N_GET_PLAYER_WANTED_LEVEL, Player()));
+        }
+        else if (a[0] == "hurtally" && a.size() > 1) {   // hurtally <hp>: Rashkovsky loses that much health (test)
+            if (g_mAlly && Exists(g_mAlly)) N(N_SET_ENTITY_HEALTH, g_mAlly, N<int>(N_GET_ENTITY_HEALTH, g_mAlly) - std::atoi(a[1].c_str()), 0, 0);
+        }
+        else if (a[0] == "ram" && a.size() > 1) {   // ram <m/s>: the car you drive goes straight on at that speed, to crash it (test)
+            int v = MyVehicle(); if (v) N(N_SET_VEHICLE_FORWARD_SPEED, v, F(1));
+            Log("ram: vehicle %d health %d of %d", v, v ? N<int>(N_GET_ENTITY_HEALTH, v) : 0, v ? N<int>(N_GET_ENTITY_MAX_HEALTH, v) : 0);
+        }
         else if (a[0] == "mskip") {   // mskip: the mission's current step done (test)
             if (g_drill.on) DrillEnd();
             if (g_hack.on) HackEnd();
@@ -5906,6 +5941,11 @@ static void ScriptMain() {
         PlayerInfoTick();
         PassiveTick();
         if (Freemode()) DoorsTick();
+        // Esc on one of our screens: if the pause menu opens all the same, it goes away at once
+        if (Now() < g_noPauseUntil) {
+            for (int g : {0, 2}) for (int k : {199, 200}) N(N_DISABLE_CONTROL_ACTION, g, k, 1);
+            if (NB(N<int>(N_IS_PAUSE_MENU_ACTIVE))) { N(N_SET_FRONTEND_ACTIVE, 0); Log("pause menu closed after Esc"); }
+        }
         CoronaTick();
         NextJobTick();
         if (Freemode()) ContactInviteTick();

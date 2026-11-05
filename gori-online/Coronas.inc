@@ -144,6 +144,6 @@ static void OpenHeistCorona(int h) {
         d.opts.push_back(cut);
         d.memberPay = [h](const std::vector<int> &sel) { g_heistDiff = sel.empty() ? 1 : sel[0]; return HeistTake(h) * (15 + 5 * (sel.size() < 2 ? 2 : sel[1])) / 100; };
     }
-    d.onPlay = [h, finale](const std::vector<int> &sel) { g_heistDiff = sel.empty() ? 1 : sel[0]; g_heistCut[h] = finale ? 15 + 5 * (sel.size() < 2 ? 2 : sel[1]) : 25; StartHeist(h); };
+    d.onPlay = [h, finale](const std::vector<int> &sel) { g_heistDiff = sel.empty() ? 1 : sel[0]; g_heistCut[h] = finale ? 15 + 5 * (sel.size() < 2 ? 2 : sel[1]) : 25; if (finale) HeistCutFor(h, CUT_FIN); StartHeist(h); };
     OpenCorona(d);
 }

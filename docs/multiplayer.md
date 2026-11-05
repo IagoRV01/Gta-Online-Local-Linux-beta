@@ -658,8 +658,16 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
   - Lobby Difficulty for heists: Easy pays half with fewer enemies, Hard pays a quarter more with more of them.
   - Quick Restart on a failed job's board, for heists and contact missions.
   - The Humane Labs finale's escape Valkyrie waits on dry land.
+- **Done 2026-11-05.**
+  - Online's heist cutscenes (`HeistCuts.inc`, order and calls from `fmmc_launcher.c`): `MPH_*` / `APA_*` intro before a heist's first setup, midpoint halfway through its setups (that moment is our rule), and the finale's scene when the lobby starts it. All 15 play in story mode, placed by the apartment's metadata points 304 and 546, with the playback list of each kind of apartment for the two `APA_` intros.
+    - In story mode the scene takes the player's own ped for `MP_1` whatever is registered, and dresses it in its own clothes. So you play it, your clothes are put back every 100 ms and restored at the end, no mask or hat as in Online, and you go back to where you stood once the floor's collision is loaded (without that you fall out of the tower).
+    - A scene you've watched can be skipped (the list is `heistcuts` in the profile; `hbaward clear` empties it). Our own apartments have no such points: no scenes there.
+    - In Fleeca's midpoint the board goes up on Lester's `MARKER_SCALEFORM` anim event; a second crew member appears in that scene even solo. It's the scene's own.
+  - The board is Online's in Online's apartments: from the metadata block, point 141 the `hei_prop_dlc_heist_board` prop, 142 the planning movie, 143 the map (Online's plain `DRAW_SCALEFORM_MOVIE_3D` with rotation 180, -180, z), 144 the camera. The map hangs on the dark panel and the planning movie on the whiteboard, side by side. This covers every kind of apartment, Eclipse Towers' Penthouse Suite 3 included; our measured spots remain only for our own flats.
+  - Elite Challenge counters measured in play: kills by real bullets, Rashkovsky's damage, vehicle damage from real crashes, NOOSE at 3:30 after the vault's alarm.
 - **Next.**
   - Second-player checks: shared votes, heist cuts, roles.
+  - The setups' in-world end scenes (`MPH_*_EXT`) and the finale's party scenes (`MPH_FIN_CEL_*`), which need their world spots.
 
 ## Co-op jobs (protocol v9, 2026-10-12)
 

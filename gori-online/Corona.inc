@@ -342,7 +342,21 @@ static void CoronaTick() {
         Sound("BACK", "HUD_FRONTEND_DEFAULT_SOUNDSET");
         if (g_cor.page == CRP_INVITE && !g_cor.def.opts.empty()) { CoronaSetLobby(0); g_cor.lobbyType = 0; g_cor.page = CRP_SETTINGS; g_cor.sel = 0; }
         else if (g_cor.page == CRP_MEMBER) CoopJoin(0);
-        else { CloseCorona(true); return; }
+        else {
+            // the lobby goes once Esc has been let go: otherwise it opens the pause menu as it's released
+            int t0 = Now(), rel = 0;
+            while (Now() - t0 < 1000) {
+                bool down = NB(N<int>(N_IS_DISABLED_CONTROL_PRESSED, 2, 202)) || NB(N<int>(N_IS_CONTROL_PRESSED, 2, 202));
+                if (!down && !rel) rel = Now();
+                if (rel && Now() - rel > 300) break;
+                for (int g : {0, 2}) for (int k : {199, 200, 202}) N(N_DISABLE_CONTROL_ACTION, g, k, 1);
+                CoronaDraw();
+                Wait(0);
+            }
+            g_noPauseUntil = Now() + 1500;
+            CloseCorona(true);
+            return;
+        }
     }
     CoronaDraw();
     MenuButtons();
