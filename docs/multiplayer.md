@@ -665,9 +665,12 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
     - In Fleeca's midpoint the board goes up on Lester's `MARKER_SCALEFORM` anim event; a second crew member appears in that scene even solo. It's the scene's own.
   - The board is Online's in Online's apartments: from the metadata block, point 141 the `hei_prop_dlc_heist_board` prop, 142 the planning movie, 143 the map (Online's plain `DRAW_SCALEFORM_MOVIE_3D` with rotation 180, -180, z), 144 the camera. The map hangs on the dark panel and the planning movie on the whiteboard, side by side. This covers every kind of apartment, Eclipse Towers' Penthouse Suite 3 included; our measured spots remain only for our own flats.
   - Elite Challenge counters measured in play: kills by real bullets, Rashkovsky's damage, vehicle damage from real crashes, NOOSE at 3:30 after the vault's alarm.
+- **Done 2026-11-06.**
+  - The end of a heist job plays Online's own scene where it was made (`MPH_*_EXT`, fm_mission_controller's plain `START_CUTSCENE`): 19 setups and finales, e.g. the plane in the LSIA hangar, the prison bus, the Valkyrie, Trevor at Sandy Shores, Lester at the docks. After a finale the crew celebrates (`MPH_FIN_CEL_APT` for Fleeca, `_TRE` for Series A, `_BAR` for the others: that pairing is our rule), then comes the end screen. You're put back where the job ended.
+  - Left out: Station, Wet Work and Key Codes (their scenes play in the apartment, far from where the job ends), `MPH_PRI_FIN_EXT` and `MPH_HUM_DEL_EXT` (almost empty here), and `MPH_PRI_EMP_EXT` / `MPH_FIN_CEL_BEA`, which don't load in story mode. Watched end scenes can be skipped (`heistcutsx` in the profile); `hbscenes 0` turns them off for tests.
+  - Verified in game: Fleeca's Scope Out (MPH_TUT_EXT, then the setup's screen) and its finale (MPH_FIN_CEL_APT, then the heist screen with the Elite Challenge).
 - **Next.**
   - Second-player checks: shared votes, heist cuts, roles.
-  - The setups' in-world end scenes (`MPH_*_EXT`) and the finale's party scenes (`MPH_FIN_CEL_*`), which need their world spots.
 
 ## Co-op jobs (protocol v9, 2026-10-12)
 

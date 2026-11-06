@@ -544,6 +544,7 @@ static const int NHEISTS = 8;
 static int g_heistStage[NHEISTS] = {0};
 static int g_heistCut[NHEISTS] = {25, 25, 25, 25, 25, 25, 25, 25};
 static int g_noPauseUntil = 0;   // Esc closed a screen of ours: it would open the pause menu as it's let go
+static int g_heistCutsX = 0;   // the setups' end scenes you have watched: bit (heist * 6 + stage), HeistCuts.inc
 static int g_heistCuts = 0;   // Online's heist scenes you have watched: bit (heist * 3 + which), HeistCuts.inc
 static struct { int first = 0, next = 0; bool broken = false, dead = false, crewBroken = false, crewSet = false; std::string crew; } g_ha;   // the heists' one-time bonuses: finales passed before, the next in Online's order, what's been lost
 static int g_lastHeistPay = -1;   // the leader's cut of the finale just passed (its results show it, not the whole take)   // the crew's cut of each heist's finale, % per member (its lobby)
@@ -579,6 +580,7 @@ static std::string Serialize() {
     for (auto &c : g_cust) out += "cust=" + c.first + "|" + std::to_string(c.second) + "\n";
     for (int i = 0; i < NHEISTS; ++i) if (g_heistStage[i]) out += "heist=" + std::to_string(i) + "|" + std::to_string(g_heistStage[i]) + "\n";
     if (g_heistCuts) out += "heistcuts=" + std::to_string(g_heistCuts) + "\n";
+    if (g_heistCutsX) out += "heistcutsx=" + std::to_string(g_heistCutsX) + "\n";
     if (g_ha.first || g_ha.next || g_ha.broken || g_ha.dead || g_ha.crewBroken || g_ha.crewSet)
         out += "heistaward=" + std::to_string(g_ha.first) + "|" + std::to_string(g_ha.next) + "|" + std::to_string((int)g_ha.broken) + "|" + std::to_string((int)g_ha.dead) + "|" + std::to_string((int)g_ha.crewBroken) + "|" + std::to_string((int)g_ha.crewSet) + "|" + g_ha.crew + "\n";
     for (auto &p : g_props) out += "prop=" + p + "\n";
@@ -634,6 +636,7 @@ static void LoadText(const std::string &text) {
         else if (k == "yachtname") g_yachtName = v;
         else if (k == "outfit") { size_t b = v.find('|'); int i = std::atoi(v.c_str()); if (b != std::string::npos && i >= 0 && i < 6) g_outfit[i] = v.substr(b + 1); }
         else if (k == "heistcuts") g_heistCuts = std::atoi(v.c_str());
+        else if (k == "heistcutsx") g_heistCutsX = std::atoi(v.c_str());
         else if (k == "heistaward") { auto p = Split(v, '|'); if (p.size() > 5) { g_ha.first = std::atoi(p[0].c_str()); g_ha.next = std::atoi(p[1].c_str()); g_ha.broken = p[2] == "1"; g_ha.dead = p[3] == "1"; g_ha.crewBroken = p[4] == "1"; g_ha.crewSet = p[5] == "1"; g_ha.crew = p.size() > 6 ? p[6] : ""; } }
         else if (k == "heist") { auto p = Split(v, '|'); int i = std::atoi(p[0].c_str()); if (i >= 0 && i < NHEISTS && p.size() > 1) g_heistStage[i] = std::atoi(p[1].c_str()); }
         else if (k == "prop") { std::string n = Renamed(v); if (FindProp(n) >= 0 && !Owns(n)) g_props.push_back(n); }
@@ -3129,6 +3132,7 @@ static bool HeistUnlocked(int h, std::string &why) {
     return false;
 }
 static void HeistStageDone(int h, bool finale) {
+    int stDone = g_heistStage[h];
     HeistAwardsStage(h);
     if (finale) {
         g_heistStage[h] = 0;
@@ -3156,11 +3160,13 @@ static void HeistStageDone(int h, bool finale) {
         GiveRP(HEISTS[h].rp, "heist complete");
         Log("heist %s: leader cut %d%% (%d crew at %d%%), with bonuses = %d", HEISTS[h].name, leaderPct, crew, g_heistCut[h], pay);
     } else {
+        HeistEndScenes(h, stDone, false);
         g_heistStage[h]++;
         GiveRP(1500, "heist prep done");
         Shard("~g~PREP COMPLETE", std::string(HEISTS[h].name) + ": " + HEISTS[h].stageNames[g_heistStage[h] - 1]);
     }
     Save();
+    if (finale) HeistEndScenes(h, HEISTS[h].stages - 1, true);
 }
 static Step Interior(Step s, const char *interiorId) {    // reaching the step teleports you inside
     auto prev = s.onDone;
@@ -5147,7 +5153,7 @@ static void CommandTick() {
             JobCelebrate(HEISTS[h].name, 0, true, 0, g_rp, HEISTS[h].rp, 0, "");
         }
         else if (a[0] == "hbaward") {    // hbaward [clear]: the one-time bonuses' state (test)
-            if (a.size() > 1 && a[1] == "clear") { g_ha.first = g_ha.next = 0; g_ha.broken = g_ha.dead = g_ha.crewBroken = g_ha.crewSet = false; g_ha.crew.clear(); g_heistCuts = 0; Save(); }
+            if (a.size() > 1 && a[1] == "clear") { g_ha.first = g_ha.next = 0; g_ha.broken = g_ha.dead = g_ha.crewBroken = g_ha.crewSet = false; g_ha.crew.clear(); g_heistCuts = 0; g_heistCutsX = 0; Save(); }
             Log("hbaward: first %d next %d broken %d dead %d crewBroken %d crewSet %d crew %s", g_ha.first, g_ha.next, (int)g_ha.broken, (int)g_ha.dead, (int)g_ha.crewBroken, (int)g_ha.crewSet, g_ha.crew.c_str());
         }
         else if (a[0] == "hbrays") {   // hbrays: from here, the interior's heading and the walls all around, in the log (test)
@@ -5192,6 +5198,8 @@ static void CommandTick() {
         else if (a[0] == "die") { N(N_SET_ENTITY_INVINCIBLE, Me(), 0); N(N_SET_ENTITY_HEALTH, Me(), 0, 0, 0); }   // die: the character dies, to see the respawn (test)
         else if (a[0] == "mauto" && a.size() > 1) { g_mAuto = a[1] == "1"; Log("mauto %d", g_mAuto ? 1 : 0); }   // mauto 1|0: missions play themselves and end unpaid (test)
         else if (a[0] == "cutdbg") g_cutDebug = a.size() > 1 && a[1] == "0" ? 0 : 1;   // cutdbg [0]: log the roles while a heist scene plays (test)
+        else if (a[0] == "hbscenes" && a.size() > 1) g_heistScenes = a[1] == "1";   // hbscenes 0|1: the end scenes of heist jobs (test)
+        else if (a[0] == "cutw" && a.size() > 1) PlayCut(a[1].c_str(), a.size() > 2 ? std::atoi(a[2].c_str()) : 4, true, true);   // cutw <name> [roles]: a heist scene where it was made (test)
         else if (a[0] == "cut" && a.size() > 1) PlayCut(a[1].c_str(), a.size() > 2 ? std::atoi(a[2].c_str()) : 4, true);   // cut <name> [roles]: a heist cutscene in the apartment you're in (test)
         else if (a[0] == "mgo") { if (g_mActive && g_mStep < g_m.steps.size()) { Vec3 v = g_m.steps[g_mStep].pos; N(N_SET_ENTITY_COORDS_NO_OFFSET, Me(), v.x, v.y, v.z + 1.f, 0, 0, 0); } }   // mgo: to the step's target (test)
         else if (a[0] == "mshoot") {   // mshoot: a real bullet of yours into every enemy alive, so that the kills count as yours (test)

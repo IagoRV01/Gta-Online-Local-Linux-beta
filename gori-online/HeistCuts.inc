@@ -47,10 +47,11 @@ static void CutDress(int me, const CutOutfit &f) {
     if (N<int>(N_GET_PED_PROP_INDEX, me, 0) >= 0) N(N_CLEAR_PED_PROP, me, 0, 1);
 }
 static int g_cutDebug = 0;   // cutdbg: log who plays the crew's roles (test)
-static bool PlayCut(const char *name, int roles, bool canSkip) {
+// world: a scene that plays where it was made (the setups' ends, fm_mission_controller's plain START_CUTSCENE), not in the apartment
+static bool PlayCut(const char *name, int roles, bool canSkip, bool world = false) {
     Vec3 o{}, o2{}; float oh = 0.f, oh2 = 0.f;
-    if (g_inside < 0 || !OnlinePoint(g_inside, 304, o, oh)) { Log("cut %s: not in an Online apartment (inside %d)", name, g_inside); return false; }
-    bool two = OnlinePoint(g_inside, 546, o2, oh2);
+    if (!world && (g_inside < 0 || !OnlinePoint(g_inside, 304, o, oh))) { Log("cut %s: not in an Online apartment (inside %d)", name, g_inside); return false; }
+    bool two = !world && OnlinePoint(g_inside, 546, o2, oh2);
     const OInterior *t = PIntOf(g_inside);
     int sections = 1, t0 = Now();
     while (Now() - t0 < 8000) {
@@ -83,7 +84,7 @@ static bool PlayCut(const char *name, int roles, bool canSkip) {
     N(N_SET_ENTITY_INVINCIBLE, me, 1);   // nothing can hurt you meanwhile
     N(N_START_CUTSCENE, 0);
     bool pri = !std::strcmp(name, "APA_PRI_INT"), nar = !std::strcmp(name, "APA_NAR_INT");
-    for (int i = 0; i < std::max(sections, 1); ++i) {
+    for (int i = 0; !world && i < std::max(sections, 1); ++i) {
         bool second = two && ((pri && i >= 2 && i <= 4) || (nar && i >= 3 && i <= 5));
         if (second) N(N_SET_CUTSCENE_ORIGIN, o2.x, o2.y, o2.z, oh2, i);
         else N(N_SET_CUTSCENE_ORIGIN, o.x, o.y, o.z, oh, i);
@@ -149,4 +150,31 @@ static void HeistCutBeforeSetup(int h) {
     int st = g_heistStage[h], setups = HEISTS[h].stages - 1;
     if (st == 0) HeistCutFor(h, CUT_INT);
     else if (st == setups / 2 && st < setups) HeistCutFor(h, CUT_MID);
+}
+// the end of a job: the setup's own scene where it was made (fm_mission_controller's plain START_CUTSCENE, the _EXT scenes),
+// then after a finale the crew celebrating. Online's job data names which scene ends which job; here they go by the job they
+// show. Left out: the three that play in the apartment (Station, Wet Work, Key Codes: you're far from it at the end), and
+// MPH_PRI_FIN_EXT / MPH_HUM_DEL_EXT, which play almost empty here; MPH_PRI_EMP_EXT and MPH_FIN_CEL_BEA don't load in story mode.
+// Which celebration follows which finale is our rule (MPH_FIN_CEL_APT, _BAR, _TRE).
+static bool g_heistScenes = true;   // hbscenes 0: none (tests)
+static const char *HeistExtName(int h, int st) {
+    static const char *const EXT[5][6] = {
+        {"MPH_TUT_EXT", "MPH_TUT_CAR_EXT", nullptr},
+        {"MPH_PRI_PLA_EXT", "MPH_PRI_BUS_EXT", nullptr, nullptr, nullptr},
+        {nullptr, "MPH_HUM_ARM_EXT", "MPH_HUM_EMP_EXT", "MPH_HUM_VAL_EXT", nullptr, "MPH_HUM_FIN_EXT"},
+        {"MPH_NAR_COK_EXT", "MPH_NAR_TRA_EXT", "MPH_NAR_BIK_EXT", "MPH_NAR_WEE_EXT", "MPH_NAR_MET_EXT", "MPH_NAR_FIN_EXT"},
+        {nullptr, "MPH_PAC_PHO_EXT", "MPH_PAC_HAC_EXT", "MPH_PAC_CON_EXT", "MPH_PAC_BIK_EXT", "MPH_PAC_FIN_EXT"}};
+    return h >= 0 && h < 5 && st >= 0 && st < 6 && st < HEISTS[h].stages ? EXT[h][st] : nullptr;
+}
+static void HeistEndScenes(int h, int st, bool finale) {
+    if (!g_heistScenes || h < 0 || h >= 5) return;
+    int roles = h == 0 ? 2 : 4;
+    if (const char *ext = HeistExtName(h, st)) {
+        int bit = 1 << (h * 6 + st);
+        if (PlayCut(ext, roles, (g_heistCutsX & bit) != 0, true)) { g_heistCutsX |= bit; Save(); }
+    }
+    if (finale) {
+        static const char *const CEL[5] = {"MPH_FIN_CEL_APT", "MPH_FIN_CEL_BAR", "MPH_FIN_CEL_BAR", "MPH_FIN_CEL_TRE", "MPH_FIN_CEL_BAR"};
+        PlayCut(CEL[h], roles, true, true);
+    }
 }
