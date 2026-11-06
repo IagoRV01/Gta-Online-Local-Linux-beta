@@ -59,6 +59,8 @@ static void BuzzMessages() {
             Sound("DOOR_BUZZ", "MP_PLAYER_APARTMENT");
             Notify("~b~" + a[1] + "~s~ is at the door of ~b~" + PROPS[i].name + "~s~.");
             Log("buzzer: %s buzzed %s", a[1].c_str(), PROPS[i].name);
+        } else if (kind == "rres") {   // another racer's vehicle, best lap and RP for the results board (Races.inc)
+            RaceOtherResult(a);
         } else if (!kind.compare(0, 2, "nj")) {   // the next job vote's (NextJob.inc)
             NjMessage(from, kind, text);
         } else if ((kind == "buzzok" || kind == "buzzno") && from == g_buzz.waitingFor) {

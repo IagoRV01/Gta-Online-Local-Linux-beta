@@ -79,6 +79,7 @@ void Server::Run(volatile bool &stop) {
             WorldTick(now);
             BroadcastSnapshot();
             AdminApiPoll(now);
+            if (tick_ % 20 == 0) AfterJobTick(NowMs());
             next += tickMs;
             if (now - next > 1000) next = now;   // we fell far behind (debugger, sleep): don't spiral
         }
@@ -113,7 +114,7 @@ void Server::OnDisconnect(ENetPeer *peer) {
     Client &c = it->second;
     LOGI("net", c.authed ? c.name.c_str() : c.address.c_str(), "disconnected (netId %u, dropped %d, malformed %d)", c.netId, c.dropped, c.malformed);
     if (c.sessionId) db_->EndSession(c.sessionId, "disconnect");
-    if (c.authed) LeaveJobs(c.netId);
+    if (c.authed) { afterJob_.erase(c.netId); LeaveJobs(c.netId); }
     if (c.authed) {
         db_->Event("leave", c.playerUuid, "");
         wire::Writer w;
@@ -427,8 +428,18 @@ uint32_t Server::SessionOf(const Client &c) const {
         if (j.status != kJobRunning) continue;
         if (j.host == c.netId || std::find(j.members.begin(), j.members.end(), c.netId) != j.members.end()) return j.id;
     }
+    auto aj = afterJob_.find(c.netId);   // a job just finished: still with its crew (results, vote)
+    if (aj != afterJob_.end() && NowMs() < aj->second.until) return aj->second.job;
     if (c.infoFlags & kInfoActivity) return kPrivateSession | c.netId;   // a solo activity: alone
     return 0;
+}
+
+void Server::AfterJobTick(long long now) {
+    bool changed = false;
+    for (auto it = afterJob_.begin(); it != afterJob_.end();) {
+        if (now >= it->second.until) { it = afterJob_.erase(it); changed = true; } else ++it;
+    }
+    if (changed) RefreshSessions();
 }
 
 void Server::RefreshSessions() {
@@ -446,6 +457,16 @@ void Server::RefreshSessions() {
 void Server::HandlePlayerInfo(Client &c, const PlayerInfoMsg &m) {
     if (m.rank == c.rank && m.flags == c.infoFlags) return;
     bool passiveChanged = (m.flags ^ c.infoFlags) & kInfoPassive;
+    auto aj = afterJob_.find(c.netId);
+    if (aj != afterJob_.end() && (c.infoFlags & kInfoActivity) && !(m.flags & kInfoActivity)) {   // back in freemode
+        uint32_t job = aj->second.job; bool host = aj->second.host;
+        afterJob_.erase(aj);
+        if (host) {   // the vote is over: the crew goes too
+            for (auto it = afterJob_.begin(); it != afterJob_.end();) { if (it->second.job == job) it = afterJob_.erase(it); else ++it; }
+            c.infoFlags = m.flags;
+            RefreshSessions();
+        }
+    }
     c.rank = m.rank; c.infoFlags = m.flags;
     if (passiveChanged) LOGI("session", c.name.c_str(), "passive mode %s", (m.flags & kInfoPassive) ? "on" : "off");
     uint32_t s = SessionOf(c);
@@ -1045,6 +1066,15 @@ void Server::SendJobState(const Job &j) {
 void Server::CloseJob(uint32_t id, const char *why) {
     auto it = jobs_.find(id);
     if (it == jobs_.end()) return;
+    if (it->second.status == kJobRunning || it->second.status == kJobPassed || it->second.status == kJobFailed) {
+        // played together: they stay in its session for the results and the next-job vote (2 players at least)
+        const Job &j = it->second;
+        if (!j.members.empty()) {
+            long long until = NowMs() + kAfterJobMs;
+            afterJob_[j.host] = {j.id, until, true};
+            for (uint16_t id : j.members) afterJob_[id] = {j.id, until, false};
+        }
+    }
     it->second.status = kJobClosed;
     SendJobState(it->second);
     LOGI("jobs", "-", "job %u \"%s\" closed (%s)", id, it->second.title.c_str(), why);

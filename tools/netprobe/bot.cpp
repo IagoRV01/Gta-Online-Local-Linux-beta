@@ -4,11 +4,12 @@
 // and look to the others, and then, by itself:
 //   - follows the first other player: 2.5 m behind on foot, or in a passenger seat of the car that player drives;
 //   - joins every job another player opens (missions, heists, races, deathmatches, survivals) and leaves it when it ends;
-//   - in a race passes a checkpoint every 7 s (it doesn't know how many there are, so it never finishes);
+//   - in a race passes a checkpoint every BOT_CPMS ms (default 7000) and finishes when it has passed them all (Gori's race setup
+//     says how many: "R|file|laps|vehicle|tod|weather|traffic|catchup|slip|checkpoints"), then sends its results ("rres");
 //   - votes in the next-job screen (Gori's "njh" / "njv" messages) for the slot in BOT_VOTE (default 0), 4 s after the list;
 //   - prints the job states, its payouts (MoneyResult with requestId 0) and the messages it gets.
 // A file gobot-<name>.cmd next to it is read every second, one command a line, then emptied:
-//   join <jobId> | leave | vote <slot> | stay x y z | follow | say <kind> <text> | quit
+//   join <jobId> | leave | vote <slot> | pace <ms per checkpoint> | stay x y z | follow | say <kind> <text> | quit
 // Build: ./build.sh probe (with netprobe). Use it against a test server, not the live one: it registers an account.
 #include <enet/enet.h>
 #include <chrono>
@@ -38,6 +39,7 @@ int main(int argc, char **argv) {
     std::string name = argc > 3 ? argv[3] : "Bot";
     int seconds = argc > 4 ? std::atoi(argv[4]) : 600;
     int voteSlot = std::getenv("BOT_VOTE") ? std::atoi(std::getenv("BOT_VOTE")) : 0;
+    int cpMs = std::getenv("BOT_CPMS") ? std::max(500, std::atoi(std::getenv("BOT_CPMS"))) : 7000;
     std::string tokenFile = "gobot-" + name + ".token", cmdFile = "gobot-" + name + ".cmd";
     std::setvbuf(stdout, nullptr, _IONBF, 0);
 
@@ -66,6 +68,7 @@ int main(int argc, char **argv) {
     uint32_t joined = 0, wantJoin = 0; uint8_t joinedKind = 0;
     std::set<uint32_t> done;   // jobs over: not joined again
     long long raceT0 = 0; int raceCps = 0;
+    int raceTotal = 0, raceLaps = 1; std::string raceFile, raceVeh; bool raceDone = false;
     // next-job vote
     std::set<std::string> helloed; std::map<std::string, long long> voteAt; std::set<std::string> voted;
     uint32_t seq = 0;
@@ -160,7 +163,16 @@ int main(int argc, char **argv) {
                     bool mine = false;
                     for (auto m : js.members) if (m == self) mine = true;
                     if (mine) { joined = js.jobId; wantJoin = 0; joinedKind = js.kind; }
-                    if (mine && StartsTogether(js.kind) && js.status == kJobRunning && js.startAt && !raceT0) { raceT0 = Ms() + kRaceStartDelayMs; raceCps = 0; }
+                    if (mine && StartsTogether(js.kind) && js.status == kJobRunning && js.startAt && !raceT0) {
+                        raceT0 = Ms() + kRaceStartDelayMs; raceCps = 0; raceDone = false; raceTotal = 0;
+                        if (!js.text.compare(0, 2, "R|")) {   // Gori's race setup
+                            std::vector<std::string> f; std::string cur;
+                            for (char ch : js.text + "|") { if (ch == '|') { f.push_back(cur); cur.clear(); } else cur += ch; }
+                            if (f.size() > 3) { raceFile = f[1]; raceLaps = std::max(1, std::atoi(f[2].c_str())); raceVeh = f[3]; }
+                            if (f.size() > 9) raceTotal = std::atoi(f[9].c_str());
+                        }
+                        std::printf("t=%.1fs race %s: %d checkpoints, one every %d ms\n", T(), raceFile.c_str(), raceTotal, cpMs);
+                    }
                     if (js.jobId == joined && js.status >= kJobPassed) {
                         std::printf("t=%.1fs job %u over (%s)\n", T(), js.jobId, js.status == kJobPassed ? "passed" : js.status == kJobFailed ? "failed" : "closed");
                         done.insert(js.jobId); joined = 0; raceT0 = 0;
@@ -206,10 +218,23 @@ int main(int argc, char **argv) {
                 sendMsg(0, "njv", tag + "|" + std::to_string(voteSlot) + "|" + name);
                 std::printf("t=%.1fs voted for slot %d\n", T(), voteSlot);
             }
-        // a race: a checkpoint every 7 s
-        if (raceT0 && now >= raceT0 && joinedKind == kJobRace) {
-            int due = (int)((now - raceT0) / 7000);
-            if (due > raceCps) { raceCps = due; wire::Writer pw; Put(pw, RaceProgressMsg{(uint16_t)raceCps, 0}); send(pw, kChanEvents, true); }
+        // a race: a checkpoint every cpMs, the finish at the last one
+        if (raceT0 && now >= raceT0 && joinedKind == kJobRace && !raceDone) {
+            int due = (int)((now - raceT0) / cpMs);
+            if (raceTotal > 0 && due > raceTotal) due = raceTotal;
+            if (due > raceCps) {
+                raceCps = due;
+                bool fin = raceTotal > 0 && raceCps >= raceTotal;
+                uint32_t finMs = fin ? (uint32_t)(now - raceT0) : 0;
+                wire::Writer pw; Put(pw, RaceProgressMsg{(uint16_t)raceCps, finMs}); send(pw, kChanEvents, true);
+                if (fin) {
+                    raceDone = true;
+                    std::printf("t=%.1fs race finished in %.3f s\n", T(), finMs / 1000.0);
+                    std::string veh = raceVeh.empty() ? std::string("-") : raceVeh;
+                    int lap = raceLaps > 1 ? (int)(finMs / raceLaps) : 0;
+                    sendMsg(0, "rres", raceFile + "|" + name + "|" + veh + "|" + std::to_string(lap) + "|" + std::to_string(600 + 10 * raceTotal));
+                }
+            }
         }
         // the commands file
         if (now >= nextCmd) {
@@ -224,6 +249,7 @@ int main(int argc, char **argv) {
                 std::printf("t=%.1fs command: %s\n", T(), line.c_str());
                 if (c == "join") { uint32_t id = 0; is >> id; wantJoin = id; join(id); }
                 else if (c == "leave") { join(0); if (joined) done.insert(joined); joined = 0; }
+                else if (c == "pace") { is >> cpMs; if (cpMs < 500) cpMs = 500; }
                 else if (c == "vote") { is >> voteSlot; voted.clear(); for (auto &[t, a] : voteAt) a = now; }
                 else if (c == "stay") { is >> stayAt.x >> stayAt.y >> stayAt.z; staying = true; following = false; }
                 else if (c == "follow") { staying = false; following = true; }

@@ -94,6 +94,7 @@ private:
     void HandlePlayerInfo(Client &c, const proto::PlayerInfoMsg &m);
     uint32_t SessionOf(const Client &c) const;
     void RefreshSessions();                     // after any job or flag change: relays the players whose session changed
+    void AfterJobTick(long long now);           // the crews of finished jobs back to freemode once their time is up
     void RelayInfo(const Client &c, _ENetPeer *only);   // nullptr = everyone authed
     void HandleShot(Client &c, const proto::ShotMsg &m);
     void HandleDamage(Client &c, const proto::DamageMsg &m);
@@ -132,6 +133,11 @@ private:
     void SendJobState(const Job &j);
     void PayJob(const Job &j);
     std::map<uint32_t, Job> jobs_;
+    // a finished job's crew stays in the job's session through the results and the next-job vote, like Online's
+    // transition: netId -> its job, until when (NowMs). Ends when the player goes back to freemode (activity flag off).
+    struct AfterJob { uint32_t job = 0; long long until = 0; bool host = false; };
+    std::map<uint16_t, AfterJob> afterJob_;   // the host back in freemode ends it for the whole crew
+    static constexpr long long kAfterJobMs = 90000;
     uint32_t nextJobId_ = 1;
     Client *ByNetId(uint16_t id);
     void WorldTick(long long nowMs);

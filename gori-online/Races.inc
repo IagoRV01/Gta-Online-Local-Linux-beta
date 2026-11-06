@@ -260,6 +260,13 @@ static std::vector<RaceStanding> RaceStandings() {
     }
     return out;
 }
+// each racer sends "rres" when the race ends: race file|name|vehicle|best lap ms|rp
+struct RaceOther { std::string vehicle; int lapBest = 0, rp = 0; };
+static std::map<std::string, RaceOther> g_raceOthers;
+static void RaceOtherResult(const std::vector<std::string> &a) {
+    if (a.size() < 5 || a[0] != g_race.def.file) return;
+    g_raceOthers[a[1]] = {a[2], std::atoi(a[3].c_str()), std::atoi(a[4].c_str())};
+}
 static int MyRacePosition(int *count) {
     std::vector<RaceStanding> st = RaceStandings();
     if (count) *count = st.empty() ? 1 : (int)st.size();
@@ -444,6 +451,7 @@ static void RaceBegin(int startsInMs) {
     r.total = (int)r.def.cps.size() * (r.def.laps ? std::max(1, r.laps) : 1);
     r.startAt = Now() + std::max(1000, startsInMs);
     r.cp = 0; r.finishMs = 0;
+    g_raceOthers.clear();
     r.lapStart = 0; r.lapBest = 0; r.pb = RacePb(r);
     r.vehicle = r.startVehicle.empty() ? r.vehicle : r.startVehicle;   // transforms start over
     r.phase = RP_COUNTDOWN;
@@ -500,14 +508,14 @@ static void RaceHostOnline(const std::string &file, int laps, const std::string 
     if (!LO().jobOpenKind(g_race.def.name.c_str(), t.x, t.y, t.z, RacePayout(g_race), 1)) { g_race = RaceRun(); Notify("~r~Could not open the race."); return; }
     g_race.phase = RP_LOBBY;
     // the race setup for the members: "R|file|laps|vehicle|tod|weather|traffic|catchup|slipstream"
-    std::string cfg = "R|" + file + "|" + std::to_string(g_race.laps) + "|" + g_race.vehicle + "|" + RaceOptsText(g_race.opts);
+    std::string cfg = "R|" + file + "|" + std::to_string(g_race.laps) + "|" + g_race.vehicle + "|" + RaceOptsText(g_race.opts) + "|" + std::to_string(g_race.total);
     Wait(300);
     if (LO().jobUpdate) LO().jobUpdate(COOP_LOBBY, 0, t.x, t.y, t.z, cfg.c_str());
     Notify("Race lobby open: other players can join from ~b~Jobs~s~. Start it from the ~b~Races~s~ menu.");
 }
 static void RaceHostStart() {
     if (!g_race.host || g_race.phase != RP_LOBBY || !LO().jobUpdate) return;
-    std::string cfg = "R|" + g_race.def.file + "|" + std::to_string(g_race.laps) + "|" + g_race.vehicle + "|" + RaceOptsText(g_race.opts);
+    std::string cfg = "R|" + g_race.def.file + "|" + std::to_string(g_race.laps) + "|" + g_race.vehicle + "|" + RaceOptsText(g_race.opts) + "|" + std::to_string(g_race.total);
     Vec3 t = g_race.def.grid[0].first;
     LO().jobUpdate(COOP_RUNNING, 0, t.x, t.y, t.z, cfg.c_str());
     g_race.phase = RP_NONE;   // RaceTick picks up the start time from the job state
@@ -570,12 +578,14 @@ static void RaceResults() {
     std::vector<JobBoardRow> rows;
     for (size_t i = 0; i < st.size(); ++i) {
         JobBoardRow row; row.me = st[i].me;
+        auto ot = g_raceOthers.find(st[i].name);
+        const RaceOther *o = st[i].me || ot == g_raceOthers.end() ? nullptr : &ot->second;
         long long pay = !st[i].finishMs ? 0 : r.online ? (long long)(r.payout * share[i < 8 ? i : 7]) : RaceSoloPay(r);
         row.cells = {Ordinal((int)i + 1) + "   " + (st[i].name == "you" ? "You" : st[i].name),
-                     st[i].me ? Label(N<const char *>(N_GET_DISPLAY_NAME_FROM_VEHICLE_MODEL, ModelHash(r.vehicle))) : std::string("-"),
-                     st[i].me && r.lapBest ? RaceTime(r.lapBest) : std::string("-"),
+                     st[i].me ? Label(N<const char *>(N_GET_DISPLAY_NAME_FROM_VEHICLE_MODEL, ModelHash(r.vehicle))) : o && !o->vehicle.empty() ? o->vehicle : std::string("-"),
+                     st[i].me && r.lapBest ? RaceTime(r.lapBest) : o && o->lapBest ? RaceTime(o->lapBest) : std::string("-"),
                      st[i].finishMs ? RaceTime(st[i].finishMs) : std::string("DNF"),
-                     st[i].me ? std::to_string(r.resultRp) : std::string("-"),
+                     st[i].me ? std::to_string(r.resultRp) : o ? std::to_string(o->rp) : std::string("-"),
                      st[i].finishMs ? Money(pay) : std::string("-")};
         rows.push_back(row);
     }
@@ -738,6 +748,11 @@ static void RaceTick() {
             int rpBefore = g_rp, rp = std::max(100, (r.online ? 1200 / pos : 300) + 10 * r.total);
             GiveRP(rp, nullptr);
             r.resultRp = rp;
+            if (r.online && LO().sendPlayerMessage) {
+                if (g_myName.empty() && LO().getPlayerName) { char b[64] = {0}; LO().getPlayerName(b, sizeof b); g_myName = b; }
+                std::string veh = Label(N<const char *>(N_GET_DISPLAY_NAME_FROM_VEHICLE_MODEL, ModelHash(r.vehicle)));
+                LO().sendPlayerMessage(0, "rres", (r.def.file + "|" + g_myName + "|" + veh + "|" + std::to_string(r.lapBest) + "|" + std::to_string(rp)).c_str());
+            }
             long long cash = 0;
             if (!r.online) {   // online races are paid by the server, into the bank
                 cash = RaceSoloPay(r);

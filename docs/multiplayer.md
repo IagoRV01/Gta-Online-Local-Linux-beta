@@ -626,6 +626,11 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
 - **Sessions (protocol v11):**
   - a player in a running job is in that job's session; a player in a solo activity (`InActivity()`: a mission, a solo
     race, Arena War, Survival...) is in a private session; everyone else is in freemode (0);
+  - when a job with a crew ends (passed, failed, or the host left while it ran), the host and its members stay in the job's
+    session for the results and the next-job vote, like Online's transition between jobs (2026-11-06). It ends for one
+    player when that player goes back to freemode, for the whole crew when the host does, and after 90 s at the latest.
+    Before this the host's results and vote screens counted as a solo activity and put it alone, so the crew never saw
+    the shared vote after a race;
   - the server only sends snapshots, shots and damage within a session, and the clients hide the players of the
     other sessions;
   - freemode events (armored trucks, crate drops) wait while you are in an activity or a lobby.
@@ -669,8 +674,10 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
   - The end of a heist job plays Online's own scene where it was made (`MPH_*_EXT`, fm_mission_controller's plain `START_CUTSCENE`): 19 setups and finales, e.g. the plane in the LSIA hangar, the prison bus, the Valkyrie, Trevor at Sandy Shores, Lester at the docks. After a finale the crew celebrates (`MPH_FIN_CEL_APT` for Fleeca, `_TRE` for Series A, `_BAR` for the others: that pairing is our rule), then comes the end screen. You're put back where the job ended.
   - Left out: Station, Wet Work and Key Codes (their scenes play in the apartment, far from where the job ends), `MPH_PRI_FIN_EXT` and `MPH_HUM_DEL_EXT` (almost empty here), and `MPH_PRI_EMP_EXT` / `MPH_FIN_CEL_BEA`, which don't load in story mode. Watched end scenes can be skipped (`heistcutsx` in the profile); `hbscenes 0` turns them off for tests.
   - Verified in game: Fleeca's Scope Out (MPH_TUT_EXT, then the setup's screen) and its finale (MPH_FIN_CEL_APT, then the heist screen with the Elite Challenge).
+  - Races with a second player (gobot, see below), through Online's race lobby: the race setup in the job's text now ends with its checkpoint count (`R|file|laps|vehicle|tod|weather|traffic|catchup|slip|checkpoints`), and every racer sends `rres` (race file|name|vehicle|best lap ms|RP) when it ends, so the results board shows each racer's vehicle, best lap and RP as Online's does, not only yours.
+  - Verified in game, Casino Moto, 3 laps, both orders: the standings, POSITION 1/2 and "Waiting for the other racers", the server's pay by position ($6,000 first, $4,500 second), both rows on the board, then the shared vote (1/2 votes) and the bot in the next race's lobby (Players 2 of 1-8).
 - **Next.**
-  - Second-player checks: shared votes, heist cuts, roles.
+  - Second-player checks: deathmatch and survival (the bot doesn't shoot yet), heist setups with roles.
 
 ## Co-op jobs (protocol v9, 2026-10-12)
 
@@ -711,11 +718,11 @@ Any Gori Online mission started by the YOU character becomes a server job that o
 ## Testing without two GTA installs
 
 **gobot (2026-11-06): a second player for tests** (`tools/netprobe/bot.cpp`, built by `./build.sh probe` as `build/gobot.exe`).
-- `gobot <server-ip> [port] [name] [seconds]`: it logs in, makes itself a character, shows its rank and look, and then by itself follows the first other player (2.5 m behind on foot, a passenger in the car that player drives), joins every job another player opens and leaves it when it ends, passes a race checkpoint every 7 s, and votes in the shared next-job screen (`BOT_VOTE`, default slot 0).
-- Commands, one a line, in `gobot-<name>.cmd` next to it: `join <id>`, `leave`, `vote <slot>`, `stay x y z`, `follow`, `say <kind> <text>`, `quit`.
+- `gobot <server-ip> [port] [name] [seconds]`: it logs in, makes itself a character, shows its rank and look, and then by itself follows the first other player (2.5 m behind on foot, a passenger in the car that player drives), joins every job another player opens and leaves it when it ends, races (a checkpoint every `BOT_CPMS` ms, default 7000, finishing at the race's last one, then its results line), and votes in the shared next-job screen (`BOT_VOTE`, default slot 0).
+- Commands, one a line, in `gobot-<name>.cmd` next to it: `join <id>`, `leave`, `vote <slot>`, `pace <ms>`, `stay x y z`, `follow`, `say <kind> <text>`, `quit`.
 - It registers an account, so it runs against a **test server**: `build/server-run/start-test-server.bat` starts the same LocalOnlineServer.exe (so the firewall rule covers it) with `server-test.toml`: port 4498, its own copy of the database (`build/server-test/data/test.db`, made with SQLite's online backup), logs and admin file. The BC-250's client is pointed at it for a test and back afterwards, keeping its live `client.toml` and `cache` aside meanwhile.
 - Verified 2026-11-06 with the BC-250 as host: the bot is drawn in the session and inside the apartment, joins the Fleeca finale's open lobby (Players 2 of 4), plays the heist (the leader's cut 75 %, one crew at 25 %, both on the results board), joins a contact mission's lobby, is paid its cut by the server ($2,500, after the one-minute minimum), votes on the next-job screen (1/2 votes) and follows the host into the lobby the vote picked.
-- Found with it and fixed: another player inside an apartment was invisible (only the name tag showed): `LocalOnline.asi` now puts the puppet in our interior's room (`remote.cpp` RoomFix). Lester's cooldown is checked before the finale's scene plays, not after.
+- Found with it and fixed: another player inside an apartment was invisible (only the name tag showed): `LocalOnline.asi` now puts the puppet in our interior's room (`remote.cpp` RoomFix). Lester's cooldown is checked before the finale's scene plays, not after. After a race the host was alone in a private session, so the shared vote never reached the others: the crew now stays together after a job (Sessions, above).
 
 `tools/netprobe` is a fake client that walks in a circle at LSIA at 20 Hz. Run it on any PC (it builds natively on Linux too) to get a "second player" while only one GTA client exists.
 
