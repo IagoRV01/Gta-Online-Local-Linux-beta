@@ -423,7 +423,9 @@ static void ContactResults(bool passed, const std::string &why, const Mission &m
     me.rp = passed ? m.resultRp : 0; me.cash = passed ? (g_lastHeistPay >= 0 ? g_lastHeistPay : m.resultCash) : 0; me.me = true;
     g_lastHeistPay = -1;
     rows.push_back(me);
-    for (auto &n : Split(g_coop.members, ',')) if (!n.empty()) { CoronaResultRow r; r.name = n; rows.push_back(r); }
+    // the crew: the job's RP, and the cut the server pays each of them (nothing for a job passed in under a minute, as the server does)
+    bool paid = passed && g_jobStartedAt && Now() - g_jobStartedAt >= 60000;
+    for (auto &n : Split(g_coop.members, ',')) if (!n.empty()) { CoronaResultRow r; r.name = n; r.rp = passed ? m.resultRp : 0; r.cash = paid ? g_coop.payout : 0; rows.push_back(r); }
     std::string title = m.name;
     CoronaResults(title, passed, why, rows);
     bool shared = rows.size() > 1;

@@ -44,6 +44,7 @@ struct Player {
     bool tagShown = false;
     int tagWanted = -1;
     int lastTaskMs = 0;
+    int roomCheckMs = 0;          // RoomFix: the last look at its interior
     uint8_t lastMove = 255;
     bool wasStale = false;
     // Phase 5: the vehicle this player drives (owned by them: only their client moves it)
@@ -652,6 +653,22 @@ static void SpectatorCamera() {
 void SetSelf(uint16_t id) { g_self = id; }
 int Count() { return (int)g_players.size(); }
 
+// A puppet in the interior we're in must be in one of its rooms, or it isn't drawn (only its name tag shows): set at
+// the door or teleported in, the game leaves it outside the MLO. It goes into our room; from there it moves on by itself.
+void RoomFix(Player &p) {
+    int now = gta::GameTimeMs();
+    if (now - p.roomCheckMs < 500) return;
+    p.roomCheckMs = now;
+    int me = gta::PlayerPed();
+    int mine = N<int>(N_GET_INTERIOR_FROM_ENTITY, me), its = N<int>(N_GET_INTERIOR_FROM_ENTITY, p.ped);
+    gta::Vec3 a = gta::Pos(me), b = gta::Pos(p.ped);
+    float d = std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z));
+    if (mine && its != mine && d < 40.f) {
+        N(N_FORCE_ROOM_FOR_ENTITY, p.ped, mine, N<uint32_t>(N_GET_ROOM_KEY_FROM_ENTITY, me));
+        LOGI("remote", p.name.c_str(), "put in our interior's room (it was in interior %d)", its);
+    } else if (!mine && its && d > 60.f) N(N_CLEAR_ROOM_FOR_ENTITY, p.ped);
+}
+
 void Frame() {
     uint16_t self = Self();
     if (self && (g_infoSentAs != self || g_infoSentLogin != net::Logins() || g_infoSentRank != g_myRank || g_infoSentFlags != g_myFlags)) {   // our rank / flags to the server
@@ -678,6 +695,7 @@ void Frame() {
         if (PuppetCombat(p, r)) continue;   // dead: no movement
         if (r.s.flags & kFlagInVehicle) VehicleFrame(p, r);
         else if (!LeaveVehicleIfNeeded(p)) Drive(p, r);
+        if (!(r.s.flags & kFlagInVehicle)) RoomFix(p);
         if (p.veh && p.vehIdleSince && GetTickCount64() - p.vehIdleSince > 120000) {   // parked and unused for 2 min
             LOGI("remote", p.name.c_str(), "parked vehicle removed");
             DeleteVehicle(p);

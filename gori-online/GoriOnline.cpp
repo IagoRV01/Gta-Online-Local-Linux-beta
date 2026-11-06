@@ -3446,10 +3446,15 @@ static void SeriesA(Mission &m, int st) {
     }
     }
 }
-static void StartHeist(int h) {
+// whether a heist job can start now: unlocked, and not too soon after the last finale (Lester's cooldown)
+static bool HeistCanStart(int h) {
     std::string why;
-    if (!HeistUnlocked(h, why)) { Notify("~r~" + why); return; }
-    if (g_playMin < g_heistReadyAt) { Notify("Lester: \"Lay low for a while. Next job in " + std::to_string(g_heistReadyAt - g_playMin) + " minutes.\""); return; }
+    if (!HeistUnlocked(h, why)) { Notify("~r~" + why); return false; }
+    if (g_playMin < g_heistReadyAt) { Notify("Lester: \"Lay low for a while. Next job in " + std::to_string(g_heistReadyAt - g_playMin) + " minutes.\""); return false; }
+    return true;
+}
+static void StartHeist(int h) {
+    if (!HeistCanStart(h)) return;
     int st = g_heistStage[h];
     bool finale = st == HEISTS[h].stages - 1;
     if (st == 0 && !g_heistTest && !g_heistRetry) { PayWhat what("heist setup (job)"); if (!Pay(HEISTS[h].fee)) return; }
@@ -5198,6 +5203,10 @@ static void CommandTick() {
         else if (a[0] == "die") { N(N_SET_ENTITY_INVINCIBLE, Me(), 0); N(N_SET_ENTITY_HEALTH, Me(), 0, 0, 0); }   // die: the character dies, to see the respawn (test)
         else if (a[0] == "mauto" && a.size() > 1) { g_mAuto = a[1] == "1"; Log("mauto %d", g_mAuto ? 1 : 0); }   // mauto 1|0: missions play themselves and end unpaid (test)
         else if (a[0] == "cutdbg") g_cutDebug = a.size() > 1 && a[1] == "0" ? 0 : 1;   // cutdbg [0]: log the roles while a heist scene plays (test)
+        else if (a[0] == "corlobby" && a.size() > 1) { if (CoronaActive()) { g_cor.page = CRP_INVITE; g_cor.sel = 2; CoronaSetLobby(std::atoi(a[1].c_str())); Log("corlobby: job open %d", (int)g_cor.jobOpen); } }   // corlobby 1|0: the lobby open to the session (test)
+        else if (a[0] == "hbready") { g_heistReadyAt = 0; Save(); Log("hbready: no cooldown"); }   // hbready: Lester's cooldown after a finale cleared (test)
+        else if (a[0] == "cmcor" && a.size() > 2) { int c = std::atoi(a[1].c_str()) % NCONTACTS; OpenCorona(ContactCorona(c, std::min(std::atoi(a[2].c_str()), CONTACTS[c].count - 1))); }   // cmcor <contact> <mission>: its lobby (test)
+        else if (a[0] == "corplay") { if (CoronaActive()) CoronaPlay(); }   // corplay: the lobby's Play (test)
         else if (a[0] == "hbscenes" && a.size() > 1) g_heistScenes = a[1] == "1";   // hbscenes 0|1: the end scenes of heist jobs (test)
         else if (a[0] == "cutw" && a.size() > 1) PlayCut(a[1].c_str(), a.size() > 2 ? std::atoi(a[2].c_str()) : 4, true, true);   // cutw <name> [roles]: a heist scene where it was made (test)
         else if (a[0] == "cut" && a.size() > 1) PlayCut(a[1].c_str(), a.size() > 2 ? std::atoi(a[2].c_str()) : 4, true);   // cut <name> [roles]: a heist cutscene in the apartment you're in (test)

@@ -82,6 +82,8 @@ if [ "$WHAT" = all ] || [ "$WHAT" = server ]; then
     ls -l build/LocalOnlineServer.exe | awk '{print "[server] ok, " $5 " bytes"}'
     "$CXX" -std=c++20 -O2 $INC -Ithird_party/enet/include -DNETPROBE_ECONOMY -static -o build/netprobe.exe tools/netprobe/netprobe.cpp shared/common/character.cpp shared/common/json.cpp shared/common/vehicle.cpp build/obj/enet_*.o -lws2_32 -lwinmm
     echo "[probe] netprobe.exe ok"
+    "$CXX" -std=c++20 -O2 $INC -Ithird_party/enet/include -static -o build/gobot.exe tools/netprobe/bot.cpp shared/common/character.cpp shared/common/json.cpp shared/common/vehicle.cpp build/obj/enet_*.o -lws2_32 -lwinmm
+    echo "[probe] gobot.exe ok"
   else
     echo "[server] no sources yet (Phase 2)"
   fi

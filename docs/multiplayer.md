@@ -710,6 +710,13 @@ Any Gori Online mission started by the YOU character becomes a server job that o
 
 ## Testing without two GTA installs
 
+**gobot (2026-11-06): a second player for tests** (`tools/netprobe/bot.cpp`, built by `./build.sh probe` as `build/gobot.exe`).
+- `gobot <server-ip> [port] [name] [seconds]`: it logs in, makes itself a character, shows its rank and look, and then by itself follows the first other player (2.5 m behind on foot, a passenger in the car that player drives), joins every job another player opens and leaves it when it ends, passes a race checkpoint every 7 s, and votes in the shared next-job screen (`BOT_VOTE`, default slot 0).
+- Commands, one a line, in `gobot-<name>.cmd` next to it: `join <id>`, `leave`, `vote <slot>`, `stay x y z`, `follow`, `say <kind> <text>`, `quit`.
+- It registers an account, so it runs against a **test server**: `build/server-run/start-test-server.bat` starts the same LocalOnlineServer.exe (so the firewall rule covers it) with `server-test.toml`: port 4498, its own copy of the database (`build/server-test/data/test.db`, made with SQLite's online backup), logs and admin file. The BC-250's client is pointed at it for a test and back afterwards, keeping its live `client.toml` and `cache` aside meanwhile.
+- Verified 2026-11-06 with the BC-250 as host: the bot is drawn in the session and inside the apartment, joins the Fleeca finale's open lobby (Players 2 of 4), plays the heist (the leader's cut 75 %, one crew at 25 %, both on the results board), joins a contact mission's lobby, is paid its cut by the server ($2,500, after the one-minute minimum), votes on the next-job screen (1/2 votes) and follows the host into the lobby the vote picked.
+- Found with it and fixed: another player inside an apartment was invisible (only the name tag showed): `LocalOnline.asi` now puts the puppet in our interior's room (`remote.cpp` RoomFix). Lester's cooldown is checked before the finale's scene plays, not after.
+
 `tools/netprobe` is a fake client that walks in a circle at LSIA at 20 Hz. Run it on any PC (it builds natively on Linux too) to get a "second player" while only one GTA client exists.
 
 Proven on 2026-10-07:
