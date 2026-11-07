@@ -15,6 +15,8 @@
 //   - prints the job states, its payouts (MoneyResult with requestId 0) and the messages it gets.
 // A file gobot-<name>.cmd next to it is read every second, one command a line, then emptied:
 //   join <jobId> | leave | vote <slot> | pace <ms per checkpoint> | shoot on|off | down | stay x y z | follow | say <kind> <text> | quit
+//   host <kind> <payout> <title...> (a job of its own where the player is, so the player can be a member: tests of the
+//   member's side, e.g. "say hcut <scene>|0|-1|2|<bot name>" as a heist leader) | close (that job closed)
 // Build: ./build.sh probe (with netprobe). Use it against a test server, not the live one: it registers an account.
 #include <enet/enet.h>
 #include <chrono>
@@ -332,6 +334,14 @@ int main(int argc, char **argv) {
                 std::printf("t=%.1fs command: %s\n", T(), line.c_str());
                 if (c == "join") { uint32_t id = 0; is >> id; wantJoin = id; join(id); }
                 else if (c == "leave") { join(0); if (joined) done.insert(joined); joined = 0; }
+                else if (c == "host") {
+                    int kind = 0, pay = 0; std::string title; is >> kind >> pay; std::getline(is, title);
+                    if (!title.empty() && title[0] == ' ') title.erase(0, 1);
+                    Vec3 at = haveLead ? leadSt.pos : Vec3{};
+                    wire::Writer jw; Put(jw, JobOpenMsg{title, at, (uint32_t)pay, (uint8_t)kind}); send(jw, kChanEvents, true);
+                    std::printf("t=%.1fs hosting \"%s\" (kind %d)\n", T(), title.c_str(), kind);
+                }
+                else if (c == "close") { wire::Writer jw; Put(jw, JobUpdateMsg{kJobClosed, 0, {}, ""}); send(jw, kChanEvents, true); }
                 else if (c == "shoot") { std::string v; is >> v; shooting = v != "off"; }
                 else if (c == "down") { if (svWave) { svDown = true; progress((uint16_t)svKills, (uint32_t)svCleared | kSurvivalDown); } }
                 else if (c == "pace") { is >> cpMs; if (cpMs < 500) cpMs = 500; }

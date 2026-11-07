@@ -69,11 +69,12 @@ static std::vector<int> CutCrewPeds() {
 }
 static int g_cutDebug = 0;   // cutdbg: log who plays the crew's roles (test)
 // world: a scene that plays where it was made (the setups' ends, fm_mission_controller's plain START_CUTSCENE), not in the apartment
-static bool PlayCut(const char *name, int roles, bool canSkip, bool world = false) {
+static bool PlayCut(const char *name, int roles, bool canSkip, bool world = false, int prop = -1) {
     Vec3 o{}, o2{}; float oh = 0.f, oh2 = 0.f;
-    if (!world && (g_inside < 0 || !OnlinePoint(g_inside, 304, o, oh))) { Log("cut %s: not in an Online apartment (inside %d)", name, g_inside); return false; }
-    bool two = !world && OnlinePoint(g_inside, 546, o2, oh2);
-    const OInterior *t = PIntOf(g_inside);
+    int inside = prop >= 0 ? prop : g_inside;   // prop: the leader's apartment (a member watching the leader's scene)
+    if (!world && (inside < 0 || !OnlinePoint(inside, 304, o, oh))) { Log("cut %s: not in an Online apartment (inside %d)", name, inside); return false; }
+    bool two = !world && OnlinePoint(inside, 546, o2, oh2);
+    const OInterior *t = PIntOf(inside);
     int sections = 1, t0 = Now();
     while (Now() - t0 < 8000) {
         N(N_REQUEST_CUT_FILE, name);
@@ -177,12 +178,25 @@ static bool PlayCut(const char *name, int roles, bool canSkip, bool world = fals
     if (skipped || NB(N<int>(N_IS_SCREEN_FADED_OUT))) N(N_DO_SCREEN_FADE_IN, 500);
     return true;
 }
+// The crew watches the leader's scenes, as in Online: the leader sends "hcut" (scene|world|apartment|roles|leader) to its
+// session; a member of the leader's job (or of its last one, the end scenes come after it) plays the same scene on its own
+// game, the leader in it as MP_2 (story mode always makes you MP_1), and can't skip it (Buzzer.inc HeistCutsMemberTick).
+static std::string g_lastJobHost;   // the host of the last job we were a member of, and when we last were
+static int g_lastJobHostAt = 0;
+static void HeistCutShare(const char *name, bool world, int roles) {
+    if (!LO().sendPlayerMessage || !g_coop.id || !(g_coop.hosting || g_coop.host == "you") || g_coop.members.empty()) return;
+    if (g_myName.empty() && LO().getPlayerName) { char b[64] = {0}; LO().getPlayerName(b, sizeof b); g_myName = b; }
+    std::string t = std::string(name) + "|" + (world ? "1" : "0") + "|" + std::to_string(g_inside) + "|" + std::to_string(roles) + "|" + g_myName;
+    LO().sendPlayerMessage(0, "hcut", t.c_str());
+    Log("cut %s: shared with the crew (%s)", name, g_coop.members.c_str());
+}
 // the scene of a heist before a job: the intro before its first setup, the midpoint halfway through them, the finale's before it
 static void HeistCutFor(int h, int which) {
     const char *name = HeistCutName(h, which);
     if (!name) return;
     int bit = 1 << (h * 3 + which);
     HbSetHeist(h);
+    HeistCutShare(name, false, h == 0 ? 2 : 4);
     if (PlayCut(name, h == 0 ? 2 : 4, (g_heistCuts & bit) != 0)) { g_heistCuts |= bit; Save(); }
 }
 static void HeistCutBeforeSetup(int h) {
@@ -211,10 +225,12 @@ static void HeistEndScenes(int h, int st, bool finale) {
     int roles = h == 0 ? 2 : 4;
     if (const char *ext = HeistExtName(h, st)) {
         int bit = 1 << (h * 6 + st);
+        HeistCutShare(ext, true, roles);
         if (PlayCut(ext, roles, (g_heistCutsX & bit) != 0, true)) { g_heistCutsX |= bit; Save(); }
     }
     if (finale) {
         static const char *const CEL[5] = {"MPH_FIN_CEL_APT", "MPH_FIN_CEL_BAR", "MPH_FIN_CEL_BAR", "MPH_FIN_CEL_TRE", "MPH_FIN_CEL_BAR"};
+        HeistCutShare(CEL[h], true, roles);
         PlayCut(CEL[h], roles, true, true);
     }
 }

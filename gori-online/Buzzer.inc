@@ -30,6 +30,8 @@ static bool BuzzIOwnIn(int ob) {
     for (auto &o : g_props) { int i = FindProp(o); if (i >= 0 && PROPS[i].ob == ob) return true; }
     return false;
 }
+static std::vector<std::string> g_memberCut;   // a scene our heist leader shared, played next frame
+static int g_memberCutAt = 0;
 // the messages: asked, answered, buzzed, let in
 static void BuzzMessages() {
     if (!LO().takePlayerMessages) return;
@@ -59,6 +61,10 @@ static void BuzzMessages() {
             Sound("DOOR_BUZZ", "MP_PLAYER_APARTMENT");
             Notify("~b~" + a[1] + "~s~ is at the door of ~b~" + PROPS[i].name + "~s~.");
             Log("buzzer: %s buzzed %s", a[1].c_str(), PROPS[i].name);
+        } else if (kind == "hcut" && a.size() >= 5) {   // the heist leader's scene (HeistCuts.inc): ours too if we are its crew
+            bool crew = (g_coop.id && !g_coop.hosting && g_coop.host == a[4]) || (g_lastJobHost == a[4] && Now() - g_lastJobHostAt < 180000);
+            Log("cut %s: the leader %s shares it%s", a[0].c_str(), a[4].c_str(), crew ? "" : " (not our leader: ignored)");
+            if (crew) { g_memberCut = a; g_memberCutAt = Now(); }
         } else if (kind == "rres") {   // another racer's vehicle, best lap and RP for the results board (Races.inc)
             RaceOtherResult(a);
         } else if (!kind.compare(0, 2, "nj")) {   // the next job vote's (NextJob.inc)
@@ -77,9 +83,23 @@ static void BuzzMessages() {
         }
     }
 }
+// a crew member plays the scene its leader shared, where the leader plays it (the leader's apartment, or the world)
+static void HeistCutsMemberTick() {
+    if (g_coop.id && !g_coop.hosting && g_coop.host != "you" && !g_coop.host.empty()) { g_lastJobHost = g_coop.host; g_lastJobHostAt = Now(); }
+    if (g_memberCut.empty()) return;
+    std::vector<std::string> a = g_memberCut;
+    g_memberCut.clear();
+    if (Now() - g_memberCutAt > 5000 || InActivity() && !g_coop.id) return;
+    int prop = std::atoi(a[2].c_str());
+    bool world = a[1] == "1", cor = CoronaActive();
+    if (cor) CoronaCamera(false);
+    PlayCut(a[0].c_str(), std::max(1, std::min(4, std::atoi(a[3].c_str()))), false, world, world ? -1 : (g_inside >= 0 ? g_inside : prop));
+    if (cor && CoronaActive()) CoronaCamera(true);
+}
 // every frame (after the properties): the messages, the owner's answer, the visitor's corona and picker
 static void BuzzTick() {
     BuzzMessages();
+    HeistCutsMemberTick();
     // the owner: someone is at the door
     if (g_buzz.visitor) {
         if (Now() > g_buzz.visitorUntil || g_inside != g_buzz.visitorProp) { BuzzSend(g_buzz.visitor, "buzzno", "no answer"); g_buzz.visitor = 0; }
