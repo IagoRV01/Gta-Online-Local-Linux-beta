@@ -5419,6 +5419,10 @@ static void CommandTick() {
             if (a[1] == "trap" && a.size() > 2 && std::atoi(a[2].c_str()) < (int)g_aw.trapList.size()) p = g_aw.trapList[std::atoi(a[2].c_str())].p;
             else if (a[1] == "flag") p = g_aw.flag;
             else if (a[1] == "base") p = g_aw.myBase;
+            else if (a[1] == "tag") p = g_aw.tagZone;
+            else if (a[1] == "pit") p = g_aw.pit;
+            else if (a[1] == "goal") p = g_aw.goalBots;
+            else if (a[1] == "ball" && Exists(g_aw.ball)) { Vec3 bp = Pos(g_aw.ball); p = V3(bp.x - (g_aw.goalBots.x - bp.x) * 0.1f, bp.y - (g_aw.goalBots.y - bp.y) * 0.1f, bp.z); }   // just behind it
             N(N_SET_ENTITY_COORDS, g_aw.myVeh, p.x, p.y, p.z + 1.f, 0, 0, 0, 0);
             Log("awgoto %s: %.1f %.1f %.1f", a[1].c_str(), p.x, p.y, p.z);
         }
@@ -5433,7 +5437,25 @@ static void CommandTick() {
         }
         else if (a[0] == "arenaabort") { if (g_aw.phase != AWP_NONE) AwCleanup(); }   // out of the arena with no results or rewards
         else if (a[0] == "arenacp") {   // Games Masters: drop your car on the current checkpoint
-            if (!g_aw.cps.empty() && Exists(g_aw.myVeh)) { Vec3 c = g_aw.cps[(size_t)g_aw.score % g_aw.cps.size()]; N(N_SET_ENTITY_COORDS, g_aw.myVeh, c.x, c.y, c.z + 0.5f, 0, 0, 0, 0); Log("arenacp: %.1f %.1f %.1f", c.x, c.y, c.z); }
+            if (!g_aw.cps.empty() && Exists(g_aw.myVeh)) { Vec3 c = g_aw.cps[(size_t)(g_aw.score + (g_aw.mode == AWM_WRECKIT ? 1 : 0)) % g_aw.cps.size()]; N(N_SET_ENTITY_COORDS, g_aw.myVeh, c.x, c.y, c.z + 0.5f, 0, 0, 0, 0); Log("arenacp: %.1f %.1f %.1f", c.x, c.y, c.z); }
+        }
+        else if (a[0] == "awprobe") {   // awprobe [x y]: what each way of probing the arena's floor finds (test)
+            float x = a.size() > 2 ? F(1) : Pos(Me()).x, y = a.size() > 2 ? F(2) : Pos(Me()).y;
+            for (int fl : {1, 1 | 16, 511, -1}) {
+                int t = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, x, y, 170.f, x, y, 85.f, fl, 0, 7);
+                int hit = 0, ent = 0; Vec3 end{}, nrm{};
+                if (t) N<int>(N_GET_SHAPE_TEST_RESULT, t, &hit, &end, &nrm, &ent);
+                Log("awprobe %.1f %.1f: ray flags %d -> handle %d hit %d z %.2f entity %d", x, y, fl, t, hit, end.z, ent);
+            }
+            for (float top : {170.f, 140.f, 120.f, 110.f}) Log("awprobe: ground from %.0f -> %.2f", top, GroundAt(x, y, top, -1000.f));
+            Log("awprobe: you at %.2f, room 0x%08X, interior %d", Pos(Me()).z, (unsigned)N<int>(N_GET_ROOM_KEY_FROM_ENTITY, Me()), N<int>(N_GET_INTERIOR_FROM_ENTITY, Me()));
+        }
+        else if (a[0] == "arenamodes") {   // the new modes' state (test)
+            int alive = 0; for (auto &b : g_aw.botList) if (!b.out) ++alive;
+            Log("arenamodes: mode %d score %d bots %d place %d lives %d box %d partner %d ball %d (%.1f %.1f %.1f) round %d s time %d s out %d alive bots %d",
+                g_aw.mode, g_aw.score, g_aw.botScore, g_aw.mode == AWM_WRECKIT ? AwRacePlace() : g_aw.myPlace, g_aw.myLives, (int)g_aw.inBox, (int)Exists(g_aw.partnerVeh), (int)Exists(g_aw.ball),
+                Exists(g_aw.ball) ? Pos(g_aw.ball).x : 0.f, Exists(g_aw.ball) ? Pos(g_aw.ball).y : 0.f, Exists(g_aw.ball) ? Pos(g_aw.ball).z : 0.f, (g_aw.roundEnds - Now()) / 1000, g_aw.myTime / 1000, (int)g_aw.myOut, alive);
+            for (size_t i = 0; i < g_aw.botList.size(); ++i) { const AwBot &b = g_aw.botList[i]; Log("  bot %d: team %d cp %d finished %d lives %d time %d s out %d", (int)i, b.team, b.cp, b.finished, b.lives, b.timeMs / 1000, (int)b.out); }
         }
         else if (a[0] == "arenastat") {   // the event, then each bot: distance to you, speed, its car's health
             Log("arena: mode %d phase %d kills %d deaths %d score %d bomb %d bots %d interior %d room 0x%08X car health %d", g_aw.mode, g_aw.phase, g_aw.kills, g_aw.deaths, g_aw.score, g_aw.bombHolder, (int)g_aw.botList.size(), g_aw.interior,
