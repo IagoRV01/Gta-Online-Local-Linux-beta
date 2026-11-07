@@ -128,7 +128,10 @@ extern "C" __declspec(dllexport) void LocalOnline_RaceProgress(int checkpoints, 
     jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs > 0 ? (uint32_t)finishMs : 0);
 }
 extern "C" __declspec(dllexport) int LocalOnline_GetRaceStandings(char *buf, int cap) { return CopyOut(jobs::StandingsText(), buf, cap); }
-extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 10; }
+extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 11; }
+// API v11: a job's respawn point instead of the nearest hospital (validMs from now), and how many times YOU has respawned
+extern "C" __declspec(dllexport) void LocalOnline_SetRespawnPoint(float x, float y, float z, float h, int validMs) { session::SetRespawnPoint(x, y, z, h, validMs); }
+extern "C" __declspec(dllexport) int LocalOnline_RespawnCount() { return session::RespawnCount(); }
 // API v10: hold the server's clock and weather off while a job sets its own (a race's time of day and weather)
 extern "C" __declspec(dllexport) void LocalOnline_SetWorldHold(int hold) { world_sync::SetHold(hold != 0); }
 // API v7: Gori's rank and flags (passive mode, in a solo activity) for the player lists and the sessions,

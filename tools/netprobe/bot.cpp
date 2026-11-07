@@ -6,10 +6,15 @@
 //   - joins every job another player opens (missions, heists, races, deathmatches, survivals) and leaves it when it ends;
 //   - in a race passes a checkpoint every BOT_CPMS ms (default 7000) and finishes when it has passed them all (Gori's race setup
 //     says how many: "R|file|laps|vehicle|tod|weather|traffic|catchup|slip|checkpoints"), then sends its results ("rres");
+//   - fights: it has health and armour, takes the hits other players report (DamageApply), dies (Death, its killer
+//     credited, so deathmatch scores count) and respawns 5 s later; in a deathmatch it circles the first other player
+//     12 m away and fires at it every BOT_SHOOTMS ms (default 2000), a hit (Damage, 25) with chance BOT_ACC % (default 50);
+//   - in a survival it fights each wave the host announces ("S|place|wave") for BOT_WAVEMS ms (default 20000), with a
+//     kill every few seconds, then reports the wave cleared (RaceProgress: kills, waves), so the host moves everyone on;
 //   - votes in the next-job screen (Gori's "njh" / "njv" messages) for the slot in BOT_VOTE (default 0), 4 s after the list;
 //   - prints the job states, its payouts (MoneyResult with requestId 0) and the messages it gets.
 // A file gobot-<name>.cmd next to it is read every second, one command a line, then emptied:
-//   join <jobId> | leave | vote <slot> | pace <ms per checkpoint> | stay x y z | follow | say <kind> <text> | quit
+//   join <jobId> | leave | vote <slot> | pace <ms per checkpoint> | shoot on|off | down | stay x y z | follow | say <kind> <text> | quit
 // Build: ./build.sh probe (with netprobe). Use it against a test server, not the live one: it registers an account.
 #include <enet/enet.h>
 #include <chrono>
@@ -27,6 +32,14 @@
 
 using namespace proto;
 
+static uint32_t Joaat(const char *s) {   // GTA's name hash
+    uint32_t h = 0;
+    for (; *s; ++s) { h += (uint8_t)tolower((unsigned char)*s); h += h << 10; h ^= h >> 6; }
+    h += h << 3; h ^= h >> 11; h += h << 15;
+    return h;
+}
+static int EnvInt(const char *n, int def) { const char *v = std::getenv(n); return v ? std::atoi(v) : def; }
+
 static long long Ms() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
@@ -40,6 +53,8 @@ int main(int argc, char **argv) {
     int seconds = argc > 4 ? std::atoi(argv[4]) : 600;
     int voteSlot = std::getenv("BOT_VOTE") ? std::atoi(std::getenv("BOT_VOTE")) : 0;
     int cpMs = std::getenv("BOT_CPMS") ? std::max(500, std::atoi(std::getenv("BOT_CPMS"))) : 7000;
+    int shootMs = std::max(300, EnvInt("BOT_SHOOTMS", 2000)), accuracy = EnvInt("BOT_ACC", 50), waveMs = std::max(3000, EnvInt("BOT_WAVEMS", 20000));
+    std::srand((unsigned)Ms());
     std::string tokenFile = "gobot-" + name + ".token", cmdFile = "gobot-" + name + ".cmd";
     std::setvbuf(stdout, nullptr, _IONBF, 0);
 
@@ -69,6 +84,15 @@ int main(int argc, char **argv) {
     std::set<uint32_t> done;   // jobs over: not joined again
     long long raceT0 = 0; int raceCps = 0;
     int raceTotal = 0, raceLaps = 1; std::string raceFile, raceVeh; bool raceDone = false;
+    // combat: health / armour as GTA's (health = ped health - 100), death and respawn, the deathmatch's shots
+    const uint32_t kRifle = Joaat("WEAPON_CARBINERIFLE");
+    int hp = 100, armour = 50; long long deadUntil = 0, shotAt = 0, nextShot = 0; bool shooting = true;
+    uint16_t lastAttacker = 0; uint32_t lastWeapon = 0;
+    int kills = 0, deaths = 0;
+    float orbit = 0.f; bool jobRunning = false; Vec3 jobAt{};
+    // survival: the wave announced, the wave being fought (cleared at waveDoneAt), our kills, down until the next wave
+    int svWave = 0, svCleared = 0, svKills = 0; long long svWaveDoneAt = 0, svNextKill = 0; bool svDown = false;
+    auto progress = [&](uint16_t cps, uint32_t fin) { wire::Writer pw; Put(pw, RaceProgressMsg{cps, fin}); send(pw, kChanEvents, true); };
     // next-job vote
     std::set<std::string> helloed; std::map<std::string, long long> voteAt; std::set<std::string> voted;
     uint32_t seq = 0;
@@ -173,9 +197,21 @@ int main(int argc, char **argv) {
                         }
                         std::printf("t=%.1fs race %s: %d checkpoints, one every %d ms\n", T(), raceFile.c_str(), raceTotal, cpMs);
                     }
+                    if (mine) { jobRunning = js.status == kJobRunning; jobAt = js.objective; }
+                    if (mine && js.kind == kJobDeathmatch && js.status == kJobRunning && hp > 0) armour = 100;   // the deathmatch's loadout
+                    if (mine && js.kind == kJobSurvival && js.status == kJobRunning && !js.text.compare(0, 2, "S|")) {
+                        int w = std::atoi(js.text.c_str() + js.text.rfind('|') + 1);
+                        if (w > svWave) {
+                            if (svWave == 0) { svCleared = 0; svKills = 0; }
+                            svWave = w; svDown = false;
+                            svWaveDoneAt = Ms() + (w == 1 ? kRaceStartDelayMs : 0) + waveMs; svNextKill = Ms() + 2500;
+                            std::printf("t=%.1fs survival: wave %d\n", T(), w);
+                            progress((uint16_t)svKills, (uint32_t)svCleared);
+                        }
+                    }
                     if (js.jobId == joined && js.status >= kJobPassed) {
                         std::printf("t=%.1fs job %u over (%s)\n", T(), js.jobId, js.status == kJobPassed ? "passed" : js.status == kJobFailed ? "failed" : "closed");
-                        done.insert(js.jobId); joined = 0; raceT0 = 0;
+                        done.insert(js.jobId); joined = 0; raceT0 = 0; jobRunning = false; svWave = 0; armour = std::min(armour, 50);
                     }
                 }
                 break;
@@ -205,7 +241,31 @@ int main(int argc, char **argv) {
                 }
                 break;
             }
-            case MsgType::KillFeed: { KillFeedMsg k; if (Get(r, k)) std::printf("t=%.1fs %s killed by %s\n", T(), names[k.victim].c_str(), names[k.killer].c_str()); break; }
+            case MsgType::KillFeed: {
+                KillFeedMsg k;
+                if (Get(r, k)) {
+                    if (k.killer == self && k.victim != self) ++kills;
+                    std::printf("t=%.1fs %s killed by %s (bot %d kills %d deaths)\n", T(), k.victim == self ? "the bot" : names[k.victim].c_str(),
+                                k.killer == self ? "the bot" : k.killer ? names[k.killer].c_str() : "-", kills, deaths);
+                }
+                break;
+            }
+            case MsgType::DamageApply: {
+                DamageApplyMsg d;
+                if (!Get(r, d) || hp <= 0) break;
+                int a = d.amount;
+                int fromArmour = std::min(armour, a);
+                armour -= fromArmour; a -= fromArmour; hp -= a;
+                lastAttacker = d.attacker; lastWeapon = d.weapon;
+                std::printf("t=%.1fs hit by %s for %u (weapon 0x%08X) -> health %d armour %d\n", T(), names[d.attacker].c_str(), d.amount, d.weapon, std::max(0, hp), armour);
+                if (hp <= 0) {
+                    hp = 0; ++deaths; deadUntil = Ms() + 5000;
+                    wire::Writer dw; Put(dw, DeathMsg{lastAttacker, lastWeapon}); send(dw, kChanEvents, true);
+                    std::printf("t=%.1fs the bot died, killed by %s\n", T(), names[lastAttacker].c_str());
+                    if (joinedKind == kJobSurvival && svWave) { svDown = true; progress((uint16_t)svKills, (uint32_t)svCleared | kSurvivalDown); }
+                }
+                break;
+            }
             default: break;
             }
             enet_packet_destroy(ev.packet);
@@ -236,6 +296,29 @@ int main(int argc, char **argv) {
                 }
             }
         }
+        // dead: back after 5 s, full health (a deathmatch's loadout again)
+        if (hp <= 0 && now >= deadUntil) {
+            hp = 100; armour = jobRunning && joinedKind == kJobDeathmatch ? 100 : 50; orbit += 2.5f;
+            std::printf("t=%.1fs the bot respawned\n", T());
+        }
+        bool fighting = jobRunning && joinedKind == kJobDeathmatch && raceT0 && now >= raceT0;
+        if (fighting && shooting && hp > 0 && haveLead && !(leadSt.flags & kFlagDead) && now >= nextShot) {
+            nextShot = now + shootMs;
+            Vec3 tgt = (leadSt.flags & kFlagInVehicle) ? leadSt.veh.pos : leadSt.pos;
+            float o = orbit;
+            Vec3 me{tgt.x + std::cos(o) * 12.f, tgt.y + std::sin(o) * 12.f, tgt.z};
+            wire::Writer sw; Put(sw, ShotMsg{kRifle, {me.x, me.y, me.z + 0.5f}, {tgt.x, tgt.y, tgt.z + 0.3f}}); send(sw, kChanEvents, true);
+            shotAt = now;
+            if (std::rand() % 100 < accuracy) { wire::Writer dw; Put(dw, DamageMsg{lead, 25, kRifle, 0}); send(dw, kChanEvents, true); }
+        }
+        if (joinedKind == kJobSurvival && svWave && !svDown && hp > 0) {
+            if (svWaveDoneAt && now >= svNextKill && now < svWaveDoneAt) { ++svKills; svNextKill = now + 2500 + std::rand() % 3000; progress((uint16_t)svKills, (uint32_t)svCleared); }
+            if (svWaveDoneAt && now >= svWaveDoneAt) {
+                svWaveDoneAt = 0; svCleared = svWave;
+                progress((uint16_t)svKills, (uint32_t)svCleared);
+                std::printf("t=%.1fs survival: wave %d cleared, %d kills\n", T(), svCleared, svKills);
+            }
+        }
         // the commands file
         if (now >= nextCmd) {
             nextCmd = now + 1000;
@@ -249,6 +332,8 @@ int main(int argc, char **argv) {
                 std::printf("t=%.1fs command: %s\n", T(), line.c_str());
                 if (c == "join") { uint32_t id = 0; is >> id; wantJoin = id; join(id); }
                 else if (c == "leave") { join(0); if (joined) done.insert(joined); joined = 0; }
+                else if (c == "shoot") { std::string v; is >> v; shooting = v != "off"; }
+                else if (c == "down") { if (svWave) { svDown = true; progress((uint16_t)svKills, (uint32_t)svCleared | kSurvivalDown); } }
                 else if (c == "pace") { is >> cpMs; if (cpMs < 500) cpMs = 500; }
                 else if (c == "vote") { is >> voteSlot; voted.clear(); for (auto &[t, a] : voteAt) a = now; }
                 else if (c == "stay") { is >> stayAt.x >> stayAt.y >> stayAt.z; staying = true; following = false; }
@@ -263,7 +348,8 @@ int main(int argc, char **argv) {
         if (authed && ready && now >= nextState) {
             nextState += 50;
             PlayerStateMsg s;
-            s.seq = ++seq; s.clientTimeMs = (uint32_t)(now - start); s.health = 100; s.armour = 50;
+            s.seq = ++seq; s.clientTimeMs = (uint32_t)(now - start); s.health = (uint8_t)std::max(0, hp); s.armour = (uint8_t)armour;
+            if (hp <= 0) s.flags |= kFlagDead;
             if (staying || !haveLead) { s.pos = staying ? stayAt : Vec3{-1037.8f, -2737.6f, 20.2f}; s.move = Move::Still; }
             else if (leadSt.flags & kFlagInVehicle) {   // ride along: a passenger of the car the player drives
                 s.flags |= kFlagInVehicle;
@@ -271,6 +357,15 @@ int main(int argc, char **argv) {
                 s.veh.seat = 0;
                 s.veh.driverNetId = leadSt.veh.driverNetId ? leadSt.veh.driverNetId : lead;
                 s.pos = leadSt.veh.pos; s.vel = leadSt.veh.vel; s.heading = leadSt.heading; s.move = Move::Still;
+            } else if (fighting && !(leadSt.flags & kFlagInVehicle)) {   // a deathmatch: around the player, 12 m away, facing it
+                if (hp > 0) orbit += 0.05f * 0.35f;   // 0.35 rad/s
+                Vec3 t = leadSt.pos;
+                s.pos = {t.x + std::cos(orbit) * 12.f, t.y + std::sin(orbit) * 12.f, t.z};
+                s.heading = std::fmod(std::atan2(-(t.x - s.pos.x), t.y - s.pos.y) * 57.2958f + 360.f, 360.f);
+                s.vel = {-std::sin(orbit) * 4.2f, std::cos(orbit) * 4.2f, 0.f};
+                s.move = hp > 0 ? Move::Walk : Move::Still;
+                s.weapon = kRifle;
+                if (hp > 0 && shooting) { s.flags |= kFlagAiming; s.aim = {t.x, t.y, t.z + 0.3f}; if (now - shotAt < 200) s.flags |= kFlagShooting; }
             } else {   // on foot, 2.5 m behind and to the side
                 float hr = leadSt.heading / 57.2958f;
                 float bx = std::sin(hr) * 2.5f + std::cos(hr) * 1.2f, by = -std::cos(hr) * 2.5f + std::sin(hr) * 1.2f;

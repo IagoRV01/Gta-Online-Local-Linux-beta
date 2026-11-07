@@ -364,7 +364,25 @@ void SuppressStoryRestart() {
     // runs, the game treats the player as WASTED - no minimap, no pause menu (seen 2026-10-10). Let
     // it finish for a few seconds once YOU is alive again; if it rebuilds the ped, the freemode
     // branch in YouFrame keeps YOU's look and weapons.
-    if (GetTickCount64() < g_tryNoPauseUntil || GetTickCount64() < g_finishRestartUntil) { N(N_PAUSE_DEATH_ARREST_RESTART, 0); N(N_IGNORE_NEXT_RESTART, 0); return; }
+    if (GetTickCount64() < g_tryNoPauseUntil || GetTickCount64() < g_finishRestartUntil) {
+        N(N_PAUSE_DEATH_ARREST_RESTART, 0); N(N_IGNORE_NEXT_RESTART, 0);
+        // the game's restart also puts the player at its own hospital (Pillbox, 360 -583): we keep where we respawned
+        // (a job's point, a deathmatch's arena), so a jump of more than 40 m in one frame is undone
+        static gta::Vec3 last{}; static unsigned long long lastAt = 0;
+        int me = gta::PlayerPed();
+        gta::Vec3 p = gta::Pos(me);
+        unsigned long long now = GetTickCount64();
+        if (lastAt && now - lastAt < 500 && !gta::Dead(me)) {
+            float dx = p.x - last.x, dy = p.y - last.y;
+            if (dx * dx + dy * dy > 40.f * 40.f) {
+                gta::Teleport(last, N<float>(N_GET_ENTITY_HEADING, me));
+                LOGI("session", Who(), "the game's death restart moved YOU to %.0f %.0f: back to %.0f %.0f", p.x, p.y, last.x, last.y);
+                p = last;
+            }
+        }
+        last = p; lastAt = now;
+        return;
+    }
     N(N_PAUSE_DEATH_ARREST_RESTART, 1);
     N(N_IGNORE_NEXT_RESTART, 1);
     N(N_SET_FADE_OUT_AFTER_DEATH, 0);
@@ -447,6 +465,14 @@ void RestoreAfterDeath() {
     N(N_SET_FADE_IN_AFTER_DEATH_ARREST, 1);
 }
 
+static Spot g_jobRespawn{};
+static unsigned long long g_jobRespawnUntil = 0;
+static int g_respawns = 0;
+void JobRespawnSet(float x, float y, float z, float h, int validMs) {
+    g_jobRespawn = {x, y, z, h};
+    g_jobRespawnUntil = validMs > 0 ? GetTickCount64() + (unsigned)validMs : 0;
+}
+
 void RespawnYou() {
     int me = gta::PlayerPed();
     gta::Vec3 p = gta::Pos(me);
@@ -456,6 +482,8 @@ void RespawnYou() {
         float d = (h.x - p.x) * (h.x - p.x) + (h.y - p.y) * (h.y - p.y);
         if (d < bestD) { bestD = d; best = &h; }
     }
+    bool job = g_jobRespawnUntil && GetTickCount64() < g_jobRespawnUntil;   // a job's own respawn point (Gori's deathmatch, survival)
+    if (job) best = &g_jobRespawn;
     gta::FadeOut(800);
     N(N_NETWORK_RESURRECT_LOCAL_PLAYER, best->x, best->y, best->z, best->h, 0, 0, 0, 0, 0);
     gta::Wait(100);
@@ -476,7 +504,8 @@ void RespawnYou() {
     RestoreAfterDeath();
     g_hudRestoreUntil = GetTickCount64() + 8000;   // the story script may still be mid-way: keep restoring briefly
     g_finishRestartUntil = GetTickCount64() + 1500 + 8000;
-    LOGI("session", Who(), "respawned at hospital %.0f %.0f (ped %d)", best->x, best->y, me);
+    ++g_respawns;
+    LOGI("session", Who(), "respawned at %s %.0f %.0f (ped %d)", job ? "the job's point" : "hospital", best->x, best->y, me);
     SaveNow("respawn");
 }
 
@@ -761,6 +790,9 @@ void MainMenu() {
 }
 
 }  // namespace
+
+void SetRespawnPoint(float x, float y, float z, float h, int validMs) { JobRespawnSet(x, y, z, h, validMs); }
+int RespawnCount() { return g_respawns; }
 
 // ---------------------------------------------------------------- public
 void Init(const Config &cfg) {

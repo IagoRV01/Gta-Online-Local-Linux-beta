@@ -44,5 +44,9 @@ int GetData(const char *key, char *buf, int cap);
 bool SetData(const char *key, const char *value);   // 0 wallet, 1 bank, 2 deposit (<0 withdraw)
 bool AdoptOutfit();                  // the clothes worn now become YOU's (saved); false when YOU is not active
 bool HandleCommand(const std::string &line);   // remote test commands; false if unknown
+// A job's respawn point (a deathmatch's arena, a survival's spot): the next respawn of YOU there instead of at the
+// nearest hospital, if it comes within validMs. RespawnCount goes up each time YOU has respawned (weapons and all).
+void SetRespawnPoint(float x, float y, float z, float h, int validMs);
+int RespawnCount();
 
 }  // namespace session

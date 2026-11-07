@@ -27,6 +27,7 @@ struct DmRun {
     std::vector<uint32_t> given;   // weapons we gave that the player did not own
     Vec3 back{}; float backH = 0.f;
     int countdownMovie = 0, lastCount = -1;
+    int respawnAt = 0, respawns = -1;   // LocalOnline's respawn point in the arena, renewed now and then; its respawn count
 };
 static DmRun g_dm;
 static int g_dmSelMin = 10, g_dmSelLoad = 1;
@@ -51,7 +52,9 @@ static Vec3 DmSpawnPoint(int arena) {
         float ang = (float)Rand(6283) / 1000.f, r = a.r * (0.3f + (float)Rand(60) / 100.f);
         float x = a.x + std::cos(ang) * r, y = a.y + std::sin(ang) * r;
         Vec3 out{};
-        if (NB(N<int>(N_GET_SAFE_COORD_FOR_PED, x, y, a.z + 5.f, 1, &out, 16)) && Dist(out, V3(a.x, a.y, a.z)) < a.r) return out;
+        // outdoors and dry (flags 4 | 8: not in an interior, not in water; 16, network spawns only, means nothing in story
+        // mode and gave Legion Square's underground car park), at the arena's level
+        if (NB(N<int>(N_GET_SAFE_COORD_FOR_PED, x, y, a.z + 5.f, 1, &out, 4 | 8)) && Dist(out, V3(a.x, a.y, a.z)) < a.r && std::fabs(out.z - a.z) < 10.f) return out;
         float gz = GroundAt(x, y, a.z + 40.f, -1000.f);
         if (gz > -999.f) return V3(x, y, gz + 1.f);
     }
@@ -85,9 +88,9 @@ static void DmBegin(int startsInMs) {
     const DmArena &a = DM_ARENAS[g_dm.arena];
     N(N_REQUEST_COLLISION_AT_COORD, a.x, a.y, a.z);
     DmPlaceInArena();
-    for (int i = 0; i < 40 && !NB(N<int>(N_HAS_COLLISION_LOADED_AROUND_ENTITY, Me())); ++i) Wait(50);
+    N(N_FREEZE_ENTITY_POSITION, Me(), 1);   // held until the floor is there (without it you could fall under the map)
+    for (int i = 0; i < 100 && !NB(N<int>(N_HAS_COLLISION_LOADED_AROUND_ENTITY, Me())); ++i) Wait(50);
     DmLoadout();
-    N(N_FREEZE_ENTITY_POSITION, Me(), 1);
     g_dm.countdownMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "COUNTDOWN");
     g_dm.lastCount = -1;
     JobSkyDown();
@@ -95,6 +98,7 @@ static void DmBegin(int startsInMs) {
 }
 static void DmCleanup() {
     int me = Me();
+    if (LO().setRespawnPoint) LO().setRespawnPoint(0, 0, 0, 0, 0);
     N(N_FREEZE_ENTITY_POSITION, me, 0);
     for (uint32_t w : g_dm.given) N(N_REMOVE_WEAPON_FROM_PED, me, w);
     if (g_dm.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_dm.countdownMovie);
@@ -188,9 +192,19 @@ static void DmTick() {
     }
     if (g_dm.phase == DP_PLAYING) {
         if (Now() - g_dm.startAt < 1500) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_dm.countdownMovie, 255, 255, 255, 255, 0);
-        // back into the arena after each death (LocalOnline respawns YOU at a hospital)
+        // back into the arena after each death, as in Online: LocalOnline respawns YOU at the arena's point we keep
+        // giving it (without that API: at a hospital, and we take you back)
         bool dead = Dead(me);
-        if (dead) g_dm.wasDead = true;
+        if (LO().setRespawnPoint) {
+            if (!dead && Now() >= g_dm.respawnAt) {
+                Vec3 sp = DmSpawnPoint(g_dm.arena);
+                LO().setRespawnPoint(sp.x, sp.y, sp.z, (float)Rand(360), 8000);
+                g_dm.respawnAt = Now() + 3000;
+            }
+            int n = LO().respawnCount();
+            if (g_dm.respawns < 0) g_dm.respawns = n;
+            else if (n != g_dm.respawns) { g_dm.respawns = n; DmLoadout(); }   // its weapons are the last save's: the arena's again
+        } else if (dead) g_dm.wasDead = true;
         else if (g_dm.wasDead) { g_dm.wasDead = false; Wait(1500); DmPlaceInArena(); DmLoadout(); }
         const DmArena &a = DM_ARENAS[g_dm.arena];
         float d = std::hypot(Pos(me).x - a.x, Pos(me).y - a.y);
@@ -210,7 +224,11 @@ static void DmTick() {
                 for (size_t i = 0; i < sc.size(); ++i) if (sc[i].me) { pos = (int)i + 1; kills = sc[i].kills; }
                 int rpBefore = g_rp, rp = std::max(100, 1000 / pos + 50 * kills);
                 GiveRP(rp, nullptr);
-                JobCelebrate(DM_ARENAS[g_dm.arena].name, pos, true, g_dm.minutes * 60000, rpBefore, rp, 0, "");   // online: the server pays
+                static const double share[8] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};   // the server's pay by position, shown as Online's end screen does
+                int mine = 0;
+                for (auto &x : sc) if (x.me) mine = x.kills + x.deaths;
+                long long cash = mine ? (long long)(g_dm.payout * share[std::min(7, pos - 1)]) : 0;
+                JobCelebrate(DM_ARENAS[g_dm.arena].name, pos, true, g_dm.minutes * 60000, rpBefore, rp, cash, "");
                 g_dm.resultsUntil += 9000;
             }
         }

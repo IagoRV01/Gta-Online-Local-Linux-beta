@@ -1269,6 +1269,7 @@ void Server::HandleJobUpdate(Client &c, const JobUpdateMsg &m) {
     for (auto &kv : jobs_) if (kv.second.host == c.netId) j = &kv.second;
     if (!j) return;
     bool statusChanged = j->status != m.status;
+    bool startStandings = false;
     if (j->status == kJobLobby && m.status == kJobRunning) {
         j->startedMs = NowMs();
         if (StartsTogether(j->kind)) {   // everyone starts together: the countdown ends at startAt
@@ -1277,10 +1278,12 @@ void Server::HandleJobUpdate(Client &c, const JobUpdateMsg &m) {
             j->racers.clear();
             j->racers[j->host] = {};
             for (uint16_t id : j->members) j->racers[id] = {};
+            startStandings = true;   // everyone listed from the start: POSITION 1/2, not 1/1 until the first kill
             LOGI("jobs", c.name.c_str(), "%s %u \"%s\" starts with %d player(s)", j->kind == kJobRace ? "race" : j->kind == kJobDeathmatch ? "deathmatch" : "survival", j->id, j->title.c_str(), (int)j->racers.size());
         }
     }
     j->status = m.status; j->step = m.step; j->objective = m.objective; j->text = m.text;
+    if (startStandings) SendRaceStandings(*j);
     if (m.status == kJobPassed) {
         LOGI("jobs", c.name.c_str(), "job %u \"%s\" passed with %d member(s)", j->id, j->title.c_str(), (int)j->members.size());
         PayJob(*j);

@@ -715,6 +715,8 @@ struct LocalOnlineApi {
     bool (*jobOpenKind)(const char *, float, float, float, int, int) = nullptr;   // API v6: races (Races.inc)
     void (*raceProgress)(int, int) = nullptr;
     int (*getRaceStandings)(char *, int) = nullptr;
+    void (*setRespawnPoint)(float, float, float, float, int) = nullptr;   // API v11: a job's respawn point, YOU's respawns so far
+    int (*respawnCount)() = nullptr;
     void (*setPlayerInfo)(int, int) = nullptr;                     // API v7: rank + flags (passive, in an activity), the players, the session
     int (*getPlayers)(char *, int) = nullptr;
     unsigned (*getSession)() = nullptr;
@@ -756,6 +758,9 @@ static LocalOnlineApi &LO() {
             api.raceProgress = (void (*)(int, int))GetProcAddress(h, "LocalOnline_RaceProgress");
             api.getRaceStandings = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_GetRaceStandings");
             if (!api.jobOpenKind || !api.raceProgress || !api.getRaceStandings) api.jobOpenKind = nullptr;
+            api.setRespawnPoint = (void (*)(float, float, float, float, int))GetProcAddress(h, "LocalOnline_SetRespawnPoint");
+            api.respawnCount = (int (*)())GetProcAddress(h, "LocalOnline_RespawnCount");
+            if (!api.setRespawnPoint || !api.respawnCount) api.setRespawnPoint = nullptr, api.respawnCount = nullptr;
             api.setPlayerInfo = (void (*)(int, int))GetProcAddress(h, "LocalOnline_SetPlayerInfo");
             api.getPlayers = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_GetPlayers");
             api.getSession = (unsigned (*)())GetProcAddress(h, "LocalOnline_GetSession");
@@ -4847,7 +4852,7 @@ static void Progress() {
     else if (g_wasDead) {
         g_wasDead = false;
         int i = FindProp(g_spawnProp);
-        if (i >= 0 && Owns(g_spawnProp)) {
+        if (i >= 0 && Owns(g_spawnProp) && !InActivity()) {   // in a job you respawn in it (a deathmatch's arena, a survival...), as in Online
             Wait(1500);
             if (PropInterior(i) && PROPS[i].type != T_VILLA) EnterProperty(i); else GoToProperty(i);
         }
@@ -5278,6 +5283,31 @@ static void CommandTick() {
         else if (a[0] == "racesolo") RaceStartSolo(a.size() > 1 ? a[1] : "", a.size() > 2 ? std::atoi(a[2].c_str()) : 1, a.size() > 3 ? a[3] : "");   // racesolo <file.xml> [laps] [vehicle]
         else if (a[0] == "racehost") RaceHostOnline(a.size() > 1 ? a[1] : "", a.size() > 2 ? std::atoi(a[2].c_str()) : 1, a.size() > 3 ? a[3] : "");
         else if (a[0] == "racestart") RaceHostStart();
+        else if (a[0] == "dmhost" && a.size() > 3) DmHost(std::atoi(a[1].c_str()) % NDM_ARENAS, std::max(1, std::atoi(a[2].c_str())), std::atoi(a[3].c_str()) % 3);   // dmhost <arena> <minutes> <loadout>: a deathmatch lobby (test)
+        else if (a[0] == "dmstart") DmHostStart();
+        else if (a[0] == "lobbyquit") {   // lobbyquit: the open lobby (corona) and a deathmatch / race / survival lobby we host closed (test)
+            if (CoronaActive()) CloseCorona(true);
+            if (g_dm.phase == DP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_dm = DmRun(); }
+            if (g_race.phase == RP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_race = RaceRun(); }
+            if (g_sv.phase == SVP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_sv = SvRun(); }
+            Log("lobbyquit: dm %d race %d sv %d", g_dm.phase, g_race.phase, g_sv.phase);
+        }
+        else if (a[0] == "dmstat") { auto sc = DmScores(); std::string t; for (auto &x : sc) t += " " + x.name + " " + std::to_string(x.kills) + "/" + std::to_string(x.deaths); Log("dmstat: phase %d health %d armour %d dead %d:%s", g_dm.phase, N<int>(N_GET_ENTITY_HEALTH, Me()), N<int>(N_GET_PED_ARMOUR, Me()), (int)Dead(Me()), t.c_str()); }
+        else if (a[0] == "shootpeds" && a.size() > 1) {   // shootpeds <radius>: a real rifle bullet of yours into every other ped that near (another player's puppet), so the hit counts as yours (test)
+            static int peds[1024];
+            int n = shv_worldGetAllPeds(peds, 1024), k = 0, me = Me();
+            Vec3 m = Pos(me);
+            float rad = (float)std::atof(a[1].c_str());
+            for (int i = 0; i < n; ++i) {
+                int p = peds[i];
+                if (p == me || !Exists(p) || Dead(p)) continue;
+                Vec3 t = Pos(p);
+                if (Dist(m, t) > rad) continue;
+                N(N_SHOOT_SINGLE_BULLET_BETWEEN_COORDS_IGNORE_ENTITY, t.x, t.y, t.z + 1.0f, t.x, t.y, t.z + .2f, 40, 1, Joaat("weapon_carbinerifle"), me, 0, 1, 2000.f, me, 0);
+                ++k;
+            }
+            Log("shootpeds: %d shot", k);
+        }
         else if (a[0] == "acid") {   // acid [key value]: the Acid Lab / First Dose state (fd own upg sup stock10)
             if (a.size() > 2) { AcidSet(a[1].c_str(), std::atoi(a[2].c_str())); Save(); }
             Log("acid: fd %d own %d upg %d sup %d stock %d/%d truck %d inFreak %d inLab %d arena_ap %d", AcidGet("fd"), AcidGet("own"), AcidGet("upg"), AcidGet("sup"), AcidUnits(), ACID_MAX,
@@ -5311,6 +5341,15 @@ static void CommandTick() {
         else if (a[0] == "cm" && a.size() > 2) { int c = std::atoi(a[1].c_str()) % NCONTACTS; StartContactMission(c, std::min(std::atoi(a[2].c_str()), CONTACTS[c].count - 1)); }   // cm <contact> <mission>
         else if (a[0] == "sv" && a.size() > 1) SvHost(std::max(0, std::min(NSV_LOCS - 1, std::atoi(a[1].c_str()))), a.size() > 2 && a[2] == "solo");   // sv <place> [solo]
         else if (a[0] == "svstart") SvHostStart();
+        else if (a[0] == "svkill") {   // svkill: a real bullet of yours into every survival enemy alive, so the kills count (test)
+            int n = 0;
+            for (int p : g_sv.peds) if (Exists(p) && !Dead(p)) {
+                Vec3 t = Pos(p);
+                N(N_SHOOT_SINGLE_BULLET_BETWEEN_COORDS_IGNORE_ENTITY, t.x, t.y, t.z + 1.2f, t.x, t.y, t.z + .6f, 500, 1, Joaat("weapon_heavysniper"), Me(), 0, 1, 2000.f, Me(), 0);
+                ++n;
+            }
+            Log("svkill: %d shot, kills %d", n, g_sv.kills);
+        }
         else if (a[0] == "arena") {   // arena [theme map light vehicle bots minutes]: Arena War solo (test)
             for (int k = 0; k < 8 && k + 1 < (int)a.size(); ++k) g_awSel[k] = std::atoi(a[k + 1].c_str());   // ... minutes-index mode traps
             AwStart(false);

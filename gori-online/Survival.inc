@@ -229,6 +229,7 @@ static void SvBegin(int startsInMs) {
     Log("survival: %s, starts in %d ms%s", l.name, startsInMs, g_sv.solo ? " (solo)" : "");
 }
 static void SvCleanup() {
+    if (LO().setRespawnPoint) LO().setRespawnPoint(0, 0, 0, 0, 0);
     int me = Me();
     SvClearEnemies();
     N(N_FREEZE_ENTITY_POSITION, me, 0);
@@ -250,7 +251,8 @@ static void SvFinish() {   // over for everyone: the results, RP (and the cash w
     int rpBefore = g_rp, rp = 150 * waves + 10 * g_sv.kills;
     if (rp) GiveRP(rp, nullptr);
     g_celWaveSurvived = waves >= SV_WAVES; g_celWave = g_celWaveSurvived ? SV_WAVES : std::max(1, g_sv.wave);
-    JobCelebrate("Survival - " + std::string(SV_LOCS[g_sv.loc].name), 0, waves >= SV_WAVES, g_jobStartedAt ? Now() - g_jobStartedAt : 0, rpBefore, rp, cash,
+    long long shown = g_sv.solo ? cash : (long long)g_sv.payout * waves / SV_WAVES;   // online the server pays it: shown all the same, as Online's end screen does
+    JobCelebrate("Survival - " + std::string(SV_LOCS[g_sv.loc].name), 0, waves >= SV_WAVES, g_jobStartedAt ? Now() - g_jobStartedAt : 0, rpBefore, rp, shown,
                  std::to_string(g_sv.kills) + " kills");
     Save();
 }
@@ -421,6 +423,10 @@ static void SvTick() {
     if (!g_sv.solo && g_coop.status >= COOP_PASSED) { SvFinish(); return; }
     if (Now() - g_sv.waveAt < 1500 && g_sv.wave == 1) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_sv.countdownMovie, 255, 255, 255, 255, 0);
     N(N_SET_PLAYER_WANTED_LEVEL, Player(), 0, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0);
+    if (LO().setRespawnPoint && g_sv.phase != SVP_RESULTS) {   // down: back on your feet near the spot, not at a hospital
+        static int nextAt = 0;
+        if (Now() >= nextAt) { const SvLoc &l = SV_LOCS[g_sv.loc]; LO().setRespawnPoint(l.x, l.y, l.z + 0.5f, 0.f, 8000); nextAt = Now() + 3000; }
+    }
     if (g_sv.phase == SVP_WAVE || g_sv.phase == SVP_BREAK) {
         if (Dead(me)) {   // down until the next wave (solo: over)
             SvClearEnemies();
