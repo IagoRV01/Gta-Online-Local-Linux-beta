@@ -4930,6 +4930,7 @@ static void CommandTick() {
         if (SfDebugCommand(a)) {}
         else if (a[0] == "tp") Teleport(F(1), F(2), F(3), F(4));
         else if (a[0] == "island") IslandArrive(ISLAND_SPAWN[0], ISLAND_SPAWN[1], ISLAND_SPAWN[2], ISLAND_SPAWN[3]);
+        else if (a[0] == "propinfo") BuzzPropInfo(rest);
         else if (a[0] == "enter") { int i = FindProp(rest); if (i >= 0) EnterProperty(i); }
         else if (a[0] == "webtest") {   // webtest <WWW_SITE> [seconds]: the game's own web browser movie
             std::string site = a.size() > 1 ? a[1] : "WWW_EYEFIND_INFO";

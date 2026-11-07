@@ -17,6 +17,8 @@
 //   join <jobId> | leave | vote <slot> | pace <ms per checkpoint> | shoot on|off | down | stay x y z | follow | say <kind> <text> | quit
 //   host <kind> <payout> <title...> (a job of its own where the player is, so the player can be a member: tests of the
 //   member's side, e.g. "say hcut <scene>|0|-1|2|<bot name>" as a heist leader) | close (that job closed)
+//   home <property index> <building> (it owns a home there, as far as Gori's buzzer is concerned: it answers "aptq" for that
+//   building right away and lets a visitor in, "buzzok", 2 s after the "buzz")
 // Build: ./build.sh probe (with netprobe). Use it against a test server, not the live one: it registers an account.
 #include <enet/enet.h>
 #include <chrono>
@@ -96,6 +98,7 @@ int main(int argc, char **argv) {
     int svWave = 0, svCleared = 0, svKills = 0; long long svWaveDoneAt = 0, svNextKill = 0; bool svDown = false;
     auto progress = [&](uint16_t cps, uint32_t fin) { wire::Writer pw; Put(pw, RaceProgressMsg{cps, fin}); send(pw, kChanEvents, true); };
     // next-job vote
+    int homeProp = -1, homeOb = -1; long long letInAt = 0; uint16_t visitorId = 0;   // the buzzer (Gori's Buzzer.inc)
     std::set<std::string> helloed; std::map<std::string, long long> voteAt; std::set<std::string> voted;
     uint32_t seq = 0;
     std::string myJson;
@@ -238,6 +241,8 @@ int main(int argc, char **argv) {
                         sendMsg(0, "njh", tag + "|" + name);
                         voteAt[tag] = Ms() + 4000;
                     }
+                    if (m.kind == "aptq" && homeProp >= 0 && std::atoi(m.text.c_str()) == homeOb) sendMsg(m.from, "apta", std::to_string(homeProp) + "|" + name);
+                    if (m.kind == "buzz" && homeProp >= 0 && std::atoi(m.text.c_str()) == homeProp) { visitorId = m.from; letInAt = Ms() + 2000; }
                     if (m.kind == "njr") { voted.erase(tag); voteAt[tag] = Ms() + 4000; }
                     if (m.kind == "njd") std::printf("t=%.1fs the next job decided: %s\n", T(), m.text.c_str());
                 }
@@ -321,6 +326,7 @@ int main(int argc, char **argv) {
                 std::printf("t=%.1fs survival: wave %d cleared, %d kills\n", T(), svCleared, svKills);
             }
         }
+        if (letInAt && now >= letInAt) { letInAt = 0; sendMsg(visitorId, "buzzok", std::to_string(homeProp)); std::printf("t=%.1fs let %s in\n", T(), names[visitorId].c_str()); }
         // the commands file
         if (now >= nextCmd) {
             nextCmd = now + 1000;
@@ -341,6 +347,7 @@ int main(int argc, char **argv) {
                     wire::Writer jw; Put(jw, JobOpenMsg{title, at, (uint32_t)pay, (uint8_t)kind}); send(jw, kChanEvents, true);
                     std::printf("t=%.1fs hosting \"%s\" (kind %d)\n", T(), title.c_str(), kind);
                 }
+                else if (c == "home") { is >> homeProp >> homeOb; }
                 else if (c == "close") { wire::Writer jw; Put(jw, JobUpdateMsg{kJobClosed, 0, {}, ""}); send(jw, kChanEvents, true); }
                 else if (c == "shoot") { std::string v; is >> v; shooting = v != "off"; }
                 else if (c == "down") { if (svWave) { svDown = true; progress((uint16_t)svKills, (uint32_t)svCleared | kSurvivalDown); } }

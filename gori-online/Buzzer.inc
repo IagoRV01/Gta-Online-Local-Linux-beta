@@ -96,6 +96,14 @@ static void HeistCutsMemberTick() {
     PlayCut(a[0].c_str(), std::max(1, std::min(4, std::atoi(a[3].c_str()))), false, world, world ? -1 : (g_inside >= 0 ? g_inside : prop));
     if (cor && CoronaActive()) CoronaCamera(true);
 }
+// propinfo <name>: a property's index, building and walk-in door, in the log (tests of the buzzer with gobot)
+static void BuzzPropInfo(const std::string &name) {
+    int i = FindProp(name);
+    if (i < 0) { Log("propinfo: %s not found", name.c_str()); return; }
+    const OBuilding *b = PROPS[i].ob >= 0 ? BldAt(PROPS[i].ob) : nullptr;
+    Log("propinfo: %s index %d building %d owned %d buildingowned %d inside %d", PROPS[i].name, i, PROPS[i].ob, (int)Owns(PROPS[i].name), PROPS[i].ob >= 0 && BuzzIOwnIn(PROPS[i].ob) ? 1 : 0, g_inside);
+    for (int k = 0; b && k < b->ne; ++k) Log("propinfo: door %d kind %d at %.2f %.2f %.2f", k, b->e[k].kind, b->e[k].mx, b->e[k].my, b->e[k].mz);
+}
 // every frame (after the properties): the messages, the owner's answer, the visitor's corona and picker
 static void BuzzTick() {
     BuzzMessages();
