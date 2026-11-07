@@ -717,6 +717,8 @@ struct LocalOnlineApi {
     int (*getRaceStandings)(char *, int) = nullptr;
     void (*setRespawnPoint)(float, float, float, float, int) = nullptr;   // API v11: a job's respawn point, YOU's respawns so far
     int (*respawnCount)() = nullptr;
+    int (*getPlayerPed)(unsigned) = nullptr;   // API v12: another player's puppet ped, the puppets held still for a cutscene
+    void (*holdPuppets)(int) = nullptr;
     void (*setPlayerInfo)(int, int) = nullptr;                     // API v7: rank + flags (passive, in an activity), the players, the session
     int (*getPlayers)(char *, int) = nullptr;
     unsigned (*getSession)() = nullptr;
@@ -761,6 +763,9 @@ static LocalOnlineApi &LO() {
             api.setRespawnPoint = (void (*)(float, float, float, float, int))GetProcAddress(h, "LocalOnline_SetRespawnPoint");
             api.respawnCount = (int (*)())GetProcAddress(h, "LocalOnline_RespawnCount");
             if (!api.setRespawnPoint || !api.respawnCount) api.setRespawnPoint = nullptr, api.respawnCount = nullptr;
+            api.getPlayerPed = (int (*)(unsigned))GetProcAddress(h, "LocalOnline_GetPlayerPed");
+            api.holdPuppets = (void (*)(int))GetProcAddress(h, "LocalOnline_HoldPuppets");
+            if (!api.getPlayerPed || !api.holdPuppets) api.getPlayerPed = nullptr, api.holdPuppets = nullptr;
             api.setPlayerInfo = (void (*)(int, int))GetProcAddress(h, "LocalOnline_SetPlayerInfo");
             api.getPlayers = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_GetPlayers");
             api.getSession = (unsigned (*)())GetProcAddress(h, "LocalOnline_GetSession");
@@ -3123,6 +3128,7 @@ static int g_heistDiff = 1;         // the lobby's difficulty: 0 Easy, 1 Normal,
 // the take at the difficulty chosen: Online's easy pays half, hard a quarter more
 static int HeistTake(int h) { return HEISTS[h].payout * (g_heistDiff == 0 ? 50 : g_heistDiff == 2 ? 125 : 100) / 100; }
 #include "HeistElite.inc"
+static std::string g_myName;   // our player name in LocalOnline (fetched when first needed)
 #include "HeistCuts.inc"
 static bool HeistUnlocked(int h, std::string &why) {
     int need = HEISTS[h].needType;
@@ -4023,7 +4029,6 @@ static void NaptFeedDynasty8(std::vector<int> &slots);
 #include "BizAppsUI.inc"
 #include "Phone.inc"
 static int g_ibtn = 0;
-static std::string g_myName;
 static void TextLong(const std::string &t, float x, float y, float scale, int r, int g, int b, float wrapL, float wrapR) {   // over 99 characters: several components
     N(N_SET_TEXT_FONT, 0); N(N_SET_TEXT_SCALE, scale, scale); N(N_SET_TEXT_COLOUR, r, g, b, 255); N(N_SET_TEXT_WRAP, wrapL, wrapR);
     N(N_BEGIN_TEXT_COMMAND_DISPLAY_TEXT, t.size() > 90 ? "CELL_EMAIL_BCON" : "STRING");   // CELL_EMAIL_BCON: ~a~ repeated, for text over 99 characters

@@ -684,8 +684,11 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
   - The game's own death restart, which LocalOnline lets finish after its respawn so the HUD and pause menu come back, also put the player at story mode's Pillbox hospital (360, -583) a few seconds later, whatever the respawn point. While it finishes, a jump of more than 40 m in one frame is now undone (`SuppressStoryRestart`).
   - The end screen shows the cash the server pays for a deathmatch (by position) and a survival (by waves), as Online's does, instead of $0.
   - Verified in game, Legion Square 2 min rifles: kills and deaths both ways, the server's score (the bot 3 kills / 2 deaths), its pay by position ($4,000 / $3,000), the shared vote. Survival at Del Perro Pier: the host moves to the next wave only when the bot has cleared it, PLAYERS 2/2 then 1/2 when it goes down, $15,000 each for 3 waves.
+  - The crew in the heist scenes, as Online's: the other players of the heist's job (its host and members, in the lobby's order, within 60 m) play `MP_2`..`MP_4` with their own characters, the puppets LocalOnline draws for them, dressed in their own clothes meanwhile; the roles nobody has stay out. **API v12**: `LocalOnline_GetPlayerPed(netId)` (the puppet, 0 if none) and `LocalOnline_HoldPuppets(ms)` (no network driving while a scene moves them; renewed while it plays, then they go back where their players are).
+  - Verified in game with gobot as crew on Fleeca's Scope Out: it joins the setup's lobby in Del Perro Apt 20, is in the end scene (`MPH_TUT_EXT`, Lester at the door) with its own look, and is paid $10,000 by the server; the leader gets no cash for a setup, as in Online.
+  - The finale's scene played on a black screen: the lobby's Play fades the screen out and the scene ran under it (for all of its 105 s, with the busy spinner). `PlayCut` fades in once the scene plays. Verified: Fleeca's `MPH_TUT_FIN_INT` seen whole, Lester at the board with the crew's line (Crew (2), 25 %, $57,500, Ready), then the finale; its end with the bot: the leader 75 % plus the Elite Challenge ($272,500), the bot $57,500, and the celebration `MPH_FIN_CEL_APT` with the crew in it.
 - **Next.**
-  - Heist setups with roles for the crew.
+  - Each crew member's own game playing the heist's scenes with the leader (the bot can't show that side); the finale's roles on the board (Online takes them from the job's cloud data, `COR_TEAM_<n>` labels).
 
 ## Co-op jobs (protocol v9, 2026-10-12)
 

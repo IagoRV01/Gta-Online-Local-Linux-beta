@@ -46,6 +46,27 @@ static void CutDress(int me, const CutOutfit &f) {
     if (N<int>(N_GET_PED_DRAWABLE_VARIATION, me, 1) != 0) N(N_SET_PED_COMPONENT_VARIATION, me, 1, 0, 0, 0);
     if (N<int>(N_GET_PED_PROP_INDEX, me, 0) >= 0) N(N_CLEAR_PED_PROP, me, 0, 1);
 }
+// the crew in the scene, as Online's: the other players of the heist's job (its host and members, in the lobby's order) play
+// MP_2..MP_4 with their own characters, the puppets LocalOnline draws for them here (held still while the scene moves them)
+static std::vector<int> CutCrewPeds() {
+    std::vector<int> out;
+    if (!LO().getPlayerPed || !LO().getPlayers || !g_coop.id) return out;
+    if (g_myName.empty() && LO().getPlayerName) { char b[64] = {0}; LO().getPlayerName(b, sizeof b); g_myName = b; }
+    std::vector<std::string> names;
+    if (!g_coop.hosting && g_coop.host != "you" && !g_coop.host.empty()) names.push_back(g_coop.host);
+    for (auto &n : Split(g_coop.members, ',')) if (!n.empty() && n != g_myName && n != "you") names.push_back(n);
+    std::string t = CoopFetch(LO().getPlayers);
+    for (auto &n : names) {
+        for (auto &line : Split(t, '\n')) {
+            std::vector<std::string> f = Split(line, '|');
+            if (f.size() < 2 || f[1] != n) continue;
+            int ped = LO().getPlayerPed((unsigned)std::strtoul(f[0].c_str(), nullptr, 10));
+            if (ped && Exists(ped) && Dist(Pos(ped), Pos(Me())) < 60.f) out.push_back(ped);
+            break;
+        }
+    }
+    return out;
+}
 static int g_cutDebug = 0;   // cutdbg: log who plays the crew's roles (test)
 // world: a scene that plays where it was made (the setups' ends, fm_mission_controller's plain START_CUTSCENE), not in the apartment
 static bool PlayCut(const char *name, int roles, bool canSkip, bool world = false) {
@@ -77,10 +98,19 @@ static bool PlayCut(const char *name, int roles, bool canSkip, bool world = fals
     Vec3 at = Pos(me); float heading = N<float>(N_GET_ENTITY_HEADING, me);
     CutOutfit outfit = CutOutfitOf(me);
     N(N_SET_PED_HELMET, me, 0); N(N_REMOVE_PED_HELMET, me, 1);
+    std::vector<int> crew = CutCrewPeds();
+    std::vector<CutOutfit> crewOutfit;
+    if (!crew.empty()) LO().holdPuppets(3000);
     for (int i = 0; i < roles; ++i) {
         if (i == 0) N(N_REGISTER_ENTITY_FOR_CUTSCENE, me, R[i], 0, 0, 67);
-        else N(N_REGISTER_ENTITY_FOR_CUTSCENE, 0, R[i], 3, 0, 67);
+        else if (i - 1 < (int)crew.size()) {
+            int p = crew[i - 1];
+            crewOutfit.push_back(CutOutfitOf(p));
+            N(N_REGISTER_ENTITY_FOR_CUTSCENE, p, R[i], 0, 0, 67);
+        } else N(N_REGISTER_ENTITY_FOR_CUTSCENE, 0, R[i], 3, 0, 67);
     }
+    if (crew.size() > (size_t)std::max(0, roles - 1)) crew.resize(std::max(0, roles - 1));
+    Log("cut %s: crew in the scene %d", name, (int)crew.size());
     N(N_SET_ENTITY_INVINCIBLE, me, 1);   // nothing can hurt you meanwhile
     N(N_START_CUTSCENE, 0);
     bool pri = !std::strcmp(name, "APA_PRI_INT"), nar = !std::strcmp(name, "APA_NAR_INT");
@@ -91,12 +121,20 @@ static bool PlayCut(const char *name, int roles, bool canSkip, bool world = fals
     }
     t0 = Now();
     while (Now() - t0 < 15000 && !NB(N<int>(N_IS_CUTSCENE_PLAYING))) Wait(0);
+    // a lobby's Play fades the screen out before the finale's scene: it is seen, as in Online (it played on black, 2026-11-07)
+    if (NB(N<int>(N_IS_SCREEN_FADED_OUT)) || NB(N<int>(N_IS_SCREEN_FADING_OUT))) N(N_DO_SCREEN_FADE_IN, 500);
+    N(N_BUSYSPINNER_OFF);
     int t1 = Now(), dressed = 0; bool skipped = false, told = false;
     // the board on the wall: in the midpoints and the finales' scenes; in Fleeca's midpoint Lester puts it up as he talks (MARKER_SCALEFORM)
     bool boardOn = std::strstr(name, "_MID") || std::strstr(name, "FIN_INT"), staged = !std::strcmp(name, "MPH_TUT_MID");
     g_hbInCut = true;
     while (!NB(N<int>(N_HAS_CUTSCENE_FINISHED)) && NB(N<int>(N_IS_CUTSCENE_ACTIVE)) && Now() - t1 < 600000) {
-        if (Now() >= dressed) { CutDress(me, outfit); dressed = Now() + 100; }
+        if (Now() >= dressed) {
+            CutDress(me, outfit);
+            for (size_t k = 0; k < crew.size(); ++k) if (Exists(crew[k])) CutDress(crew[k], crewOutfit[k]);
+            if (!crew.empty()) LO().holdPuppets(3000);
+            dressed = Now() + 100;
+        }
         if (staged) {
             int lester = N<int>(N_GET_ENTITY_INDEX_OF_CUTSCENE_ENTITY, "Lester", 0);
             if (lester && Exists(lester) && NB(N<int>(N_HAS_ANIM_EVENT_FIRED, lester, Joaat("MARKER_SCALEFORM")))) { staged = false; Log("cut %s: the board goes up after %d ms", name, Now() - t1); }
@@ -127,6 +165,8 @@ static bool PlayCut(const char *name, int roles, bool canSkip, bool world = fals
     Log("cut %s: ended after %d ms%s, you at %.2f %.2f %.2f", name, Now() - t1, skipped ? " (skipped)" : "", end.x, end.y, end.z);
     N(N_REMOVE_CUTSCENE);
     CutOutfitRestore(me, outfit);
+    for (size_t k = 0; k < crew.size(); ++k) if (Exists(crew[k])) { CutOutfitRestore(crew[k], crewOutfit[k]); N(N_SET_ENTITY_VISIBLE, crew[k], 1, 0); }
+    if (!crew.empty()) LO().holdPuppets(0);   // LocalOnline drives them again, back where their players are
     // back where you were, on a floor that's there
     N(N_CLEAR_PED_TASKS_IMMEDIATELY, me);
     N(N_FREEZE_ENTITY_POSITION, me, 1);

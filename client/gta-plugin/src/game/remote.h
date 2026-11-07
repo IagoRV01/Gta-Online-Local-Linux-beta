@@ -28,7 +28,9 @@ std::vector<Row> Rows();           // for the player list (HUD): the players in 
 // v11 player info: our rank and InfoFlags (from Gori through the exports), sent when they change;
 // the session the server put us in (players of other sessions are not drawn).
 void SetMyInfo(int rank, int flags);
-void Highlight(uint16_t netId, int ms);   // "Highlight Player": the blip flashes for a while
+void Highlight(uint16_t netId, int ms);
+int PedOf(uint16_t netId);                // the player's puppet ped here, 0 if none
+void HoldPuppets(int ms);                 // a cutscene animates them: no network driving for ms (renewed while it plays)   // "Highlight Player": the blip flashes for a while
 int MyRank();
 int MyFlags();
 uint32_t MySession();

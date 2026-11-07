@@ -603,6 +603,13 @@ std::vector<Row> Rows() {
     return out;
 }
 
+static unsigned long long g_holdUntil = 0;
+int PedOf(uint16_t netId) {
+    auto it = g_players.find(netId);
+    return it != g_players.end() && gta::Exists(it->second.ped) ? it->second.ped : 0;
+}
+void HoldPuppets(int ms) { g_holdUntil = ms > 0 ? GetTickCount64() + (unsigned long long)ms : 0; }
+
 void SetMyInfo(int rank, int flags) { g_myRank = rank; g_myFlags = flags; }
 void Highlight(uint16_t netId, int ms) {
     auto it = g_players.find(netId);
@@ -690,6 +697,7 @@ void Frame() {
         interp::Result r = p.buf.At(renderT);
         if (!r.valid) continue;
         if (!gta::Exists(p.ped)) { Spawn(p, r.s); continue; }
+        if (GetTickCount64() < g_holdUntil) continue;   // in a cutscene (Gori's heist scenes): the scene moves it
         if (p.lookDirty) { appearance::ApplyLook(p.ped, p.look); p.lookDirty = false; }
         if (r.stale != p.wasStale) { LOGD("remote", p.name.c_str(), r.stale ? "no data, holding" : "data again"); p.wasStale = r.stale; }
         if (PuppetCombat(p, r)) continue;   // dead: no movement
