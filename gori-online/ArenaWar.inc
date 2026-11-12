@@ -4,8 +4,8 @@
 // (Set_Dystopian_01-17, Set_Scifi_01-10, Set_Wasteland_01-10), the crowd (Set_Crowd_A-D), a lighting set and the
 // pit fence. Teleporting in does not put you in the interior's room, so the player, the car and the game camera are
 // forced into it every frame (else only the sea outside renders).
-// Modes: Carnage (vehicle combat, against bots or online against the other players: a deathmatch job, kind 2, text
-// "A|theme|map|light|minutes|vehicle"), and against bots: Hot Bomb (a timed bomb passed by ramming; survive the
+// Modes, each against bots or online between the players of a job (see "online" below): Carnage (vehicle combat: a
+// deathmatch job, kind 2, text "A|theme|map|light|minutes|vehicle|mode|traps"), Hot Bomb (a timed bomb passed by ramming; survive the
 // rounds), Here Come the Monsters (a small car against monster trucks) and Games Masters (checkpoints across the
 // arena while the bots hunt you). Kills, deaths, Arena Points, cash and RP. Apocalypse, Future Shock and Nightmare
 // are the three variants of each arena vehicle.
@@ -37,9 +37,9 @@ enum { AWM_CARNAGE, AWM_HOTBOMB, AWM_MONSTERS, AWM_GAMESMASTERS, AWM_FLAGWAR, AW
 static const struct { const char *name, *desc; } AW_MODES[AWM_COUNT] = {
     {"Carnage", "Wreck the others: most kills wins. Online against the other players, solo against bots."},
     {"Hot Bomb", "A bomb on a timer: ram someone to pass it on. Whoever holds it at zero goes up. Survive the rounds."},
-    {"Here Come the Monsters", "A small car against monster trucks. Stay in one piece until the time runs out."},
-    {"Games Masters", "Drive through the checkpoints across the arena while the bots hunt you."},
-    {"Flag War", "Grab the flag and drive it to your base. Ram the carrier to steal it. The bots have a base too."},
+    {"Here Come the Monsters", "Small cars against monster trucks. Stay in one piece until the time runs out."},
+    {"Games Masters", "Drive through the checkpoints across the arena while the others hunt you."},
+    {"Flag War", "Grab the flag and drive it to your base. Ram the carrier to steal it. The other side has a base too."},
     {"Wreck It", "A race around the arena through its traps: three laps. Repair your car at the pit stop."},
     {"Tag Team", "You and a partner against teams of two. Tag out at the tag zone to swap; the last team standing wins."},
     {"Bomb Ball", "Push the bomb ball into the other team's half before the round's timer runs out, or into their goal for bonus points."},
@@ -63,7 +63,8 @@ static const Vec3 AW_CENTRE = V3(2800.f, -3800.f, 100.f);
 
 enum AwPhase { AWP_NONE, AWP_LOBBY, AWP_COUNTDOWN, AWP_PLAYING, AWP_RESULTS };
 struct AwBot { int veh = 0, ped = 0, blip = 0, respawnAt = 0, retaskAt = 0, idleSince = 0;
-               int team = 0, lives = 2, cp = 0, finished = 0, timeMs = 60000, cpAt = 0; bool out = false; };   // team 1: on your side (Bomb Ball); cp/finished: Wreck It; lives: Tag Team; timeMs: Buzzer Beater
+               int team = 0, lives = 2, cp = 0, finished = 0, timeMs = 60000, cpAt = 0; bool out = false;
+               std::string name; unsigned netId = 0; int side = 0, score = 0, kills = 0; bool inBox = false; };   // team 1: on your side (Bomb Ball); cp/finished: Wreck It; lives: Tag Team; timeMs: Buzzer Beater
 struct AwRun {
     int phase = AWP_NONE, theme = 0, map = 0, light = 0, minutes = 5, veh = 0, bots = 4;
     bool host = false, solo = true, ended = false, wasDown = false;
@@ -83,6 +84,16 @@ struct AwRun {
     float boxBody = 1000.f, boxEngine = 1000.f; Vec3 tagZone{};                                  // Tag Team
     int ball = 0, ballBlip = 0, roundEnds = 0, goalAt = 0; Vec3 goalMine{}, goalBots{};             // Bomb Ball
     int myTime = 60000, lastTick = 0, airSince = 0; bool myOut = false; std::vector<int> bbCps;    // Buzzer Beater
+    // online (every mode between the job's players, 2026-11-11): the job's players in the server's order, my place and side
+    // in it, my partner (Tag Team); the host's layout (a member: has it arrived); what was last sent; the claims on the
+    // bomb / the flag (0) and on the ball (1): the last one's number and who made it
+    std::vector<std::string> roster; int side = 0, rosterIdx = 0; std::string partner;
+    bool layout = false; int layoutAskAt = 0, layoutFrom = 0; Vec3 ptA{}, ptB{};
+    int stateAt = 0, scoreSent = -1, finSent = 0, passAt = 0, myFinishMs = 0, outAt = 0; std::string stateSent;
+    int objSeq[2] = {0, 0}; std::string objBy[2], objText;   // objText: the bomb's / flag's last claim, for a member who asks again
+    std::string ballOwner; int ballSendAt = 0, ballClaimAt = 0; std::map<int, int> bbTaken;
+    unsigned jobId = 0;   // the job this event is (a member's event ends when that job does)
+    bool noPay = false;   // the job was closed, not passed (its host left): nobody is paid
 };
 static AwRun g_aw;
 static int g_awSel[8] = {0, 0, 0, 0, 2, 0, 0, 1};   // menu choices: theme, map, light, vehicle, bots (x2), minutes index, mode, traps
@@ -202,7 +213,7 @@ static void AwPlacePlayer() {   // a fresh car on the floor; your own arena vehi
         p = V3(c.x, c.y, c.z); h = std::fmod(std::atan2(-(nx.x - c.x), nx.y - c.y) * 57.2958f + 360.f, 360.f);
     }
     if (Exists(g_aw.myVeh)) DeleteEntity(g_aw.myVeh);
-    std::string model = g_aw.mode == AWM_MONSTERS ? AwModel(g_aw.theme, 2) : AwModel(g_aw.theme, g_aw.veh);   // the monsters' prey: an Issi
+    std::string model = g_aw.mode == AWM_MONSTERS ? AwModel(g_aw.theme, !g_aw.solo && g_aw.side == 1 ? 8 : 2) : AwModel(g_aw.theme, g_aw.veh);   // the monsters' prey: an Issi
     g_aw.myVeh = AwCar(model, p, h);
     for (auto &g : g_garage) if (g.model == model && !g.data.empty() && Exists(g_aw.myVeh)) { ApplyVehicle(g_aw.myVeh, g.data); break; }
     N(N_SET_ENTITY_COORDS, Me(), p.x, p.y, p.z + 1.f, 0, 0, 0, 0);
@@ -236,6 +247,7 @@ static void AwGridPlace(int veh, int slot) {   // Wreck It: on the start line, t
     N(N_SET_ENTITY_HEADING, veh, std::fmod(std::atan2(-dx, dy) * 57.2958f + 360.f, 360.f));
 }
 static void AwSpawnBot(AwBot &b) {
+    if (!b.name.empty()) return;   // another player (online): LocalOnline draws it
     HostileGroup();
     float h = 0.f;
     Vec3 p = AwSpawnPoint(h);
@@ -260,6 +272,7 @@ static void AwSpawnBot(AwBot &b) {
     }
 }
 static void AwRemoveBot(AwBot &b) {   // its car and driver go; who it is (team, lives, progress, time) stays
+    if (!b.name.empty()) return;   // another player (online): not ours to remove
     RemoveBlip(b.blip);
     if (Exists(b.ped)) DeleteEntity(b.ped);
     if (Exists(b.veh)) DeleteEntity(b.veh);
@@ -343,6 +356,161 @@ static void AwBotsTick() {
 }
 
 // ---- traps
+// ---- online: every mode between the players of the job (2026-11-11)
+// The job is a scored event (LocalOnline job kind 4; Carnage stays a deathmatch, kind 2): each game sends its score to
+// the server (RaceProgress), which ranks the players and pays them by position. The other players stand where the bots
+// do: an AwBot each, named, its car the one LocalOnline draws for it, its progress (checkpoints, lives, time, out) from
+// its "aws" messages. The host lays the event out (checkpoints, traps, the pit, the tag zone, bases, goals) and sends
+// it ("awl", "awt", "awp"; a member asks again with "awq", and makes its own after 12 s without one). The things
+// everybody shares go by claims ("awo"): the bomb and the flag are one group, the ball's owner another; each claim
+// carries a number one higher than the last seen, and of two with the same number the one from the player whose name
+// sorts first stands, so every game ends up agreeing. What a player's own game decides: its checkpoints, its wrecks and
+// who caused them ("awe w"), the bomb while it holds it, the flag while it carries it. The host's game decides the
+// rounds: who gets the bomb, where the flag comes out, Bomb Ball's goals and round timer, Buzzer Beater's checkpoints.
+static const std::string &AwMyName() {
+    if (g_myName.empty() && LO().getPlayerName) { char b[64] = {0}; LO().getPlayerName(b, sizeof b); g_myName = b; }
+    return g_myName;
+}
+static bool AwRemote(const AwBot &b) { return !b.name.empty(); }
+static bool AwSend(const char *kind, const std::string &text, unsigned to = 0) {
+    return !g_aw.solo && LO().sendPlayerMessage && LO().sendPlayerMessage(to, kind, text.c_str());
+}
+// a point as three whole numbers: decimetres from the arena's centre
+static std::string AwPt(const Vec3 &p) {
+    char b[48];
+    std::snprintf(b, sizeof b, "%d,%d,%d", (int)std::lround((p.x - AW_CENTRE.x) * 10.f), (int)std::lround((p.y - AW_CENTRE.y) * 10.f), (int)std::lround((p.z - AW_CENTRE.z) * 10.f));
+    return b;
+}
+static bool AwPtOf(const std::string &t, Vec3 &p) {
+    std::vector<std::string> f = Split(t, ',');
+    if (f.size() < 3) return false;
+    p = V3(AW_CENTRE.x + std::atoi(f[0].c_str()) / 10.f, AW_CENTRE.y + std::atoi(f[1].c_str()) / 10.f, AW_CENTRE.z + std::atoi(f[2].c_str()) / 10.f);
+    return true;
+}
+static int AwWho(const std::string &name) {   // -1 you, >= 0 that player's place in botList, -2 nobody known
+    if (name.empty()) return -2;
+    if (name == AwMyName()) return -1;
+    for (size_t i = 0; i < g_aw.botList.size(); ++i) if (g_aw.botList[i].name == name) return (int)i;
+    return -2;
+}
+static std::string AwNameOf(int who) { return who == -1 ? AwMyName() : who >= 0 && who < (int)g_aw.botList.size() ? g_aw.botList[(size_t)who].name : std::string(); }
+static std::string AwLabel(int who) {   // for the HUD: YOU, a player's name, BOT
+    if (who == -1) return "YOU";
+    if (who < 0 || who >= (int)g_aw.botList.size() || g_aw.botList[(size_t)who].name.empty()) return who >= 0 ? "BOT" : "-";
+    std::string n = g_aw.botList[(size_t)who].name.substr(0, 12);
+    for (char &c : n) c = (char)std::toupper((unsigned char)c);
+    return n;
+}
+// the sides: Flag War and Bomb Ball are two teams; Here Come the Monsters has a monster for every two small cars; Tag
+// Team pairs the players up from four on (fewer: everyone alone); everything else is everyone for themselves
+static int AwSideOf(int idx, int n) {
+    if (g_aw.mode == AWM_FLAGWAR || g_aw.mode == AWM_BOMBBALL) return idx % 2;
+    if (g_aw.mode == AWM_MONSTERS) return idx % 3 == 1 ? 1 : 0;
+    if (g_aw.mode == AWM_TAGTEAM) return n >= 4 ? idx / 2 : idx;
+    return idx;
+}
+static void AwPeersTick(bool now = false) {
+    static int at = 0;
+    if (g_aw.solo) return;
+    if (now || Now() >= at) {   // once a second: who is in the job
+        at = Now() + 1000;
+        const std::string &me = AwMyName();
+        std::vector<std::string> cur;   // its host, then its members
+        auto add = [&](std::string n) { if (n == "you") n = me; if (!n.empty() && std::find(cur.begin(), cur.end(), n) == cur.end()) cur.push_back(n); };
+        add(g_coop.hosting || g_coop.host == "you" ? me : g_coop.host);
+        for (auto &n : Split(g_coop.members, ',')) add(n);
+        bool listed = g_coop.id && g_coop.status <= COOP_RUNNING;
+        if (listed) for (auto &n : cur) if (std::find(g_aw.roster.begin(), g_aw.roster.end(), n) == g_aw.roster.end()) g_aw.roster.push_back(n);   // only ever longer: the sides stay
+        int n = (int)g_aw.roster.size();
+        std::string players = LO().getPlayers ? CoopFetch(LO().getPlayers) : std::string();
+        for (int i = 0; i < n; ++i) {
+            const std::string name = g_aw.roster[(size_t)i];
+            if (name == me) { g_aw.rosterIdx = i; g_aw.side = AwSideOf(i, n); continue; }
+            int w = AwWho(name);
+            if (w < 0) { AwBot nb; nb.name = name; g_aw.botList.push_back(nb); w = (int)g_aw.botList.size() - 1; }
+            AwBot &b = g_aw.botList[(size_t)w];
+            b.side = AwSideOf(i, n);
+            for (auto &line : Split(players, '\n')) {
+                std::vector<std::string> f = Split(line, '|');
+                if (f.size() >= 2 && f[1] == name) b.netId = (unsigned)std::strtoul(f[0].c_str(), nullptr, 10);
+            }
+            if (listed && !b.out && std::find(cur.begin(), cur.end(), name) == cur.end()) { b.out = true; Notify("~b~" + name + "~s~ left the event."); }
+        }
+        g_aw.partner.clear();
+        for (auto &b : g_aw.botList) {
+            b.team = b.side == g_aw.side ? 1 : 0;
+            if (g_aw.mode == AWM_TAGTEAM && b.team == 1) g_aw.partner = b.name;
+        }
+    }
+    for (auto &b : g_aw.botList) {   // every frame: the car LocalOnline draws for each of them
+        int ped = b.netId && LO().getPlayerPed ? LO().getPlayerPed(b.netId) : 0;
+        b.ped = ped && Exists(ped) ? ped : 0;
+        b.veh = b.ped && NB(N<int>(N_IS_PED_IN_ANY_VEHICLE, b.ped, 0)) ? N<int>(N_GET_VEHICLE_PED_IS_IN, b.ped, 0) : 0;
+    }
+}
+static int AwPeerFrom(unsigned from, const std::string &name) {   // who sent a message: by its netId, else by the name in it
+    for (size_t i = 0; i < g_aw.botList.size(); ++i) if (from && g_aw.botList[i].netId == from) return (int)i;
+    int w = AwWho(name);
+    return w >= 0 ? w : -2;
+}
+// a claim on the bomb / the flag (group 0) or on the ball (group 1): what, whose, where, how long
+static void AwClaim(char what, const std::string &name, const Vec3 &p, int ms) {
+    int g = what == 'k' ? 1 : 0;
+    g_aw.objBy[g] = AwMyName();
+    std::string t = std::to_string(++g_aw.objSeq[g]) + "|" + std::string(1, what) + "|" + name + "|" + AwPt(p) + "|" + std::to_string(ms) + "|" + AwMyName();
+    if (g == 0) g_aw.objText = t;
+    AwSend("awo", t);
+}
+// what the server ranks the players of a scored event by
+static int AwScoreNow() {
+    switch (g_aw.mode) {
+    case AWM_BUZZER: return std::max(0, ((g_aw.outAt ? g_aw.outAt : std::min(Now(), g_aw.endAt)) - g_aw.startAt) / 1000);   // the seconds you lasted
+    case AWM_MONSTERS: return g_aw.side == 1 ? 10 * g_aw.kills : std::max(0, 100 - 10 * g_aw.deaths);
+    case AWM_TAGTEAM: return (g_aw.myOut ? 0 : 100 * g_aw.myLives) + g_aw.kills;
+    default: return std::max(0, g_aw.score);
+    }
+}
+static std::vector<DmScore> g_awScores;   // the server's standings, kept for the results (they go when the job closes)
+static void AwStateTick(bool force = false) {   // my progress to the others ("aws": at once when it changes, every 2 s anyway), my score to the server
+    if (g_aw.solo) return;
+    int now = Now();
+    char key[200];
+    std::snprintf(key, sizeof key, "%s|%d|%d|%d|%d|%d|%d|%d", AwMyName().c_str(), g_aw.score, AwScoreNow(), g_aw.myLives, g_aw.myOut ? 1 : 0, g_aw.myFinishMs, g_aw.kills, g_aw.inBox ? 1 : 0);
+    if (force || (g_aw.stateSent != key && now - g_aw.stateAt >= 250) || now - g_aw.stateAt >= 2000) {
+        g_aw.stateSent = key; g_aw.stateAt = now;
+        AwSend("aws", std::string(key) + "|" + std::to_string(std::max(0, g_aw.myTime)));
+        std::vector<DmScore> sc = DmScores();
+        if (!sc.empty()) g_awScores = sc;
+    }
+    if (g_coop.kind == 4 && LO().raceProgress && now - g_aw.startAt > 500) {
+        int sc = AwScoreNow();
+        if (sc != g_aw.scoreSent || g_aw.myFinishMs != g_aw.finSent) { g_aw.scoreSent = sc; g_aw.finSent = g_aw.myFinishMs; LO().raceProgress(sc, g_aw.myFinishMs); }
+    }
+}
+static int AwOnlinePos() {   // my position in the server's standings (1 first; 0 not known)
+    for (size_t i = 0; i < g_awScores.size(); ++i) if (g_awScores[i].me) return (int)i + 1;
+    return 0;
+}
+// Wreck It online: 30 s for the rest once someone has finished, 4 s once everyone has
+static void AwRaceEndCheck() {
+    bool any = g_aw.myPlace != 0, all = g_aw.myPlace != 0;
+    for (auto &b : g_aw.botList) { if (b.finished) any = true; else if (!b.out) all = false; }
+    if (all) g_aw.endAt = std::min(g_aw.endAt, Now() + 4000);
+    else if (any) g_aw.endAt = std::min(g_aw.endAt, Now() + 30000);
+}
+// who wrecked you: the player whose car (or who) last damaged yours, or killed you
+static std::string AwWreckedBy() {
+    int me = Me(), src = Dead(me) ? N<int>(N_GET_PED_SOURCE_OF_DEATH, me) : 0;
+    for (auto &b : g_aw.botList) {
+        if (!AwRemote(b) || b.team == 1) continue;
+        if (src && (src == b.ped || src == b.veh)) return b.name;
+        if (Exists(g_aw.myVeh) && ((Exists(b.veh) && NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, g_aw.myVeh, b.veh, 1))) || (Exists(b.ped) && NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, g_aw.myVeh, b.ped, 1))))) return b.name;
+    }
+    return "";
+}
+
+// ---- traps
+static void AwTrapMake(AwTrap &t);
 static void AwTrapPlace(AwTrap &t) {
     for (int tries = 0; tries < 20; ++tries) {   // on the floor, clear of the others and of your car
         float h = 0.f; Vec3 p = AwSpawnPoint(h);
@@ -353,6 +521,9 @@ static void AwTrapPlace(AwTrap &t) {
         t.p = V3(p.x, p.y, p.z - 1.f); t.h = (float)Rand(360);
         break;
     }
+    AwTrapMake(t);
+}
+static void AwTrapMake(AwTrap &t) {   // the trap's prop where it was placed (online: where the host placed it)
     uint32_t m = Joaat(AW_TRAP_MODELS[t.kind][std::max(0, std::min(2, g_aw.theme))]);
     if (!LoadModel(m)) { m = Joaat(AW_TRAP_MODELS[t.kind][0]); if (!LoadModel(m)) return; }
     t.obj = N<int>(N_CREATE_OBJECT, m, t.p.x, t.p.y, t.p.z, 0, 0, 0);
@@ -364,9 +535,12 @@ static void AwTrapPlace(AwTrap &t) {
 }
 static void AwTrapsSpawn() {
     g_aw.trapList.clear();
-    if (!g_aw.traps || !g_aw.solo) return;   // online, each player would see different traps
+    if (!g_aw.traps) return;   // (online: the host's, sent to the others)
     for (int k = 0; k < AWT_COUNT; ++k) for (int i = 0; i < AW_TRAP_COUNT[k]; ++i) { AwTrap t; t.kind = k; g_aw.trapList.push_back(t); }
-    for (auto &t : g_aw.trapList) AwTrapPlace(t);
+    for (auto &t : g_aw.trapList) {
+        AwTrapPlace(t);
+        if (!g_aw.solo) { t.h = (float)(((int)(&t - g_aw.trapList.data()) * 67) % 360); if (Exists(t.obj)) N(N_SET_ENTITY_HEADING, t.obj, t.h); }   // online: a heading every game can work out
+    }
 }
 static void AwTrapsClear() {
     for (auto &t : g_aw.trapList) { if (t.fire) N(N_REMOVE_SCRIPT_FIRE, t.fire); if (Exists(t.obj)) DeleteEntity(t.obj); }
@@ -375,9 +549,9 @@ static void AwTrapsClear() {
 static void AwTrapsTick() {
     std::vector<int> cars;
     if (Exists(g_aw.myVeh)) cars.push_back(g_aw.myVeh);
-    for (auto &b : g_aw.botList) if (Exists(b.veh)) cars.push_back(b.veh);
+    for (auto &b : g_aw.botList) if (!AwRemote(b) && Exists(b.veh)) cars.push_back(b.veh);   // another player's car: its own game's traps
     for (auto &t : g_aw.trapList) {
-        if (!Exists(t.obj)) { if (t.kind == AWT_MINE && t.nextAt && Now() >= t.nextAt) AwTrapPlace(t); continue; }
+        if (!Exists(t.obj)) { if (t.kind == AWT_MINE && t.nextAt && Now() >= t.nextAt) { if (g_aw.solo) AwTrapPlace(t); else AwTrapMake(t); } continue; }   // online: back on the same spot
         int hit = 0;
         for (int v : cars) {
             Vec3 c = Pos(v);
@@ -396,6 +570,15 @@ static void AwTrapsTick() {
                 Log("trap: flipper launched %s", hit == g_aw.myVeh ? "you" : "a bot");
             }
         } else if (t.kind == AWT_FIRE) {   // 4 s quiet, then 3 s of fire (a warning glow first)
+            if (!g_aw.solo) {   // online: the same 7 s cycle on every game, counted from the event's start
+                int ph = (((Now() - g_aw.startAt - 700 * (int)(&t - g_aw.trapList.data())) % 7000) + 7000) % 7000;
+                bool burning = ph >= 4000;
+                if (!burning && ph >= 2800) N(N_DRAW_MARKER, 25, t.p.x, t.p.y, t.p.z + 0.15f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 5.f, 5.f, 1.f, 255, 90, 0, 140, 0, 0, 2, 0, 0, 0, 0);
+                if (burning && !t.fire) t.fire = N<int>(N_START_SCRIPT_FIRE, t.p.x, t.p.y, t.p.z + 0.2f, 6, 0);
+                if (!burning && t.fire) { N(N_REMOVE_SCRIPT_FIRE, t.fire); t.fire = 0; }
+                if (burning && hit) N(N_SET_ENTITY_HEALTH, hit, std::max(1, N<int>(N_GET_ENTITY_HEALTH, hit) - 4));
+                continue;
+            }
             if (!t.until && Now() >= t.nextAt - 1200 && Now() < t.nextAt)
                 N(N_DRAW_MARKER, 25, t.p.x, t.p.y, t.p.z + 0.15f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 5.f, 5.f, 1.f, 255, 90, 0, 140, 0, 0, 2, 0, 0, 0, 0);
             if (!t.until && Now() >= t.nextAt) { t.fire = N<int>(N_START_SCRIPT_FIRE, t.p.x, t.p.y, t.p.z + 0.2f, 6, 0); t.until = Now() + 3000; }
@@ -408,6 +591,7 @@ static void AwTrapsTick() {
                 Log("trap: mine under %s", hit == g_aw.myVeh ? "you" : "a bot");
                 DeleteEntity(t.obj);
                 t.nextAt = Now() + 20000;
+                if (!g_aw.solo) AwSend("awe", "m|" + std::to_string((int)(&t - g_aw.trapList.data())));   // gone on everyone's game
             }
         } else if (t.kind == AWT_SPIKES && hit) {   // tyres out
             if (t.launched != hit) {   // once per car: arena cars come with bulletproof tyres, so let them burst first
@@ -445,46 +629,70 @@ static int AwCarrierVeh() { return g_aw.flagCarrier == -1 ? g_aw.myVeh : g_aw.fl
 static void AwFlagTake(int who) {
     g_aw.flagCarrier = who; g_aw.lastSteal = Now();
     if (who == -1) { Notify("~b~You have the flag!~s~ Drive it to your base."); Sound("CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET"); }
-    else Notify("~r~A bot has the flag.~s~ Ram it to steal it back.");
+    else if (who >= 0 && who < (int)g_aw.botList.size() && AwRemote(g_aw.botList[(size_t)who])) {
+        const AwBot &c = g_aw.botList[(size_t)who];
+        Notify(c.team == 1 ? "~b~" + c.name + "~s~ has the flag. Keep the others off them." : "~r~" + c.name + "~s~ has the flag. Ram them to steal it.");
+    } else Notify("~r~A bot has the flag.~s~ Ram it to steal it back.");
     for (auto &b : g_aw.botList) b.retaskAt = 0;
 }
+static void AwFlagCaptured(bool mine) {   // a capture: the point, and a moment before the next flag
+    if (mine) { ++g_aw.score; Shard("~b~FLAG CAPTURED", std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore)); Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET"); }
+    else { ++g_aw.botScore; Shard(g_aw.solo ? "~r~THE BOTS SCORED" : "~r~THEY SCORED", std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore)); }
+    g_aw.flagCarrier = -2; g_aw.flag = V3(0, 0, -100); g_aw.flagAt = Now() + 3000;
+    RemoveBlip(g_aw.flagBlip);
+}
 static void AwFlagTick() {
+    bool on = !g_aw.solo;
     if (g_aw.flagCarrier == -3) return;
     if (g_aw.flagAt && Now() < g_aw.flagAt) return;   // after a capture, a moment before the next flag
-    if (g_aw.flagAt) { g_aw.flagAt = 0; AwFlagReset(); }
+    if (g_aw.flagAt) {   // the next flag: online the host puts it out and says where
+        g_aw.flagAt = 0;
+        if (on && !g_aw.host) { g_aw.flagCarrier = -3; return; }
+        AwFlagReset();
+        if (on) AwClaim('g', "", g_aw.flag, 0);
+    }
     for (Vec3 b : {g_aw.myBase, g_aw.botBase}) {
         bool mine = b.x == g_aw.myBase.x && b.y == g_aw.myBase.y;
         N(N_DRAW_MARKER, 1, b.x, b.y, b.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 12.f, 12.f, 1.2f, mine ? 60 : 230, mine ? 140 : 40, mine ? 255 : 40, 120, 0, 0, 2, 0, 0, 0, 0);
     }
     int cv = AwCarrierVeh();
-    if (g_aw.flagCarrier >= -1 && (!Exists(cv) || Dead(cv))) {   // the carrier got wrecked: the flag drops where it was
+    bool theirs = on && g_aw.flagCarrier >= 0;   // carried by another player: its own game says when it drops or scores
+    if (g_aw.flagCarrier >= -1 && !theirs && (!Exists(cv) || Dead(cv))) {   // the carrier got wrecked: the flag drops where it was
         if (Exists(cv)) g_aw.flag = Pos(cv);
         g_aw.flagCarrier = -2; cv = 0;
         for (auto &b : g_aw.botList) b.retaskAt = 0;
+        if (on) AwClaim('g', "", g_aw.flag, 0);
     }
-    if (g_aw.flagCarrier >= -1) g_aw.flag = Pos(cv);   // where it drops if the carrier is wrecked
+    if (g_aw.flagCarrier >= -1) {   // where it drops if the carrier is wrecked
+        if (Exists(cv)) g_aw.flag = Pos(cv);
+        else if (theirs && Exists(g_aw.botList[(size_t)g_aw.flagCarrier].ped)) g_aw.flag = Pos(g_aw.botList[(size_t)g_aw.flagCarrier].ped);
+    }
+    bool friendly = g_aw.flagCarrier == -1 || (g_aw.flagCarrier >= 0 && g_aw.botList[(size_t)g_aw.flagCarrier].team == 1);
     Vec3 fp = g_aw.flag;
     N(N_DRAW_MARKER, 4, fp.x, fp.y, fp.z + (g_aw.flagCarrier == -2 ? 1.2f : 2.6f), 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 2.f, 2.f, 2.f, 255, 255, 255, 230, 1, 1, 2, 0, 0, 0, 0);
     RemoveBlip(g_aw.flagBlip);
-    g_aw.flagBlip = CoordBlip(fp, 38, g_aw.flagCarrier == -1 ? 3 : g_aw.flagCarrier >= 0 ? 1 : 5, "Flag", false);
+    g_aw.flagBlip = CoordBlip(fp, 38, g_aw.flagCarrier == -2 ? 5 : friendly ? 3 : 1, "Flag", false);
     auto close = [](int v, Vec3 p, float r) { if (!Exists(v)) return false; Vec3 c = Pos(v); return std::hypot(c.x - p.x, c.y - p.y) < r && std::fabs(c.z - p.z) < 4.f; };
     if (g_aw.flagCarrier == -2) {   // on the ground: first to drive over it takes it
-        if (close(g_aw.myVeh, g_aw.flag, 4.5f)) AwFlagTake(-1);
-        else for (int i = 0; i < (int)g_aw.botList.size(); ++i) if (close(g_aw.botList[i].veh, g_aw.flag, 4.5f)) { AwFlagTake(i); break; }
+        if (close(g_aw.myVeh, g_aw.flag, 4.5f)) { AwFlagTake(-1); if (on) AwClaim('t', AwMyName(), g_aw.flag, 0); }
+        else if (!on) for (int i = 0; i < (int)g_aw.botList.size(); ++i) if (close(g_aw.botList[i].veh, g_aw.flag, 4.5f)) { AwFlagTake(i); break; }
         return;
     }
     if (Now() - g_aw.lastSteal > 2000) {   // ram the carrier to steal it
-        if (g_aw.flagCarrier >= 0 && Exists(g_aw.myVeh) && NB(N<int>(N_IS_ENTITY_TOUCHING_ENTITY, cv, g_aw.myVeh))) { AwFlagTake(-1); return; }
-        if (g_aw.flagCarrier == -1)
+        if (g_aw.flagCarrier >= 0 && !friendly && Exists(g_aw.myVeh) && Exists(cv) &&
+            (NB(N<int>(N_IS_ENTITY_TOUCHING_ENTITY, cv, g_aw.myVeh)) || (on && Dist(Pos(cv), Pos(g_aw.myVeh)) < 3.2f))) {
+            AwFlagTake(-1);
+            if (on) AwClaim('t', AwMyName(), g_aw.flag, 0);
+            return;
+        }
+        if (g_aw.flagCarrier == -1 && !on)
             for (int i = 0; i < (int)g_aw.botList.size(); ++i)
                 if (Exists(g_aw.botList[i].veh) && NB(N<int>(N_IS_ENTITY_TOUCHING_ENTITY, cv, g_aw.botList[i].veh))) { AwFlagTake(i); return; }
     }
-    bool mineHome = g_aw.flagCarrier == -1 && close(cv, g_aw.myBase, 6.f), botHome = g_aw.flagCarrier >= 0 && close(cv, g_aw.botBase, 6.f);
+    bool mineHome = g_aw.flagCarrier == -1 && close(cv, g_aw.myBase, 6.f), botHome = !on && g_aw.flagCarrier >= 0 && close(cv, g_aw.botBase, 6.f);
     if (mineHome || botHome) {   // captured
-        if (mineHome) { ++g_aw.score; Shard("~b~FLAG CAPTURED", std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore)); Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET"); }
-        else { ++g_aw.botScore; Shard("~r~THE BOTS SCORED", std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore)); }
-        g_aw.flagCarrier = -2; g_aw.flag = V3(0, 0, -100); g_aw.flagAt = Now() + 3000;
-        RemoveBlip(g_aw.flagBlip);
+        if (on) AwClaim('c', AwMyName(), g_aw.flag, 0);
+        AwFlagCaptured(mineHome);
     }
 }
 
@@ -502,7 +710,7 @@ static void AwWreckItTick() {
     if (n < 2) return;
     int total = n * g_aw.laps;
     for (auto &b : g_aw.botList) {   // the bots' checkpoints
-        if (b.out || b.finished || !Exists(b.veh)) continue;
+        if (b.out || b.finished || AwRemote(b) || !Exists(b.veh)) continue;   // another player: its own game counts its checkpoints
         Vec3 c = AwTrackAt(b.cp + 1), p = Pos(b.veh);
         if (!b.cpAt) b.cpAt = Now();
         if (Now() - b.cpAt > 20000) {   // stuck somewhere on the way: on to its checkpoint, facing the next one
@@ -537,8 +745,10 @@ static void AwWreckItTick() {
         Sound("CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET");
         if (g_aw.score >= total) {
             g_aw.myPlace = g_aw.finishedBots + 1;
+            g_aw.myFinishMs = std::max(1, Now() - g_aw.startAt);
             Shard("~y~" + Ordinal(g_aw.myPlace), "Wreck It");
-            g_aw.endAt = std::min(g_aw.endAt, Now() + 4000);
+            if (g_aw.solo) g_aw.endAt = std::min(g_aw.endAt, Now() + 4000);
+            else AwRaceEndCheck();
         }
     }
 }
@@ -583,14 +793,17 @@ static void AwTagOut(bool wrecked) {   // you go up to the box, your partner com
     N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y - 55.f, g_aw.floorZ + 44.f, 0, 0, 0, 0);
     N(N_FREEZE_ENTITY_POSITION, me, 1); N(N_SET_ENTITY_VISIBLE, me, 0, 0); N(N_SET_ENTITY_COLLISION, me, 0, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
     g_aw.inBox = true; g_aw.boxSince = Now();
-    AwBot p; p.team = 1;
-    AwSpawnBot(p);
-    g_aw.partnerVeh = p.veh; g_aw.partnerPed = p.ped; g_aw.partnerBlip = p.blip;
-    Vec3 t = g_aw.tagZone;
-    if (Exists(p.veh)) { N(N_SET_ENTITY_COORDS, p.veh, t.x, t.y, t.z + 0.5f, 0, 0, 0, 0); N(N_SET_ENTITY_INVINCIBLE, p.veh, 0); }
+    if (g_aw.solo) {   // (online your partner is another player, or you have none)
+        AwBot p; p.team = 1;
+        AwSpawnBot(p);
+        g_aw.partnerVeh = p.veh; g_aw.partnerPed = p.ped; g_aw.partnerBlip = p.blip;
+        Vec3 t = g_aw.tagZone;
+        if (Exists(p.veh)) { N(N_SET_ENTITY_COORDS, p.veh, t.x, t.y, t.z + 0.5f, 0, 0, 0, 0); N(N_SET_ENTITY_INVINCIBLE, p.veh, 0); }
+    }
     AwBoxCam(true);
     for (auto &b : g_aw.botList) b.retaskAt = 0;
-    Notify(wrecked ? "~r~Wrecked.~s~ Your partner is in; you're in the box." : "~b~Tagged out.~s~ Your partner is in the arena.");
+    if (!g_aw.solo && g_aw.partner.empty()) Notify("~b~In the box:~s~ your car is being repaired.");
+    else Notify(wrecked ? "~r~Wrecked.~s~ Your partner is in; you're in the box." : "~b~Tagged out.~s~ Your partner is in the arena.");
 }
 static void AwTagIn() {   // back in at the tag zone, the car repaired as far as the box got it
     AwPartnerRemove();
@@ -609,8 +822,55 @@ static void AwTagIn() {   // back in at the tag zone, the car repaired as far as
     for (auto &b : g_aw.botList) b.retaskAt = 0;
     Notify("~b~Tagged in.");
 }
-static bool AwTeamsLeft() { for (auto &b : g_aw.botList) if (!b.out) return true; return false; }
+static bool AwTeamsLeft() { for (auto &b : g_aw.botList) if (!b.out && b.team != 1) return true; return false; }
+static int AwTeamsAlive() {   // the other teams still in: a bot is a team; online the players of a side are one
+    std::set<int> sides; int n = 0;
+    for (auto &b : g_aw.botList) if (!b.out && b.team != 1) { if (AwRemote(b)) sides.insert(b.side); else ++n; }
+    return n + (int)sides.size();
+}
+static void AwBoxEnter() {   // up to the box with no partner coming in: out of the event (online), watching
+    int me = Me();
+    if (Exists(g_aw.myVeh)) { N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y, g_aw.floorZ + 30.f, 0, 0, 0, 0); DeleteEntity(g_aw.myVeh); g_aw.myVeh = 0; }
+    N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y - 55.f, g_aw.floorZ + 44.f, 0, 0, 0, 0);
+    N(N_FREEZE_ENTITY_POSITION, me, 1); N(N_SET_ENTITY_VISIBLE, me, 0, 0); N(N_SET_ENTITY_COLLISION, me, 0, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
+    g_aw.inBox = true; g_aw.boxSince = Now();
+    AwBoxCam(true);
+}
+// Tag Team between players: with four or more, pairs (one in the arena, one in the box; the one in the arena tags the
+// other in at the tag zone, and a wreck brings the other in by itself); with fewer everyone is alone, two lives each, and
+// the tag zone is a repair stop (10 s in the box).
+static void AwTagTeamOnline() {
+    Vec3 t = g_aw.tagZone;
+    N(N_DRAW_MARKER, 1, t.x, t.y, t.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 8.f, 8.f, 1.f, 60, 140, 255, 120, 0, 0, 2, 0, 0, 0, 0);
+    if (!AwTeamsLeft()) { if (!g_aw.myOut && g_aw.endAt - Now() > 3000) Shard("~g~LAST TEAM STANDING", "Every other team is out."); g_aw.endAt = std::min(g_aw.endAt, Now() + 3000); return; }
+    if (g_aw.myOut) return;
+    int pw = AwWho(g_aw.partner);
+    AwBot *pb = pw >= 0 ? &g_aw.botList[(size_t)pw] : nullptr;
+    if (g_aw.inBox) {
+        if (pb && !pb->out) {
+            if (g_aw.boxCam && Exists(pb->veh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, pb->veh, 0.f, 0.f, 0.f, 1);
+            Help("In the box: ~b~" + pb->name + "~s~ is in the arena and tags you in at the tag zone.");
+        } else {
+            int left = 10 - (Now() - g_aw.boxSince) / 1000;
+            if (left > 0) Help("In the box: your car is being repaired. Back in in " + std::to_string(left) + " s.");
+            else { Help("Press ~INPUT_CONTEXT~ to go back in."); if (JustPressed(51)) AwTagIn(); }
+        }
+        return;
+    }
+    if (Exists(g_aw.myVeh) && Dist(Pos(g_aw.myVeh), t) < 5.f) {
+        if (pb && !pb->out) {
+            if (pb->inBox) {
+                Help("Press ~INPUT_CONTEXT~ to tag out: ~b~" + pb->name + "~s~ comes in.");
+                if (JustPressed(51)) { AwSend("awe", "tag|" + pb->name + "|" + AwMyName()); AwTagOut(false); }
+            }
+        } else {
+            Help("Press ~INPUT_CONTEXT~ for the box: your car is repaired there.");
+            if (JustPressed(51)) AwTagOut(false);
+        }
+    }
+}
 static void AwTagTeamTick() {
+    if (!g_aw.solo) { AwTagTeamOnline(); return; }
     Vec3 t = g_aw.tagZone;
     N(N_DRAW_MARKER, 1, t.x, t.y, t.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 8.f, 8.f, 1.f, 60, 140, 255, 120, 0, 0, 2, 0, 0, 0, 0);
     if (!AwTeamsLeft()) { Shard("~g~LAST TEAM STANDING", "Every other team is out."); g_aw.endAt = std::min(g_aw.endAt, Now() + 3000); return; }
@@ -679,52 +939,90 @@ static void AwBombBallSetup() {
     g_aw.botBaseBlip = CoordBlip(g_aw.goalBots, 38, 1, "Enemy Goal", false);
     AwBallReset();
 }
-static void AwBombBallTick() {
-    for (Vec3 b : {g_aw.goalMine, g_aw.goalBots}) {
-        bool mine = b.x == g_aw.goalMine.x && b.y == g_aw.goalMine.y;
-        N(N_DRAW_MARKER, 1, b.x, b.y, b.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 12.f, 12.f, 1.5f, mine ? 60 : 230, mine ? 140 : 40, mine ? 255 : 40, 120, 0, 0, 2, 0, 0, 0, 0);
-    }
-    if (g_aw.goalAt) { if (Now() >= g_aw.goalAt) { g_aw.goalAt = 0; AwBallReset(); } return; }
-    if (!Exists(g_aw.ball)) { AwBallReset(); return; }
+static void AwBallNew() {   // a new ball in the middle; online the host's, and the others are told
+    AwBallReset();
+    if (!g_aw.solo) { g_aw.ballOwner = AwMyName(); AwSend("awe", "r|60000|" + AwMyName()); }
+}
+static void AwBallScored(bool mine, int pts, Vec3 bp) {   // a goal (3) or the round's timer (1): the ball goes off
+    N(N_ADD_EXPLOSION, bp.x, bp.y, bp.z, 9, 1.f, 1, 0, 1.f, 0);
+    if (Exists(g_aw.ball)) DeleteEntity(g_aw.ball);
+    RemoveBlip(g_aw.ballBlip);
+    if (mine) g_aw.score += pts; else g_aw.botScore += pts;
+    std::string sc = std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore);
+    if (pts >= 3) { Shard(mine ? "~b~GOAL!" : "~r~THEY SCORED", sc); if (mine) Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET"); }
+    else Shard(mine ? "~b~ROUND WON" : "~r~ROUND LOST", mine ? "The ball went off in their half." : "The ball went off in your half.");
+    g_aw.goalAt = Now() + 4000;
+}
+// online: the ball is simulated by one game at a time, its owner's (the player nearest to it claims it), which sends where
+// it is and how it moves 8 times a second ("awk"); the others move theirs there
+static void AwBallSync() {
+    if (!Exists(g_aw.ball)) return;
+    const std::string &me = AwMyName();
     Vec3 bp = Pos(g_aw.ball);
-    if (bp.z < g_aw.floorZ - 8.f || std::hypot(bp.x - AW_CENTRE.x, bp.y - AW_CENTRE.y) > 150.f) { AwBallReset(); return; }   // lost: back in the middle
+    if (g_aw.ballOwner != me && Exists(g_aw.myVeh) && Now() - g_aw.ballClaimAt > 600) {
+        float mine = Dist(Pos(g_aw.myVeh), bp);
+        int o = AwWho(g_aw.ballOwner);
+        float theirs = o >= 0 && Exists(g_aw.botList[(size_t)o].veh) ? Dist(Pos(g_aw.botList[(size_t)o].veh), bp) : 1e9f;
+        if (mine < 8.f && mine + 2.f < theirs) { g_aw.ballClaimAt = Now(); g_aw.ballOwner = me; AwClaim('k', me, bp, 0); }
+    }
+    if (g_aw.ballOwner == me && Now() >= g_aw.ballSendAt) {
+        g_aw.ballSendAt = Now() + 125;
+        Vec3 v = N<Vec3>(N_GET_ENTITY_VELOCITY, g_aw.ball);
+        char b[64]; std::snprintf(b, sizeof b, "|%d,%d,%d", (int)std::lround(v.x * 10.f), (int)std::lround(v.y * 10.f), (int)std::lround(v.z * 10.f));
+        AwSend("awk", AwPt(bp) + b);
+    }
+}
+static void AwBombBallTick() {
+    bool on = !g_aw.solo, mine = !on || g_aw.host;   // online the host's game keeps the rounds and the goals
+    for (Vec3 b : {g_aw.goalMine, g_aw.goalBots}) {
+        bool own = b.x == g_aw.goalMine.x && b.y == g_aw.goalMine.y;
+        N(N_DRAW_MARKER, 1, b.x, b.y, b.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 12.f, 12.f, 1.5f, own ? 60 : 230, own ? 140 : 40, own ? 255 : 40, 120, 0, 0, 2, 0, 0, 0, 0);
+    }
+    if (g_aw.goalAt) {
+        if (Now() < g_aw.goalAt) return;
+        g_aw.goalAt = 0;
+        if (mine) AwBallNew();
+        return;
+    }
+    if (!Exists(g_aw.ball)) { if (mine) AwBallNew(); return; }
+    if (on) AwBallSync();
+    if (!mine) return;
+    Vec3 bp = Pos(g_aw.ball);
+    if (bp.z < g_aw.floorZ - 8.f || std::hypot(bp.x - AW_CENTRE.x, bp.y - AW_CENTRE.y) > 150.f) { AwBallNew(); return; }   // lost: back in the middle
     auto goalIn = [&](Vec3 g) { return std::hypot(bp.x - g.x, bp.y - g.y) < 7.f && std::fabs(bp.z - g.z) < 7.f; };
     bool inBots = goalIn(g_aw.goalBots), inMine = goalIn(g_aw.goalMine);
     if (inBots || inMine) {   // a goal: the ball goes off, 3 points
-        N(N_ADD_EXPLOSION, bp.x, bp.y, bp.z, 9, 1.f, 1, 0, 1.f, 0);
-        DeleteEntity(g_aw.ball); RemoveBlip(g_aw.ballBlip);
-        if (inBots) { g_aw.score += 3; Shard("~b~GOAL!", std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore)); Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET"); }
-        else { g_aw.botScore += 3; Shard("~r~THEY SCORED", std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore)); }
-        g_aw.goalAt = Now() + 4000;
+        if (on) AwSend("awe", "G|" + std::to_string(inBots ? g_aw.side : 1 - g_aw.side) + "|3|" + AwMyName());
+        AwBallScored(inBots, 3, bp);
         return;
     }
     if (Now() >= g_aw.roundEnds) {   // the round's timer: whoever has the ball in the other half gets the point
         float ax = g_aw.goalBots.x - g_aw.goalMine.x, ay = g_aw.goalBots.y - g_aw.goalMine.y, l2 = std::max(1.f, ax * ax + ay * ay);
         float t = ((bp.x - g_aw.goalMine.x) * ax + (bp.y - g_aw.goalMine.y) * ay) / l2;
-        N(N_ADD_EXPLOSION, bp.x, bp.y, bp.z, 9, 1.f, 1, 0, 1.f, 0);
-        DeleteEntity(g_aw.ball); RemoveBlip(g_aw.ballBlip);
-        if (t > 0.5f) { ++g_aw.score; Shard("~b~ROUND WON", "The ball went off in their half."); }
-        else { ++g_aw.botScore; Shard("~r~ROUND LOST", "The ball went off in your half."); }
-        g_aw.goalAt = Now() + 4000;
+        if (on) AwSend("awe", "G|" + std::to_string(t > 0.5f ? g_aw.side : 1 - g_aw.side) + "|1|" + AwMyName());
+        AwBallScored(t > 0.5f, 1, bp);
     }
 }
 
 // ---- Buzzer Beater
-static void AwBuzzerCps() {   // three of the checkpoints out at a time
+static bool AwBuzzerCps() {   // three of the checkpoints out at a time (true: the list changed)
+    bool changed = false;
     while (g_aw.bbCps.size() < 3 && g_aw.cps.size() > 3) {
         int k = Rand((int)g_aw.cps.size());
-        if (std::find(g_aw.bbCps.begin(), g_aw.bbCps.end(), k) == g_aw.bbCps.end()) g_aw.bbCps.push_back(k);
+        if (std::find(g_aw.bbCps.begin(), g_aw.bbCps.end(), k) == g_aw.bbCps.end()) { g_aw.bbCps.push_back(k); changed = true; }
     }
+    return changed;
 }
+static void AwBuzzerList(unsigned to = 0) { std::string t; for (int k : g_aw.bbCps) t += std::to_string(k) + ","; AwSend("awb", t, to); }
 static int AwAliveBots() { int n = 0; for (auto &b : g_aw.botList) if (!b.out) ++n; return n; }
 static void AwBuzzerTick() {
     int now = Now(), dt = g_aw.lastTick ? now - g_aw.lastTick : 0;
     g_aw.lastTick = now;
-    if (g_aw.myOut) return;
-    AwBuzzerCps();
-    g_aw.myTime -= dt;
+    bool on = !g_aw.solo;
+    if (!on || g_aw.host) { if (AwBuzzerCps() && on) AwBuzzerList(); }   // online the host puts them out and says which
     for (auto &b : g_aw.botList) {
         if (b.out) continue;
+        if (AwRemote(b)) { b.timeMs = std::max(0, b.timeMs - dt); continue; }   // another player: its own game says when it is out
         b.timeMs -= dt;
         if (b.timeMs <= 0) {   // its time's up: out
             if (Exists(b.veh)) N(N_EXPLODE_VEHICLE, b.veh, 1, 0);
@@ -737,12 +1035,17 @@ static void AwBuzzerTick() {
             if (Exists(b.veh) && std::hypot(Pos(b.veh).x - c.x, Pos(b.veh).y - c.y) < 9.f) { b.timeMs += 10000; g_aw.bbCps.erase(g_aw.bbCps.begin() + (long)k); b.retaskAt = 0; break; }
         }
     }
+    if (g_aw.myOut) { if (on && AwAliveBots() <= 1) g_aw.endAt = std::min(g_aw.endAt, now + 3000); return; }   // online the event goes on until one is left
+    g_aw.myTime -= dt;
     Vec3 mp = Pos(Me());
     for (size_t k = 0; k < g_aw.bbCps.size(); ++k) {
-        Vec3 c = g_aw.cps[(size_t)g_aw.bbCps[k]];
+        int idx = g_aw.bbCps[k];
+        if (idx < 0 || idx >= (int)g_aw.cps.size()) continue;
+        Vec3 c = g_aw.cps[(size_t)idx];
         N(N_DRAW_MARKER, 1, c.x, c.y, c.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 8.f, 8.f, 5.f, 255, 140, 0, 120, 0, 0, 2, 0, 0, 0, 0);
         if (std::hypot(mp.x - c.x, mp.y - c.y) < 9.f && std::fabs(mp.z - c.z) < 8.f) {
             g_aw.myTime += 10000; g_aw.bbCps.erase(g_aw.bbCps.begin() + (long)k);
+            if (on) { g_aw.bbTaken[idx] = now; AwSend("awe", "bbt|" + std::to_string(idx) + "|" + AwMyName()); }   // gone for everyone
             Notify("~g~+10 s~s~  Checkpoint"); Sound("CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET");
             break;
         }
@@ -753,25 +1056,96 @@ static void AwBuzzerTick() {
         if (!air && g_aw.airSince) { if (now - g_aw.airSince > 1500) { g_aw.myTime += 5000; Notify("~g~+5 s~s~  Stunt"); } g_aw.airSince = 0; }
     }
     if (g_aw.myTime <= 0) {
-        g_aw.myTime = 0; g_aw.myOut = true;
+        g_aw.myTime = 0; g_aw.myOut = true; g_aw.outAt = now;
         if (Exists(g_aw.myVeh)) N(N_EXPLODE_VEHICLE, g_aw.myVeh, 1, 0);
         g_aw.myPlace = AwAliveBots() + 1;
         Shard("~r~OUT OF TIME", Ordinal(g_aw.myPlace));
-        g_aw.endAt = std::min(g_aw.endAt, now + 3000);
+        if (!on || AwAliveBots() <= 1) g_aw.endAt = std::min(g_aw.endAt, now + 3000);
     } else if (!AwAliveBots()) {
         g_aw.myPlace = 1;
-        Shard("~g~LAST ONE STANDING", "Buzzer Beater");
+        if (g_aw.endAt - now > 3000) Shard("~g~LAST ONE STANDING", "Buzzer Beater");
         g_aw.endAt = std::min(g_aw.endAt, now + 3000);
     }
 }
 
 // ---- start and end
+// the event laid out on the floor: the checkpoints, the mode's places, the traps (alone, or the host's online)
+static void AwMakeLayout() {
+    if (g_aw.mode == AWM_GAMESMASTERS || g_aw.mode == AWM_WRECKIT || g_aw.mode == AWM_BUZZER) {   // eight checkpoints across the floor, in a loop
+        g_aw.cps.clear();
+        for (int t = 0; t < 120 && g_aw.cps.size() < 8; ++t) {   // spread out: 20 m from the others, then 14, then 9 on a crowded map (only 3 fitted at 20 m on Apocalypse 1)
+            float h2 = 0.f; Vec3 c = AwSpawnPoint(h2);
+            float gap = t < 40 ? 20.f : t < 80 ? 14.f : 9.f;
+            bool tooNear = false;
+            for (const Vec3 &o : g_aw.cps) tooNear = tooNear || Dist(c, o) < gap;
+            if (!tooNear) g_aw.cps.push_back(c);
+        }
+        if (g_aw.cps.size() < 3) {   // no open floor found: a ring around the centre
+            g_aw.cps.clear();
+            float gz = g_aw.floorZ;
+            for (int i = 0; i < 6; ++i) { float a = i * 1.0472f; g_aw.cps.push_back(V3(AW_CENTRE.x + std::cos(a) * 28.f, AW_CENTRE.y + std::sin(a) * 28.f, gz + 1.f)); }
+        }
+    }
+    if (g_aw.mode == AWM_FLAGWAR) AwFlagSetup();
+    if (g_aw.mode == AWM_WRECKIT) {   // the track and the start grid
+        AwWreckItSetup();
+        AwGridPlace(g_aw.myVeh, g_aw.solo ? 0 : g_aw.rosterIdx);
+        if (g_aw.solo) for (size_t i = 0; i < g_aw.botList.size(); ++i) AwGridPlace(g_aw.botList[i].veh, (int)i + 1);
+    }
+    if (g_aw.mode == AWM_TAGTEAM) { float th = 0.f; g_aw.tagZone = AwSpawnPoint(th); g_aw.myBaseBlip = CoordBlip(g_aw.tagZone, 1, 3, "Tag Zone", false); }
+    if (g_aw.mode == AWM_BOMBBALL) AwBombBallSetup();
+    if (g_aw.mode == AWM_BUZZER) { g_aw.myTime = 60000; g_aw.lastTick = 0; }
+    AwTrapsSpawn();
+}
+// the host's layout to the others ("awl" checkpoints, "awt" traps six at a time, "awp" the pit, the tag zone and the two
+// sides' bases / goals, then what is out: Buzzer Beater's checkpoints, the flag, the ball); to one member when it asks again
+static void AwSendLayout(unsigned to, bool first) {
+    if (!g_aw.cps.empty()) { std::string t = std::to_string(g_aw.mode) + "|"; for (auto &c : g_aw.cps) t += AwPt(c) + ";"; AwSend("awl", t, to); }
+    for (size_t at = 0; at < g_aw.trapList.size(); at += 6) {
+        std::string t = std::to_string(at) + "|";
+        for (size_t k = at; k < g_aw.trapList.size() && k < at + 6; ++k) t += std::to_string(g_aw.trapList[k].kind) + "," + AwPt(g_aw.trapList[k].p) + ";";
+        AwSend("awt", t, to);
+    }
+    Vec3 A = g_aw.mode == AWM_FLAGWAR ? g_aw.myBase : g_aw.goalMine, B = g_aw.mode == AWM_FLAGWAR ? g_aw.botBase : g_aw.goalBots;   // the host's side is 0
+    AwSend("awp", AwPt(g_aw.pit) + ";" + AwPt(g_aw.tagZone) + ";" + AwPt(A) + ";" + AwPt(B), to);
+    if (g_aw.mode == AWM_BUZZER) AwBuzzerList(to);
+    if (g_aw.mode == AWM_FLAGWAR && first) AwClaim('g', "", g_aw.flag, 0);
+    else if (!first && !g_aw.objText.empty()) AwSend("awo", g_aw.objText, to);
+    if (g_aw.mode == AWM_BOMBBALL && Exists(g_aw.ball)) {
+        if (first) g_aw.ballOwner = AwMyName();
+        AwSend("awe", "r|" + std::to_string(std::max(1000, g_aw.roundEnds - Now())) + "|" + g_aw.ballOwner, to);
+    }
+    Log("arena: layout sent (%d checkpoints, %d traps)%s", (int)g_aw.cps.size(), (int)g_aw.trapList.size(), to ? " again" : "");
+}
+// a member: the host's layout is here (its points arrive last)
+static void AwLayoutApply() {
+    if (g_aw.layout) return;
+    g_aw.layout = true;
+    bool a = g_aw.side == 0;   // the host's side is 0: A is its base / goal
+    if (g_aw.mode == AWM_FLAGWAR) {
+        g_aw.myBase = a ? g_aw.ptA : g_aw.ptB; g_aw.botBase = a ? g_aw.ptB : g_aw.ptA;
+        g_aw.myBaseBlip = CoordBlip(g_aw.myBase, 38, 3, "Your Base", false);
+        g_aw.botBaseBlip = CoordBlip(g_aw.botBase, 38, 1, "Enemy Base", false);
+    }
+    if (g_aw.mode == AWM_WRECKIT) {
+        g_aw.myBaseBlip = CoordBlip(g_aw.pit, 446, 2, "Pit Stop", false);
+        if (g_aw.score == 0 && Exists(g_aw.myVeh) && Now() - g_aw.startAt < 3000) AwGridPlace(g_aw.myVeh, g_aw.rosterIdx);
+    }
+    if (g_aw.mode == AWM_TAGTEAM) g_aw.myBaseBlip = CoordBlip(g_aw.tagZone, 1, 3, "Tag Zone", false);
+    if (g_aw.mode == AWM_BOMBBALL) {
+        g_aw.goalMine = a ? g_aw.ptA : g_aw.ptB; g_aw.goalBots = a ? g_aw.ptB : g_aw.ptA;
+        g_aw.myBaseBlip = CoordBlip(g_aw.goalMine, 38, 3, "Your Goal", false);
+        g_aw.botBaseBlip = CoordBlip(g_aw.goalBots, 38, 1, "Enemy Goal", false);
+    }
+    Log("arena: the host's layout is here: %d checkpoints, %d traps, side %d", (int)g_aw.cps.size(), (int)g_aw.trapList.size(), g_aw.side);
+}
 static void AwBegin(int startsInMs) {
     g_aw.phase = AWP_COUNTDOWN;
     g_aw.startAt = Now() + std::max(2000, startsInMs);
     g_aw.endAt = g_aw.startAt + g_aw.minutes * 60000;
     g_aw.back = Pos(Me()); g_aw.backH = N<float>(N_GET_ENTITY_HEADING, Me());
     g_aw.kills = g_aw.deaths = 0;
+    if (!g_aw.solo) { g_awScores.clear(); AwPeersTick(true); }   // who plays, and on which side
     JobSkyUp();
     if (InAnyVehicle()) N(N_SET_ENTITY_COORDS, Me(), g_aw.back.x, g_aw.back.y, g_aw.back.z + 1.f, 0, 0, 0, 0);
     N(N_SET_ENTITY_COORDS, Me(), AW_CENTRE.x, AW_CENTRE.y, 150.f, 0, 0, 0, 0);
@@ -806,36 +1180,13 @@ static void AwBegin(int startsInMs) {
     N(N_FREEZE_ENTITY_POSITION, Me(), 0);
     AwPlacePlayer();
     if (Exists(g_aw.myVeh)) N(N_FREEZE_ENTITY_POSITION, g_aw.myVeh, 1);
-    g_aw.botList.assign(g_aw.solo ? g_aw.bots : 0, AwBot());
-    if (g_aw.mode == AWM_BOMBBALL) for (size_t i = 0; i < g_aw.botList.size() / 2; ++i) g_aw.botList[i].team = 1;   // half of them on your side
-    for (auto &b : g_aw.botList) { AwSpawnBot(b); if (Exists(b.veh)) N(N_FREEZE_ENTITY_POSITION, b.veh, 1); }
+    if (g_aw.solo) g_aw.botList.assign(g_aw.bots, AwBot());   // (online the other players are in it already)
+    if (g_aw.solo && g_aw.mode == AWM_BOMBBALL) for (size_t i = 0; i < g_aw.botList.size() / 2; ++i) g_aw.botList[i].team = 1;   // half of them on your side
+    for (auto &b : g_aw.botList) { AwSpawnBot(b); if (!AwRemote(b) && Exists(b.veh)) N(N_FREEZE_ENTITY_POSITION, b.veh, 1); }
     g_aw.countdownMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "COUNTDOWN");
     g_aw.lastCount = -1;
-    if (g_aw.mode == AWM_GAMESMASTERS || g_aw.mode == AWM_WRECKIT || g_aw.mode == AWM_BUZZER) {   // eight checkpoints across the floor, in a loop
-        g_aw.cps.clear();
-        for (int t = 0; t < 120 && g_aw.cps.size() < 8; ++t) {   // spread out: 20 m from the others, then 14, then 9 on a crowded map (only 3 fitted at 20 m on Apocalypse 1)
-            float h2 = 0.f; Vec3 c = AwSpawnPoint(h2);
-            float gap = t < 40 ? 20.f : t < 80 ? 14.f : 9.f;
-            bool tooNear = false;
-            for (const Vec3 &o : g_aw.cps) tooNear = tooNear || Dist(c, o) < gap;
-            if (!tooNear) g_aw.cps.push_back(c);
-        }
-        if (g_aw.cps.size() < 3) {   // no open floor found: a ring around the centre
-            g_aw.cps.clear();
-            float gz = g_aw.floorZ;
-            for (int i = 0; i < 6; ++i) { float a = i * 1.0472f; g_aw.cps.push_back(V3(AW_CENTRE.x + std::cos(a) * 28.f, AW_CENTRE.y + std::sin(a) * 28.f, gz + 1.f)); }
-        }
-    }
-    if (g_aw.mode == AWM_FLAGWAR) AwFlagSetup();
-    if (g_aw.mode == AWM_WRECKIT) {   // the track and the start grid
-        AwWreckItSetup();
-        AwGridPlace(g_aw.myVeh, 0);
-        for (size_t i = 0; i < g_aw.botList.size(); ++i) AwGridPlace(g_aw.botList[i].veh, (int)i + 1);
-    }
-    if (g_aw.mode == AWM_TAGTEAM) { float th = 0.f; g_aw.tagZone = AwSpawnPoint(th); g_aw.myBaseBlip = CoordBlip(g_aw.tagZone, 1, 3, "Tag Zone", false); }
-    if (g_aw.mode == AWM_BOMBBALL) AwBombBallSetup();
-    if (g_aw.mode == AWM_BUZZER) { g_aw.myTime = 60000; g_aw.lastTick = 0; }
-    AwTrapsSpawn();
+    if (g_aw.solo || g_aw.host) { AwMakeLayout(); g_aw.layout = true; if (!g_aw.solo) AwSendLayout(0, true); }   // online: the host's, sent to the others
+    else { g_aw.layoutFrom = Now(); g_aw.layoutAskAt = Now() + 1500; }
     N(N_DO_SCREEN_FADE_IN, 600);
     if (g_aw.solo) {   // alone: the countdown once you have landed, the match as long as chosen
         int late = Now() + 3200 - g_aw.startAt;
@@ -845,6 +1196,8 @@ static void AwBegin(int startsInMs) {
     Shard("~o~ARENA WAR", std::string(AW_MODES[g_aw.mode].name) + " - " + AW_THEMES[g_aw.theme].name);
     Log("arena war: %s, %s map %d (floor %.1f), %s, %d min, %d bots, %d traps, %s", AW_MODES[g_aw.mode].name, AW_THEMES[g_aw.theme].name, g_aw.map + 1, g_aw.floorZ, AwModel(g_aw.theme, g_aw.veh).c_str(),
         g_aw.minutes, (int)g_aw.botList.size(), (int)g_aw.trapList.size(), g_aw.solo ? "solo" : "online");
+    if (!g_aw.solo) Log("arena war online: %d players, you are %d (side %d)%s%s", (int)g_aw.roster.size(), g_aw.rosterIdx, g_aw.side, g_aw.partner.empty() ? "" : ", partner ", g_aw.partner.c_str());
+    if (!g_aw.solo && g_aw.mode == AWM_TAGTEAM && !g_aw.partner.empty() && g_aw.rosterIdx % 2 == 1) AwTagOut(false);   // the second of a pair starts in the box
 }
 static void AwCpClear() { if (g_aw.cpHandle) { N(N_DELETE_CHECKPOINT, g_aw.cpHandle); g_aw.cpHandle = 0; } RemoveBlip(g_aw.cpBlip); }
 static void AwModesClear() {   // the new modes' things: the ball, the partner, the box camera
@@ -855,6 +1208,7 @@ static void AwModesClear() {   // the new modes' things: the ball, the partner, 
     AwBoxCam(false);
 }
 static void AwCleanup() {
+    if (LO().setRespawnPoint) LO().setRespawnPoint(0, 0, 0, 0, 0);
     AwCpClear(); AwFlagClear(); AwTrapsClear(); AwModesClear();
     for (auto &b : g_aw.botList) AwRemoveBot(b);
     if (g_aw.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_aw.countdownMovie);
@@ -870,6 +1224,8 @@ static void AwCleanup() {
 static int AwApGet() { return AcidGet("arena_ap"); }   // the Arena Points total (Gori's per-character custom store)
 static void AwFinish() {
     if (g_aw.phase == AWP_RESULTS) return;
+    if (LO().setRespawnPoint) LO().setRespawnPoint(0, 0, 0, 0, 0);
+    if (!g_aw.solo) AwStateTick(true);   // the last word on my score
     g_aw.phase = AWP_RESULTS; g_aw.resultsUntil = Now() + 12000 + 9000;
     if (g_aw.mode == AWM_WRECKIT && !g_aw.myPlace) g_aw.myPlace = AwRacePlace();
     if (g_aw.mode == AWM_BUZZER && !g_aw.myPlace) { int better = 0; for (auto &b : g_aw.botList) if (!b.out && b.timeMs > g_aw.myTime) ++better; g_aw.myPlace = better + 1; }
@@ -881,11 +1237,14 @@ static void AwFinish() {
         ap = g_aw.deaths == 0 ? 80 : std::max(20, 60 - 10 * g_aw.deaths); cash = g_aw.deaths == 0 ? 16000 : std::max(4000, 12000 - 2000 * g_aw.deaths);
         line = g_aw.deaths == 0 ? "Survived in one piece!" : std::to_string(g_aw.deaths) + " times wrecked";
     }
+    if (g_aw.mode == AWM_MONSTERS && !g_aw.solo && g_aw.side == 1) {   // online, in a monster truck
+        ap = 20 + 15 * g_aw.kills; cash = std::min(60000, 4000 + 3000 * g_aw.kills); line = std::to_string(g_aw.kills) + " small cars wrecked";
+    }
     if (g_aw.mode == AWM_GAMESMASTERS) { ap = 20 + 10 * g_aw.score; cash = std::min(60000, 2000 + 1500 * g_aw.score); line = std::to_string(g_aw.score) + " checkpoints"; }
     if (g_aw.mode == AWM_FLAGWAR) {
         bool won = g_aw.score > g_aw.botScore;
         ap = 20 + 15 * g_aw.score + (won ? 20 : 0); cash = std::min(60000, 3000 + 2500 * g_aw.score + (won ? 5000 : 0));
-        line = std::string(won ? "You won " : g_aw.score == g_aw.botScore ? "A draw, " : "The bots won ") + std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore);
+        line = std::string(won ? "You won " : g_aw.score == g_aw.botScore ? "A draw, " : g_aw.solo ? "The bots won " : "They won ") + std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore);
     }
     int field = 1 + (int)g_aw.botList.size();
     if (g_aw.mode == AWM_WRECKIT || g_aw.mode == AWM_BUZZER) {   // by place
@@ -895,7 +1254,7 @@ static void AwFinish() {
         line = Ordinal(pl) + " of " + std::to_string(field) + (g_aw.mode == AWM_BUZZER ? ", " + std::to_string(g_aw.kills) + " wrecks caused" : "");
     }
     if (g_aw.mode == AWM_TAGTEAM) {
-        int better = 0, level = 0; for (auto &b : g_aw.botList) if (!b.out) { if (b.lives > g_aw.myLives) ++better; else if (b.lives == g_aw.myLives) ++level; }
+        int better = 0, level = 0; for (auto &b : g_aw.botList) if (!b.out && b.team != 1) { if (b.lives > g_aw.myLives) ++better; else if (b.lives == g_aw.myLives) ++level; }
         bool won = !g_aw.myOut && better == 0 && level == 0, draw = !g_aw.myOut && better == 0 && level > 0;   // at the time limit: the most lives left
         ap = (won ? 60 : draw ? 40 : 25) + 10 * g_aw.kills; cash = std::min(60000, (won ? 15000 : draw ? 9000 : 5000) + 1500 * g_aw.kills);
         line = std::string(won ? "Your team won" : draw ? "A draw" : g_aw.myOut ? "Your team was knocked out" : "Your team lost") + ", " + std::to_string(g_aw.kills) + " wrecks";
@@ -904,22 +1263,30 @@ static void AwFinish() {
     if (g_aw.mode == AWM_BOMBBALL) {
         bool won = g_aw.score > g_aw.botScore;
         ap = 20 + 10 * g_aw.score + (won ? 20 : 0); cash = std::min(60000, 3000 + 2000 * g_aw.score + (won ? 5000 : 0));
-        line = std::string(won ? "You won " : g_aw.score == g_aw.botScore ? "A draw, " : "The bots won ") + std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore);
+        line = std::string(won ? "You won " : g_aw.score == g_aw.botScore ? "A draw, " : g_aw.solo ? "The bots won " : "They won ") + std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore);
     }
     AcidSet("arena_ap", AwApGet() + ap);
     if (g_aw.solo) AddCash(cash);
+    long long shown = cash;
+    int pos = 0;
+    if (!g_aw.solo) {   // between players the server pays, by position
+        static const double share[8] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};
+        pos = AwOnlinePos();
+        if (g_jobStartedAt && Now() - g_jobStartedAt < 60000) g_aw.noPay = true;   // the server pays nothing for a job passed within a minute of its start
+        shown = pos && !g_aw.noPay ? (long long)(g_aw.payout * share[std::min(7, pos - 1)]) : 0;
+    }
     int rpBefore = g_rp, rp = 300 + 50 * (g_aw.kills + g_aw.score);
     GiveRP(rp, nullptr);
     Save();
     bool lost = ((g_aw.mode == AWM_FLAGWAR || g_aw.mode == AWM_BOMBBALL) && g_aw.score < g_aw.botScore) || (g_aw.mode == AWM_TAGTEAM && !g_aw.score) ||
                 ((g_aw.mode == AWM_WRECKIT || g_aw.mode == AWM_BUZZER) && g_aw.myPlace > 3);
-    JobCelebrate(std::string("Arena War - ") + AW_MODES[g_aw.mode].name, g_aw.mode == AWM_WRECKIT || g_aw.mode == AWM_BUZZER ? g_aw.myPlace : 0, !lost, g_jobStartedAt ? Now() - g_jobStartedAt : 0, rpBefore, rp,
-                 g_aw.solo ? cash : 0, line + "  +" + std::to_string(ap) + " AP");
+    JobCelebrate(std::string("Arena War - ") + AW_MODES[g_aw.mode].name, g_aw.mode == AWM_WRECKIT || g_aw.mode == AWM_BUZZER ? g_aw.myPlace : pos, !lost, g_jobStartedAt ? Now() - g_jobStartedAt : 0, rpBefore, rp,
+                 shown, line + "  +" + std::to_string(ap) + " AP");
 }
 
-// ---- host / join (online: a deathmatch job, kind 2, text "A|...")
+// ---- host / join (online: Carnage a deathmatch job, kind 2; the other modes a scored event, kind 4; text "A|theme|map|light|minutes|vehicle|mode|traps")
 static std::string AwText() {
-    char b[64]; std::snprintf(b, sizeof b, "A|%d|%d|%d|%d|%d", g_aw.theme, g_aw.map, g_aw.light, g_aw.minutes, g_aw.veh);
+    char b[96]; std::snprintf(b, sizeof b, "A|%d|%d|%d|%d|%d|%d|%d", g_aw.theme, g_aw.map, g_aw.light, g_aw.minutes, g_aw.veh, g_aw.mode, g_aw.traps ? 1 : 0);
     return b;
 }
 static void AwStart(bool online) {
@@ -931,11 +1298,10 @@ static void AwStart(bool online) {
     if (g_aw.mode == AWM_TAGTEAM) g_aw.bots = std::max(g_aw.bots, 2);   // two teams at least against yours
     if (g_aw.mode == AWM_BOMBBALL) g_aw.bots = std::max(g_aw.bots, 4);  // two on your side, two against
     if (g_aw.mode == AWM_WRECKIT) g_aw.traps = true;                    // the track is booby-trapped
-    if (g_aw.mode != AWM_CARNAGE) online = false;
     if (!online || !LO().jobOpenKind || !CoopAvailable()) { g_aw.solo = true; AwBegin(4000); return; }
     g_aw.solo = false;
     g_aw.payout = 12000 * g_aw.minutes / 5;
-    if (!LO().jobOpenKind((std::string("Arena War: ") + AW_THEMES[g_aw.theme].name).c_str(), -376.f, -1862.f, 20.f, g_aw.payout, 2)) {
+    if (!LO().jobOpenKind((std::string("Arena War: ") + (g_aw.mode == AWM_CARNAGE ? AW_THEMES[g_aw.theme].name : AW_MODES[g_aw.mode].name)).c_str(), -376.f, -1862.f, 20.f, g_aw.payout, g_aw.mode == AWM_CARNAGE ? 2 : 4)) {
         Notify("~r~Could not open the Arena War lobby."); g_aw = AwRun(); return;
     }
     g_aw.phase = AWP_LOBBY;
@@ -945,11 +1311,18 @@ static void AwStart(bool online) {
 }
 static void AwHostStart() {
     if (!g_aw.host || g_aw.phase != AWP_LOBBY || !LO().jobUpdate) return;
+    if (g_aw.mode != AWM_CARNAGE && g_coop.members.empty()) {   // nobody joined: the event against bots
+        LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, "");
+        Notify("Nobody joined: the event is against bots.");
+        g_aw.solo = true; g_aw.phase = AWP_NONE;
+        AwBegin(4000);
+        return;
+    }
     LO().jobUpdate(COOP_RUNNING, 0, -376.f, -1862.f, 20.f, AwText().c_str());
     g_aw.phase = AWP_NONE;   // AwFollowJob picks up the start time
 }
 static void AwFollowJob() {
-    if (g_aw.phase != AWP_NONE || !g_coop.id || g_coop.kind != 2) return;
+    if (g_aw.phase != AWP_NONE || !g_coop.id || (g_coop.kind != 2 && g_coop.kind != 4)) return;
     if (g_coop.status != COOP_RUNNING || g_coop.startsIn <= 0 || g_coop.text.compare(0, 2, "A|")) return;
     std::vector<std::string> f;
     std::string cur;
@@ -957,13 +1330,15 @@ static void AwFollowJob() {
     if (f.size() < 6) return;
     bool host = g_coop.hosting || g_coop.host == "you";
     g_aw = AwRun();
-    g_aw.host = host; g_aw.solo = false;
+    g_aw.host = host; g_aw.solo = false; g_aw.jobId = g_coop.id;
     g_aw.theme = std::max(0, std::min(2, std::atoi(f[1].c_str())));
     g_aw.map = AwFixMap(g_aw.theme, std::max(0, std::atoi(f[2].c_str())));
     g_aw.light = std::max(0, std::min(NAW_LIGHTS - 1, std::atoi(f[3].c_str())));
     g_aw.minutes = std::max(1, std::atoi(f[4].c_str()));
     g_aw.veh = host ? std::max(0, std::min(NAW_VEHS - 1, std::atoi(f[5].c_str()))) : g_awSel[3];   // members drive their own pick
     g_aw.payout = g_coop.payout;
+    g_aw.mode = f.size() > 6 ? std::max(0, std::min((int)AWM_COUNT - 1, std::atoi(f[6].c_str()))) : (int)AWM_CARNAGE;
+    g_aw.traps = (f.size() > 7 && std::atoi(f[7].c_str()) != 0) || g_aw.mode == AWM_WRECKIT;
     AwBegin((int)g_coop.startsIn);
 }
 
@@ -972,11 +1347,192 @@ static int AwHolderVeh() { return g_aw.bombHolder == -1 ? g_aw.myVeh : g_aw.bomb
 static void AwGiveBomb(int who) {
     g_aw.bombHolder = who; g_aw.lastPass = Now();
     if (who == -1) { Notify("~r~You have the bomb!~s~ Ram someone to pass it on."); Sound("Out_Of_Area", "DLC_Lowrider_Relay_Race_Sounds"); }
-    else Sound("Bomb_Passed", "DLC_AW_Hot_Bomb_Sounds");
+    else {
+        Sound("Bomb_Passed", "DLC_AW_Hot_Bomb_Sounds");
+        if (who >= 0 && who < (int)g_aw.botList.size() && AwRemote(g_aw.botList[(size_t)who])) Notify("~r~" + g_aw.botList[(size_t)who].name + "~s~ has the bomb. Keep away!");
+    }
     for (auto &b : g_aw.botList) b.retaskAt = 0;   // the bots change their plan at once
+}
+// Hot Bomb between players: the host hands each round's bomb to someone; whoever holds it passes it by touching another
+// player's car (its own game says so); at zero it goes off under its holder, and everybody else has survived the round
+static void AwBombBoom(int who) {
+    if (who == -1) Shard("~r~BOOM", "You were holding the bomb.");
+    else {
+        ++g_aw.score; Shard("~g~ROUND SURVIVED", std::to_string(g_aw.score) + " so far");
+        if (who >= 0 && who < (int)g_aw.botList.size() && Exists(g_aw.botList[(size_t)who].veh)) {   // seen here too, without damage
+            Vec3 p = Pos(g_aw.botList[(size_t)who].veh);
+            N(N_ADD_EXPLOSION, p.x, p.y, p.z, 9, 1.f, 1, 0, 1.f, 1);
+        }
+    }
+    g_aw.bombHolder = -2; g_aw.bombEnds = Now() + 4000;
+}
+static void AwHotBombOnline() {
+    int now = Now(), n = (int)g_aw.botList.size();
+    if (g_aw.bombHolder == -2) {   // between rounds
+        if (g_aw.host && now >= g_aw.bombEnds) {
+            std::vector<int> who{-1};
+            for (int i = 0; i < n; ++i) if (!g_aw.botList[(size_t)i].out) who.push_back(i);
+            int pick = who[(size_t)Rand((int)who.size())];
+            AwGiveBomb(pick);
+            g_aw.bombEnds = now + 25000;
+            AwClaim('b', AwNameOf(pick), V3(0, 0, 0), 25000);
+        }
+        return;
+    }
+    int hv = AwHolderVeh();
+    Vec3 hp{}; bool seen = false;
+    if (Exists(hv)) { hp = Pos(hv); seen = true; }
+    else if (g_aw.bombHolder >= 0 && g_aw.bombHolder < n && Exists(g_aw.botList[(size_t)g_aw.bombHolder].ped)) { hp = Pos(g_aw.botList[(size_t)g_aw.bombHolder].ped); seen = true; }
+    if (seen) N(N_DRAW_MARKER, 0, hp.x, hp.y, hp.z + 2.6f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.2f, 1.2f, 1.2f, 255, 40, 20, 220, 1, 0, 2, 1, 0, 0, 0);
+    if (g_aw.bombHolder == -1) {
+        if (now - g_aw.lastPass > 1500 && Exists(g_aw.myVeh))
+            for (int i = 0; i < n; ++i) {
+                AwBot &b = g_aw.botList[(size_t)i];
+                if (b.out || !Exists(b.veh)) continue;
+                if (NB(N<int>(N_IS_ENTITY_TOUCHING_ENTITY, g_aw.myVeh, b.veh)) || Dist(Pos(g_aw.myVeh), Pos(b.veh)) < 3.2f) {
+                    AwGiveBomb(i);
+                    AwClaim('b', b.name, V3(0, 0, 0), std::max(0, g_aw.bombEnds - now));
+                    break;
+                }
+            }
+        if (g_aw.bombHolder == -1 && now >= g_aw.bombEnds) {
+            if (Exists(g_aw.myVeh)) N(N_EXPLODE_VEHICLE, g_aw.myVeh, 1, 0);
+            AwClaim('x', AwMyName(), V3(0, 0, 0), 0);
+            AwBombBoom(-1);
+        }
+    } else if (g_aw.host && now >= g_aw.bombEnds + 3000) {   // its holder never said it went off (it left): the host does
+        int who = g_aw.bombHolder;
+        AwClaim('x', AwNameOf(who), V3(0, 0, 0), 0);
+        AwBombBoom(who);
+    }
+}
+// a claim that stands: the bomb, the flag, the ball's owner
+static void AwObject(char what, const std::string &name, const Vec3 &p, int ms) {
+    int who = AwWho(name);
+    if (what == 'b') { if (who != -2) { AwGiveBomb(who); g_aw.bombEnds = Now() + ms; } }
+    else if (what == 'x') AwBombBoom(who);
+    else if (what == 'g') { g_aw.flag = p; g_aw.flagCarrier = -2; g_aw.flagAt = 0; }
+    else if (what == 't') { if (who != -2) AwFlagTake(who); }
+    else if (what == 'c') { if (who != -2) AwFlagCaptured(who == -1 || (who >= 0 && g_aw.botList[(size_t)who].team == 1)); }
+    else if (what == 'k') g_aw.ballOwner = name;
+}
+// the other players' messages (Buzzer.inc hands over every "aw..." kind)
+static void AwMessage(unsigned from, const std::string &kind, const std::string &text) {
+    if (g_aw.solo || (g_aw.phase != AWP_COUNTDOWN && g_aw.phase != AWP_PLAYING)) return;
+    std::vector<std::string> a = Split(text, '|');
+    if (kind == "aws" && a.size() >= 9) {   // a player's progress
+        int w = AwPeerFrom(from, a[0]);
+        if (w < 0) return;
+        AwBot &b = g_aw.botList[(size_t)w];
+        b.cp = std::atoi(a[1].c_str()); b.score = std::atoi(a[2].c_str()); b.lives = std::atoi(a[3].c_str());
+        bool out = a[4] == "1"; int fin = std::atoi(a[5].c_str());
+        b.kills = std::atoi(a[6].c_str()); b.inBox = a[7] == "1"; b.timeMs = std::atoi(a[8].c_str());
+        if (out && !b.out) {
+            b.out = true;
+            if (g_aw.mode == AWM_BUZZER) Notify("~g~" + b.name + " ran out of time.~s~ " + std::to_string(AwAliveBots() + (g_aw.myOut ? 0 : 1)) + " left.");
+            else if (g_aw.mode == AWM_TAGTEAM && b.team != 1) Notify("~g~" + b.name + " is out!");
+        }
+        if (fin && !b.finished) {
+            b.finished = ++g_aw.finishedBots;
+            if (g_aw.mode == AWM_WRECKIT) { Notify("~b~" + b.name + "~s~ finished (" + Ordinal(b.finished + (g_aw.myPlace ? 1 : 0)) + ")."); AwRaceEndCheck(); }
+        }
+        return;
+    }
+    if (kind == "awq") { if (g_aw.host && g_aw.layout) AwSendLayout(from, false); return; }
+    if (kind == "awl") {   // the host's checkpoints
+        if (g_aw.host || g_aw.layout || a.size() < 2) return;
+        g_aw.cps.clear();
+        for (auto &t : Split(a[1], ';')) { Vec3 p; if (AwPtOf(t, p)) g_aw.cps.push_back(p); }
+        return;
+    }
+    if (kind == "awt") {   // the host's traps, from that place in the list on
+        if (g_aw.host || g_aw.layout || a.size() < 2) return;
+        int at = std::atoi(a[0].c_str());
+        for (auto &t : Split(a[1], ';')) {
+            std::vector<std::string> f = Split(t, ',');
+            Vec3 p;
+            if (f.size() < 4 || at < 0 || at > 40 || !AwPtOf(f[1] + "," + f[2] + "," + f[3], p)) continue;
+            if ((int)g_aw.trapList.size() <= at) g_aw.trapList.resize((size_t)at + 1);
+            AwTrap &tr = g_aw.trapList[(size_t)at];
+            if (Exists(tr.obj)) DeleteEntity(tr.obj);
+            tr = AwTrap(); tr.kind = std::max(0, std::min((int)AWT_COUNT - 1, std::atoi(f[0].c_str()))); tr.p = p; tr.h = (float)((at * 67) % 360);
+            AwTrapMake(tr);
+            ++at;
+        }
+        return;
+    }
+    if (kind == "awp") {   // the host's places: the layout is complete
+        std::vector<std::string> p = Split(text, ';');
+        if (g_aw.host || g_aw.layout || p.size() < 4) return;
+        AwPtOf(p[0], g_aw.pit); AwPtOf(p[1], g_aw.tagZone); AwPtOf(p[2], g_aw.ptA); AwPtOf(p[3], g_aw.ptB);
+        AwLayoutApply();
+        return;
+    }
+    if (kind == "awb") {   // Buzzer Beater: the checkpoints that are out (the host's list), less any I have just taken
+        if (g_aw.host) return;
+        g_aw.bbCps.clear();
+        for (auto &t : Split(text, ',')) {
+            if (t.empty()) continue;
+            int k = std::atoi(t.c_str());
+            auto it = g_aw.bbTaken.find(k);
+            if (it != g_aw.bbTaken.end() && Now() - it->second < 1500) continue;
+            g_aw.bbCps.push_back(k);
+        }
+        return;
+    }
+    if (kind == "awk") {   // the ball, from its owner
+        int w = AwPeerFrom(from, "");
+        if (a.size() < 2 || g_aw.mode != AWM_BOMBBALL || !Exists(g_aw.ball) || g_aw.goalAt || g_aw.ballOwner == AwMyName() || (w >= 0 && g_aw.botList[(size_t)w].name != g_aw.ballOwner)) return;
+        Vec3 p; std::vector<std::string> v = Split(a[1], ',');
+        if (!AwPtOf(a[0], p) || v.size() < 3) return;
+        if (Dist(Pos(g_aw.ball), p) > 1.f) N(N_SET_ENTITY_COORDS_NO_OFFSET, g_aw.ball, p.x, p.y, p.z, 0, 0, 0);
+        N(N_SET_ENTITY_VELOCITY, g_aw.ball, std::atoi(v[0].c_str()) / 10.f, std::atoi(v[1].c_str()) / 10.f, std::atoi(v[2].c_str()) / 10.f);
+        return;
+    }
+    if (kind == "awo" && a.size() >= 6) {   // a claim: an older one, or the same number from a name that sorts later, loses
+        int seq = std::atoi(a[0].c_str()); char what = a[1].empty() ? 0 : a[1][0]; int g = what == 'k' ? 1 : 0;
+        if (seq < g_aw.objSeq[g] || (seq == g_aw.objSeq[g] && !(a[5] < g_aw.objBy[g]))) return;
+        g_aw.objSeq[g] = seq; g_aw.objBy[g] = a[5];
+        if (g == 0) g_aw.objText = text;
+        Vec3 p{}; AwPtOf(a[3], p);
+        AwObject(what, a[2], p, std::atoi(a[4].c_str()));
+        return;
+    }
+    if (kind != "awe" || a.empty()) return;
+    const std::string &e = a[0];
+    if (e == "w" && a.size() >= 3) {   // a wreck: its victim says who did it
+        if (a[1] != AwMyName()) return;
+        ++g_aw.kills; Sound("Kill_List_Score", "DLC_AW_Frontend_Sounds");
+        if (g_aw.mode == AWM_BUZZER && !g_aw.myOut) { g_aw.myTime += 15000; Notify("~g~+15 s~s~  " + a[2] + " wrecked"); }
+        else Notify("~r~" + a[2] + " wrecked~s~  +10 AP");
+    } else if (e == "m" && a.size() >= 2) {   // a mine went off under someone
+        int i = std::atoi(a[1].c_str());
+        if (i < 0 || i >= (int)g_aw.trapList.size() || !Exists(g_aw.trapList[(size_t)i].obj)) return;
+        AwTrap &t = g_aw.trapList[(size_t)i];
+        N(N_ADD_EXPLOSION, t.p.x, t.p.y, t.p.z + 0.3f, 4, 0.4f, 1, 0, 1.f, 1);   // seen and heard here, no damage
+        DeleteEntity(t.obj); t.obj = 0; t.nextAt = Now() + 20000;
+    } else if (e == "bbt" && a.size() >= 2) {   // Buzzer Beater: someone took that checkpoint
+        auto it = std::find(g_aw.bbCps.begin(), g_aw.bbCps.end(), std::atoi(a[1].c_str()));
+        if (it != g_aw.bbCps.end()) g_aw.bbCps.erase(it);
+    } else if (e == "tag" && a.size() >= 2) {   // Tag Team: my partner tags me in
+        if (a[1] == AwMyName() && g_aw.inBox && !g_aw.myOut) AwTagIn();
+    } else if (e == "down" && a.size() >= 3) {   // Tag Team: my partner was wrecked: the team's lives, and I am in
+        if (g_aw.partner.empty() || a[2] != g_aw.partner) return;
+        g_aw.myLives = std::atoi(a[1].c_str());
+        if (g_aw.myLives <= 0) { if (!g_aw.myOut) { g_aw.myOut = true; g_aw.outAt = Now(); Shard("~r~YOUR TEAM IS OUT", ""); } }
+        else if (g_aw.inBox) AwTagIn();
+    } else if (e == "G" && a.size() >= 3) {   // Bomb Ball: the host's game saw a goal, or the round's end
+        if (g_aw.mode == AWM_BOMBBALL && !g_aw.host) AwBallScored(std::atoi(a[1].c_str()) == g_aw.side, std::atoi(a[2].c_str()), Exists(g_aw.ball) ? Pos(g_aw.ball) : g_aw.goalMine);
+    } else if (e == "r" && a.size() >= 3) {   // Bomb Ball: a new ball in the middle
+        if (g_aw.mode != AWM_BOMBBALL || g_aw.host || !g_aw.layout) return;
+        g_aw.goalAt = 0;
+        AwBallReset();
+        g_aw.roundEnds = Now() + std::atoi(a[1].c_str()); g_aw.ballOwner = a[2];
+    }
 }
 static void AwModeTick() {
     int me = Me();
+    if (g_aw.mode == AWM_HOTBOMB && !g_aw.solo) { AwHotBombOnline(); return; }
     if (g_aw.mode == AWM_HOTBOMB) {
         auto alive = [](int v) { return Exists(v) && !Dead(v) && NB(N<int>(N_IS_VEHICLE_DRIVEABLE, v, 0)); };
         if (g_aw.bombHolder == -2 && Now() < g_aw.bombEnds) return;   // a breather between rounds
@@ -1027,15 +1583,15 @@ static void AwHud() {
     int row = 0;
     RaceBar(row++, "TIME LEFT", RaceTime(std::max(0, g_aw.endAt - Now())).substr(0, 5));
     if (g_aw.mode == AWM_HOTBOMB) {
-        RaceBar(row++, "BOMB", g_aw.bombHolder == -1 ? "YOU" : g_aw.bombHolder >= 0 ? "BOT" : "-");
+        RaceBar(row++, "BOMB", AwLabel(g_aw.bombHolder));
         RaceBar(row++, "FUSE", RaceTime(std::max(0, g_aw.bombEnds - Now())).substr(0, 5));
         RaceBar(row++, "ROUNDS", std::to_string(g_aw.score), true);
         return;
     }
     if (g_aw.mode == AWM_FLAGWAR) {
-        RaceBar(row++, "FLAG", g_aw.flagCarrier == -1 ? "YOU" : g_aw.flagCarrier >= 0 ? "BOT" : "FREE");
-        RaceBar(row++, "BOTS", std::to_string(g_aw.botScore));
-        RaceBar(row++, "YOU", std::to_string(g_aw.score), true);
+        RaceBar(row++, "FLAG", g_aw.flagCarrier >= -1 ? AwLabel(g_aw.flagCarrier) : "FREE");
+        RaceBar(row++, g_aw.solo ? "BOTS" : "THEM", std::to_string(g_aw.botScore));
+        RaceBar(row++, g_aw.solo ? "YOU" : "YOUR TEAM", std::to_string(g_aw.score), true);
         return;
     }
     if (g_aw.mode == AWM_WRECKIT) {
@@ -1045,15 +1601,15 @@ static void AwHud() {
         return;
     }
     if (g_aw.mode == AWM_TAGTEAM) {
-        RaceBar(row++, "TEAMS LEFT", std::to_string(1 + [] { int n = 0; for (auto &b : g_aw.botList) if (!b.out) ++n; return n; }()));
+        RaceBar(row++, "TEAMS LEFT", std::to_string((g_aw.myOut ? 0 : 1) + AwTeamsAlive()));
         RaceBar(row++, "IN THE ARENA", g_aw.inBox ? "PARTNER" : "YOU");
         RaceBar(row++, "LIVES", std::to_string(g_aw.myLives), true);
         return;
     }
     if (g_aw.mode == AWM_BOMBBALL) {
         RaceBar(row++, "ROUND", RaceTime(std::max(0, g_aw.roundEnds - Now())).substr(0, 5));
-        RaceBar(row++, "BOTS", std::to_string(g_aw.botScore));
-        RaceBar(row++, "YOU", std::to_string(g_aw.score), true);
+        RaceBar(row++, g_aw.solo ? "BOTS" : "THEM", std::to_string(g_aw.botScore));
+        RaceBar(row++, g_aw.solo ? "YOU" : "YOUR TEAM", std::to_string(g_aw.score), true);
         return;
     }
     if (g_aw.mode == AWM_BUZZER) {
@@ -1061,11 +1617,33 @@ static void AwHud() {
         RaceBar(row++, "YOUR TIME", RaceTime(std::max(0, g_aw.myTime)).substr(0, 5), true);
         return;
     }
+    if (g_aw.mode == AWM_MONSTERS && !g_aw.solo && g_aw.side == 1) { RaceBar(row++, "SMALL CARS WRECKED", std::to_string(g_aw.kills), true); return; }   // online, in a monster truck
     RaceBar(row++, g_aw.mode == AWM_MONSTERS ? "WRECKED" : "DEATHS", std::to_string(g_aw.deaths));
     if (g_aw.mode == AWM_GAMESMASTERS) RaceBar(row++, "CHECKPOINTS", std::to_string(g_aw.score), true);
     else if (g_aw.mode == AWM_CARNAGE) RaceBar(row++, "KILLS", std::to_string(g_aw.kills), true);
 }
 static void AwResults() {
+    if (!g_aw.solo) {   // between players: the server's standings, and what each position was paid
+        std::vector<DmScore> sc = DmScores();
+        if (!sc.empty()) g_awScores = sc;
+        static const double share[8] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};
+        bool scored = g_aw.mode != AWM_CARNAGE;
+        const char *c1 = g_aw.mode == AWM_WRECKIT || g_aw.mode == AWM_GAMESMASTERS ? "CHECKPOINTS" : g_aw.mode == AWM_BUZZER ? "SECONDS" : g_aw.mode == AWM_HOTBOMB ? "ROUNDS" :
+                         g_aw.mode == AWM_FLAGWAR ? "TEAM FLAGS" : g_aw.mode == AWM_BOMBBALL ? "TEAM POINTS" : g_aw.mode == AWM_CARNAGE ? "KILLS" : "POINTS";
+        std::vector<JobBoardRow> rows;
+        for (size_t i = 0; i < g_awScores.size(); ++i) {
+            const DmScore &x = g_awScores[i];
+            JobBoardRow row; row.me = x.me;
+            int w = x.me ? -1 : AwWho(x.name);
+            std::string third = scored ? (x.deaths ? RaceTime(x.deaths) : std::string("-")) : std::to_string(x.deaths);   // a scored event: the finish time (Wreck It)
+            row.cells = {Ordinal((int)i + 1) + "   " + (x.me ? (AwMyName().empty() ? std::string("You") : AwMyName()) : x.name), std::to_string(x.kills), third,
+                         std::to_string(x.me ? g_aw.kills : w >= 0 ? g_aw.botList[(size_t)w].kills : 0), g_aw.noPay ? std::string("-") : Money((long long)(g_aw.payout * share[i < 8 ? i : 7]))};
+            rows.push_back(row);
+        }
+        JobBoard(std::string(AW_MODES[g_aw.mode].name) + ": " + AW_THEMES[g_aw.theme].name, std::to_string(g_aw.minutes) + " minutes", JB_VERSUS,
+                 {{"POSITION", 0.f}, {c1, 0.5f}, {scored ? "TIME" : "DEATHS", 0.66f}, {"WRECKS", 0.79f}, {"CASH", 0.91f}}, rows, 4);
+        return;
+    }
     bool fw = g_aw.mode == AWM_FLAGWAR || g_aw.mode == AWM_BOMBBALL, placed = g_aw.mode == AWM_WRECKIT || g_aw.mode == AWM_BUZZER;
     const char *c1 = g_aw.mode == AWM_HOTBOMB ? "ROUNDS SURVIVED" : g_aw.mode == AWM_GAMESMASTERS ? "CHECKPOINTS" : g_aw.mode == AWM_FLAGWAR ? "YOUR FLAGS" : fw ? "YOUR POINTS" : placed ? "POSITION" : "KILLS";
     const char *c2 = g_aw.mode == AWM_MONSTERS ? "TIMES WRECKED" : g_aw.mode == AWM_FLAGWAR ? "BOTS' FLAGS" : fw ? "BOTS' POINTS" : g_aw.mode == AWM_TAGTEAM ? "LIVES LEFT" : "DEATHS";
@@ -1080,8 +1658,13 @@ static void ArenaWarTick() {
     if (g_aw.phase == AWP_NONE || g_aw.phase == AWP_LOBBY) return;
     int me = Me();
     AwForceRoom();
-    if (!g_aw.solo && (!g_coop.id || g_coop.kind != 2 || g_coop.status == COOP_CLOSED) && g_aw.phase != AWP_RESULTS) {
-        if (g_aw.phase == AWP_PLAYING) AwFinish(); else { Notify("The Arena War event was cancelled."); AwCleanup(); return; }
+    if (!g_aw.solo && (g_aw.phase == AWP_COUNTDOWN || g_aw.phase == AWP_PLAYING)) AwPeersTick();
+    // over for everyone as soon as its job is: passed by the host (whose game may have cut it short: the last one standing,
+    // everyone finished), closed, or another job in its place. Until 2026-11-12 a member played on to its own clock's end
+    // after the host had passed the job and everyone had been paid
+    if (!g_aw.solo && (!g_coop.id || g_coop.id != g_aw.jobId || (g_coop.kind != 2 && g_coop.kind != 4) || g_coop.status >= COOP_PASSED) && g_aw.phase != AWP_RESULTS) {
+        if (g_aw.phase == AWP_PLAYING) { g_aw.noPay = !(g_coop.id == g_aw.jobId && g_coop.status == COOP_PASSED); AwFinish(); }
+        else { Notify("The Arena War event was cancelled."); AwCleanup(); return; }
     }
     if (g_aw.phase == AWP_COUNTDOWN) {
         int left = g_aw.startAt - Now();
@@ -1097,6 +1680,14 @@ static void ArenaWarTick() {
         }
         if (g_aw.lastCount >= 0) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_aw.countdownMovie, 255, 255, 255, 255, 0);
         AwHud();
+        if (left <= 0 && !g_aw.solo && !g_aw.host && !g_aw.layout) {   // a member: the host's layout first (its own after 12 s without one)
+            if (Now() - g_aw.layoutFrom > 12000) { Log("arena: no layout from the host: our own"); AwMakeLayout(); g_aw.layout = true; }
+            else {
+                if (Now() >= g_aw.layoutAskAt) { g_aw.layoutAskAt = Now() + 2000; AwSend("awq", AwMyName()); }
+                Text("Waiting for the host's arena...", 0.5f, 0.85f, 0.45f, 4, 255, 200, 80, 255, 0, 1.f, true);
+                return;
+            }
+        }
         if (left <= 0) {
             if (Exists(g_aw.myVeh)) N(N_FREEZE_ENTITY_POSITION, g_aw.myVeh, 0);
             for (auto &b : g_aw.botList) if (Exists(b.veh)) N(N_FREEZE_ENTITY_POSITION, b.veh, 0);
@@ -1109,16 +1700,34 @@ static void ArenaWarTick() {
         N(N_DISABLE_CONTROL_ACTION, 0, 75, 1);   // stay in the car
         // wrecked or killed: back in a fresh car (LocalOnline respawns YOU at a hospital if you die)
         bool boxed = g_aw.inBox || g_aw.myOut;   // Tag Team's box, out of the event: no car of yours meanwhile
+        // killed (the bomb, a mine, a wreck with you inside): LocalOnline brings YOU back where you last were in the arena
+        // (API v11), not at a hospital in the city with us fetching you from there a few seconds later (2026-11-12)
+        if (LO().setRespawnPoint && !Dead(me) && !boxed) {
+            static int respawnAt = 0;
+            Vec3 rp = Pos(me);
+            if (Now() >= respawnAt && std::hypot(rp.x - AW_CENTRE.x, rp.y - AW_CENTRE.y) < 150.f) {
+                respawnAt = Now() + 2000;
+                LO().setRespawnPoint(rp.x, rp.y, rp.z + 0.5f, N<float>(N_GET_ENTITY_HEADING, me), 8000);
+            }
+        }
         bool down = !boxed && (Dead(me) || !Exists(g_aw.myVeh) || Dead(g_aw.myVeh) || !NB(N<int>(N_IS_VEHICLE_DRIVEABLE, g_aw.myVeh, 0)));
         if (down && !g_aw.wasDown) {
             g_aw.wasDown = true; g_aw.downAt = Now(); ++g_aw.deaths;
+            if (!g_aw.solo) {   // between players: whoever did it is told (its wreck)
+                std::string by = AwWreckedBy();
+                if (!by.empty()) { AwSend("awe", "w|" + by + "|" + AwMyName()); Notify("~r~" + by + "~s~ wrecked you."); }
+            }
             if (g_aw.mode == AWM_BUZZER) { g_aw.myTime -= 10000; Notify("~r~Wrecked:~s~ -10 s."); }
             else if (g_aw.mode == AWM_TAGTEAM) {
-                if (--g_aw.myLives <= 0) { g_aw.myOut = true; Shard("~r~YOUR TEAM IS OUT", ""); g_aw.endAt = std::min(g_aw.endAt, Now() + 3000); }
-                else { g_aw.wasDown = false; if (!Dead(me)) AwTagOut(true); else g_aw.wasDown = true; }
+                --g_aw.myLives;
+                if (!g_aw.solo) AwSend("awe", "down|" + std::to_string(g_aw.myLives) + "|" + AwMyName());   // my partner comes in (or is out with me)
+                if (g_aw.myLives <= 0) { g_aw.myOut = true; g_aw.outAt = Now(); Shard("~r~YOUR TEAM IS OUT", ""); if (g_aw.solo) g_aw.endAt = std::min(g_aw.endAt, Now() + 3000); }
+                else if (g_aw.solo || !g_aw.partner.empty()) { g_aw.wasDown = false; if (!Dead(me)) AwTagOut(true); else g_aw.wasDown = true; }
+                else Notify("~r~Wrecked.~s~ " + std::to_string(g_aw.myLives) + (g_aw.myLives == 1 ? " life left." : " lives left."));
             } else Notify("~r~Wrecked.~s~ Back in the arena in a moment.");
         }
-        if (g_aw.wasDown && g_aw.mode == AWM_TAGTEAM && !g_aw.myOut && !Dead(me) && Now() - g_aw.downAt > 2500) { g_aw.wasDown = false; AwTagOut(true); }
+        if (g_aw.wasDown && g_aw.mode == AWM_TAGTEAM && (g_aw.solo || !g_aw.partner.empty()) && !g_aw.myOut && !Dead(me) && Now() - g_aw.downAt > 2500) { g_aw.wasDown = false; AwTagOut(true); }
+        if (!g_aw.solo && g_aw.myOut && !g_aw.inBox && !Dead(me) && Now() - g_aw.outAt > 2500) AwBoxEnter();   // out of the event: up to the box, watching
         if (g_aw.wasDown && !g_aw.myOut && !Dead(me) && Now() - g_aw.downAt > 2500) {
             g_aw.wasDown = false;
             N(N_DO_SCREEN_FADE_OUT, 300); Wait(350);
@@ -1167,14 +1776,16 @@ static void ArenaWarTick() {
         if (g_aw.mode == AWM_BOMBBALL) AwBombBallTick();
         if (g_aw.mode == AWM_BUZZER) AwBuzzerTick();
         AwModeTick();
+        if (!g_aw.solo) AwStateTick();
         AwHud();
         if (Now() >= g_aw.endAt) {
-            if (!g_aw.solo && g_aw.host && LO().jobUpdate && !g_aw.ended) { g_aw.ended = true; LO().jobUpdate(COOP_PASSED, 0, -376.f, -1862.f, 20.f, ""); }
+            if (!g_aw.solo && g_aw.host && LO().jobUpdate && !g_aw.ended) { g_aw.ended = true; g_aw.passAt = Now() + 1500; }   // passed a moment later: everyone's last score first
             AwFinish();
         }
         return;
     }
     if (g_aw.phase == AWP_RESULTS) {
+        if (g_aw.passAt && Now() >= g_aw.passAt) { g_aw.passAt = 0; if (LO().jobUpdate) LO().jobUpdate(COOP_PASSED, 0, -376.f, -1862.f, 20.f, ""); }
         if (!JobCelebrating() && !NjActive()) AwResults();
         if (Now() > g_aw.resultsUntil && !g_aw.voting) { g_aw.voting = true; NextJobArena(g_aw.mode, !g_aw.solo, g_aw.solo || g_aw.host); }   // then Online's vote on the next job
     }
@@ -1207,7 +1818,7 @@ static bool ArenaWarMenu(const Frame &f, std::string &title, std::string &sub, s
     items.push_back({"Vehicle", "< " + vname + " >", "If you own this model, its upgrades come with it.", [] { g_awSel[3] = (g_awSel[3] + 1) % NAW_VEHS; }});
     items.push_back({"Bots (solo)", "< " + std::to_string(g_awSel[4] * 2) + " >", "AI drivers that come for you.", [] { g_awSel[4] = (g_awSel[4] + 1) % 5; }});
     items.push_back({"Time", "< " + std::to_string(AW_MINUTES[g_awSel[5]]) + " min >", "", [] { g_awSel[5] = (g_awSel[5] + 1) % 3; }});
-    items.push_back({"Traps (solo)", g_awSel[7] ? "< On >" : "< Off >", "Flippers, fire pits, mines and spikes on the arena floor.", [] { g_awSel[7] = !g_awSel[7]; }});
+    items.push_back({"Traps", g_awSel[7] ? "< On >" : "< Off >", "Flippers, fire pits, mines and spikes on the arena floor.", [] { g_awSel[7] = !g_awSel[7]; }});
     items.push_back({"Play", "", "The event's lobby: mode, arena, vehicle and the rest, alone or online.", [] { CloseMenu(); OpenAwCorona(); }});
     items.push_back({"Arena Points", std::to_string(AwApGet()), "Earned in every Arena War event.", nullptr});
     items.push_back({"Set GPS to the Maze Bank Arena", "", "", [] { N(N_SET_NEW_WAYPOINT, -376.f, -1862.f); CloseMenu(); }});

@@ -35,7 +35,7 @@ bool Open(const std::string &title, const proto::Vec3 &start, uint32_t payout, u
     proto::Put(w, m);
     net::SendEvent(w);
     g_hosting = true;
-    LOGI("jobs", "-", "opening %s \"%s\" (payout %u)", kind == proto::kJobRace ? "race" : kind == proto::kJobDeathmatch ? "deathmatch" : kind == proto::kJobSurvival ? "survival" : "job", m.title.c_str(), payout);
+    LOGI("jobs", "-", "opening %s \"%s\" (payout %u)", kind == proto::kJobRace ? "race" : kind == proto::kJobDeathmatch ? "deathmatch" : kind == proto::kJobSurvival ? "survival" : kind == proto::kJobScored ? "event" : "job", m.title.c_str(), payout);
     return true;
 }
 
@@ -98,7 +98,7 @@ void OnDisconnected() {
 }
 
 void RaceProgress(uint16_t checkpoints, uint32_t finishMs) {
-    if (!net::Connected() || !g_state.jobId || (g_state.kind != proto::kJobRace && g_state.kind != proto::kJobSurvival)) return;
+    if (!net::Connected() || !g_state.jobId || (g_state.kind != proto::kJobRace && g_state.kind != proto::kJobSurvival && g_state.kind != proto::kJobScored)) return;
     wire::Writer w;
     proto::Put(w, proto::RaceProgressMsg{checkpoints, finishMs});
     net::SendEvent(w);

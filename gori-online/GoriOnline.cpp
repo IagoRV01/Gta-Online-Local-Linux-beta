@@ -5296,6 +5296,7 @@ static void CommandTick() {
             if (g_dm.phase == DP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_dm = DmRun(); }
             if (g_race.phase == RP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_race = RaceRun(); }
             if (g_sv.phase == SVP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_sv = SvRun(); }
+            if (g_aw.phase == AWP_LOBBY) { if (LO().jobUpdate) LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, ""); g_aw = AwRun(); }
             Log("lobbyquit: dm %d race %d sv %d", g_dm.phase, g_race.phase, g_sv.phase);
         }
         else if (a[0] == "dmstat") { auto sc = DmScores(); std::string t; for (auto &x : sc) t += " " + x.name + " " + std::to_string(x.kills) + "/" + std::to_string(x.deaths); Log("dmstat: phase %d health %d armour %d dead %d:%s", g_dm.phase, N<int>(N_GET_ENTITY_HEALTH, Me()), N<int>(N_GET_PED_ARMOUR, Me()), (int)Dead(Me()), t.c_str()); }
@@ -5360,7 +5361,32 @@ static void CommandTick() {
             for (int k = 0; k < 8 && k + 1 < (int)a.size(); ++k) g_awSel[k] = std::atoi(a[k + 1].c_str());   // ... minutes-index mode traps
             AwStart(false);
         }
-        else if (a[0] == "arenaquit") { if (g_aw.phase != AWP_NONE) AwFinish(); }
+        else if (a[0] == "arenaquit") { if (g_aw.phase != AWP_NONE) { if (g_aw.solo) AwFinish(); else g_aw.endAt = Now(); } }   // online: the event's time is up (the host passes the job)
+        else if (a[0] == "arenahost") {   // arenahost [theme map light vehicle bots minutes-index mode traps]: an Arena War lobby open to the session (test)
+            for (int k = 0; k < 8 && k + 1 < (int)a.size(); ++k) g_awSel[k] = std::atoi(a[k + 1].c_str());
+            AwStart(true);
+            Log("arenahost: phase %d solo %d job %u kind %d", g_aw.phase, (int)g_aw.solo, g_coop.id, g_coop.kind);
+        }
+        else if (a[0] == "arenastart") { Log("arenastart: members '%s'", g_coop.members.c_str()); AwHostStart(); }   // the lobby's start (test)
+        else if (a[0] == "awwreck") { if (Exists(g_aw.myVeh)) N(N_EXPLODE_VEHICLE, g_aw.myVeh, 1, 0); }   // your arena car goes up (test)
+        else if (a[0] == "awtime" && a.size() > 1) { g_aw.myTime = std::atoi(a[1].c_str()) * 1000; }   // Buzzer Beater: your time left, in seconds (test)
+        else if (a[0] == "awnet") {   // Arena War between players: what this game knows (test)
+            std::string ro; for (auto &r : g_aw.roster) ro += r + ",";
+            std::string bb; for (int k : g_aw.bbCps) bb += std::to_string(k) + ",";
+            Log("awnet: mode %d phase %d host %d solo %d layout %d roster [%s] me %d side %d partner '%s' score %d/%d kills %d deaths %d lives %d time %d out %d box %d place %d cps %d traps %d",
+                g_aw.mode, g_aw.phase, (int)g_aw.host, (int)g_aw.solo, (int)g_aw.layout, ro.c_str(), g_aw.rosterIdx, g_aw.side, g_aw.partner.c_str(), g_aw.score, g_aw.botScore, g_aw.kills, g_aw.deaths,
+                g_aw.myLives, g_aw.myTime / 1000, (int)g_aw.myOut, (int)g_aw.inBox, g_aw.myPlace, (int)g_aw.cps.size(), (int)g_aw.trapList.size());
+            Log("awnet: bomb %d (%d ms) flag %d (%.1f %.1f %.1f) claims %d/%d by '%s'/'%s' ball %d owner '%s' round %d s buzzer cps [%s] ends in %d s",
+                g_aw.bombHolder, g_aw.bombEnds - Now(), g_aw.flagCarrier, g_aw.flag.x, g_aw.flag.y, g_aw.flag.z, g_aw.objSeq[0], g_aw.objSeq[1], g_aw.objBy[0].c_str(), g_aw.objBy[1].c_str(),
+                (int)Exists(g_aw.ball), g_aw.ballOwner.c_str(), (g_aw.roundEnds - Now()) / 1000, bb.c_str(), (g_aw.endAt - Now()) / 1000);
+            for (size_t i = 0; i < g_aw.botList.size(); ++i) {
+                const AwBot &b = g_aw.botList[i];
+                Log("  player %d: %s netId %u ped %d car %d (%.1f m) side %d team %d cp %d score %d lives %d time %d s out %d box %d finished %d kills %d", (int)i, b.name.c_str(), b.netId, (int)Exists(b.ped), (int)Exists(b.veh),
+                    Exists(b.veh) ? Dist(Pos(b.veh), Pos(Me())) : -1.f, b.side, b.team, b.cp, b.score, b.lives, b.timeMs / 1000, (int)b.out, (int)b.inBox, b.finished, b.kills);
+            }
+            std::vector<DmScore> sc = DmScores();
+            for (auto &x : sc) Log("  standing: %s %d %d%s", x.name.c_str(), x.kills, x.deaths, x.me ? " (me)" : "");
+        }
         else if (a[0] == "awfloors" && a.size() > 1 && g_aw.phase == AWP_NONE) {   // awfloors <theme>: load each map, log the floor heights at the centre and 25 m out
             int th = std::max(0, std::min(2, std::atoi(a[1].c_str()))), me = Me();
             Vec3 back = Pos(me); float bh = N<float>(N_GET_ENTITY_HEADING, me);
@@ -5421,10 +5447,16 @@ static void CommandTick() {
             else if (a[1] == "base") p = g_aw.myBase;
             else if (a[1] == "tag") p = g_aw.tagZone;
             else if (a[1] == "pit") p = g_aw.pit;
+            else if (a[1] == "peer" && a.size() > 2 && std::atoi(a[2].c_str()) < (int)g_aw.botList.size() && Exists(g_aw.botList[std::atoi(a[2].c_str())].veh)) { p = Pos(g_aw.botList[std::atoi(a[2].c_str())].veh); p.x += 2.4f; p.z -= 0.8f; }   // beside that player's car
+            else if (a[1] == "bb" && !g_aw.bbCps.empty()) p = g_aw.cps[(size_t)g_aw.bbCps[0]];
             else if (a[1] == "goal") p = g_aw.goalBots;
             else if (a[1] == "ball" && Exists(g_aw.ball)) { Vec3 bp = Pos(g_aw.ball); p = V3(bp.x - (g_aw.goalBots.x - bp.x) * 0.1f, bp.y - (g_aw.goalBots.y - bp.y) * 0.1f, bp.z); }   // just behind it
             N(N_SET_ENTITY_COORDS, g_aw.myVeh, p.x, p.y, p.z + 1.f, 0, 0, 0, 0);
             Log("awgoto %s: %.1f %.1f %.1f", a[1].c_str(), p.x, p.y, p.z);
+            if (a[1] == "peer" && a.size() > 2 && std::atoi(a[2].c_str()) < (int)g_aw.botList.size()) {   // how near the two cars ended up
+                int pv = g_aw.botList[std::atoi(a[2].c_str())].veh;
+                for (int k = 0; k < 3 && Exists(pv) && Exists(g_aw.myVeh); ++k) { Log("awgoto peer: %.2f m apart, touching %d", Dist(Pos(pv), Pos(g_aw.myVeh)), N<int>(N_IS_ENTITY_TOUCHING_ENTITY, g_aw.myVeh, pv)); Wait(150); }
+            }
         }
         else if (a[0] == "awlaunch" && Exists(g_aw.myVeh)) {   // awlaunch [vz]: throw your car up and log its height for 1.5 s (testing the flippers)
             int v = g_aw.myVeh; float vz = a.size() > 1 ? F(1) : 13.f;

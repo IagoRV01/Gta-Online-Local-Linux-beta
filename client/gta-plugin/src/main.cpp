@@ -121,14 +121,14 @@ extern "C" __declspec(dllexport) int LocalOnline_GetJobs(char *buf, int cap) { r
 extern "C" __declspec(dllexport) int LocalOnline_GetJobState(char *buf, int cap) { return CopyOut(jobs::StateText(), buf, cap); }
 // API v6: races (kind 1 jobs: synchronized start, progress, standings)
 extern "C" __declspec(dllexport) bool LocalOnline_JobOpenKind(const char *title, float x, float y, float z, int payout, int kind) {
-    uint8_t k = kind == 1 ? proto::kJobRace : kind == 2 ? proto::kJobDeathmatch : kind == 3 ? proto::kJobSurvival : proto::kJobMission;   // 2: deathmatch (scores from deaths), 3: survival (kills + waves via RaceProgress)
+    uint8_t k = kind == 1 ? proto::kJobRace : kind == 2 ? proto::kJobDeathmatch : kind == 3 ? proto::kJobSurvival : kind == 4 ? proto::kJobScored : proto::kJobMission;   // 2: deathmatch (scores from deaths), 3: survival (kills + waves via RaceProgress), 4: a scored event (API v13: the score via RaceProgress)
     return jobs::Open(title ? title : "Job", proto::Vec3{x, y, z}, payout > 0 ? (uint32_t)payout : 0, k);
 }
 extern "C" __declspec(dllexport) void LocalOnline_RaceProgress(int checkpoints, int finishMs) {
     jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs > 0 ? (uint32_t)finishMs : 0);
 }
 extern "C" __declspec(dllexport) int LocalOnline_GetRaceStandings(char *buf, int cap) { return CopyOut(jobs::StandingsText(), buf, cap); }
-extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 12; }
+extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 13; }
 // API v11: a job's respawn point instead of the nearest hospital (validMs from now), and how many times YOU has respawned
 extern "C" __declspec(dllexport) void LocalOnline_SetRespawnPoint(float x, float y, float z, float h, int validMs) { session::SetRespawnPoint(x, y, z, h, validMs); }
 extern "C" __declspec(dllexport) int LocalOnline_RespawnCount() { return session::RespawnCount(); }

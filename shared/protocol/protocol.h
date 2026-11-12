@@ -478,9 +478,12 @@ enum JobStatus : uint8_t { kJobLobby = 0, kJobRunning = 1, kJobPassed = 2, kJobF
 // v10: a race job's racers (host included) start together at the server time startAt and are paid by position.
 // Deathmatches (kind 2, same wire format) start the same way; the server counts kills/deaths from Death
 // messages and sends them as RaceStandings (checkpoints = kills, finishMs = deaths).
-enum JobKind : uint8_t { kJobMission = 0, kJobRace = 1, kJobDeathmatch = 2, kJobSurvival = 3 };
-// races, deathmatches and survivals start for everyone at once, after a countdown
-inline bool StartsTogether(uint8_t kind) { return kind == kJobRace || kind == kJobDeathmatch || kind == kJobSurvival; }
+// Scored events (kind 4, 2026-11-11: Arena War's modes between players): RaceProgress carries each player's score
+// (checkpoints, up or down) and, once, a finish time; the standings are a race's (finished first by time, then by score)
+// and everyone who started is paid by position.
+enum JobKind : uint8_t { kJobMission = 0, kJobRace = 1, kJobDeathmatch = 2, kJobSurvival = 3, kJobScored = 4 };
+// races, deathmatches, survivals and scored events start for everyone at once, after a countdown
+inline bool StartsTogether(uint8_t kind) { return kind == kJobRace || kind == kJobDeathmatch || kind == kJobSurvival || kind == kJobScored; }
 // survival: RaceProgress carries the kills (checkpoints) and, in finishMs, the waves the player has survived plus
 // kSurvivalDown while they are down; each player is paid payout * waves / kSurvivalWaves
 constexpr uint32_t kSurvivalWaves = 10, kSurvivalDown = 0x10000;
@@ -499,7 +502,7 @@ struct RaceProgressMsg { uint16_t checkpoints = 0; uint32_t finishMs = 0; };   /
 struct RaceEntry { uint16_t netId = 0, checkpoints = 0; uint32_t finishMs = 0; };
 struct RaceStandingsMsg { uint32_t jobId = 0; std::vector<RaceEntry> entries; };
 inline void Put(wire::Writer &w, const JobOpenMsg &m) { PutHeader(w, MsgType::JobOpen); w.Str(m.title, kMaxJobTitle); PutVec(w, m.start); w.U32(m.payout); w.U8(m.kind); }
-inline bool Get(wire::Reader &r, JobOpenMsg &m) { m.title = r.Str(kMaxJobTitle); m.start = GetVec(r); m.payout = r.U32(); m.kind = r.U8(); return r.Done() && !m.title.empty() && m.kind <= kJobSurvival; }
+inline bool Get(wire::Reader &r, JobOpenMsg &m) { m.title = r.Str(kMaxJobTitle); m.start = GetVec(r); m.payout = r.U32(); m.kind = r.U8(); return r.Done() && !m.title.empty() && m.kind <= kJobScored; }
 inline void Put(wire::Writer &w, const JobListMsg &m) {
     PutHeader(w, MsgType::JobList);
     size_t n = m.jobs.size() < kMaxJobs ? m.jobs.size() : kMaxJobs;

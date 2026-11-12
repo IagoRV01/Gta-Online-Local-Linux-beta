@@ -72,7 +72,7 @@ static void CoopRefresh() {
         if (std::find(g_coopSeen.begin(), g_coopSeen.end(), j.id) == g_coopSeen.end()) {
             g_coopSeen.push_back(j.id);
             if (j.host != "you" && g_coop.id != j.id)
-                Notify("~b~" + j.host + "~s~ " + (j.kind == 1 ? "is hosting the race ~y~" : j.kind == 2 ? "is hosting a deathmatch at ~y~" : j.kind == 3 ? "is hosting a survival: ~y~" : "started ~y~") + j.title + "~s~. Interaction Menu > ~b~Jobs~s~ to join.");
+                Notify("~b~" + j.host + "~s~ " + (j.kind == 1 ? "is hosting the race ~y~" : j.kind == 2 ? "is hosting a deathmatch at ~y~" : j.kind == 3 ? "is hosting a survival: ~y~" : j.kind == 4 ? "is hosting ~y~" : "started ~y~") + j.title + "~s~. Interaction Menu > ~b~Jobs~s~ to join.");
         }
     }
     CoopState s;
@@ -120,7 +120,7 @@ static void CoopTick() {
     int rev = LO().jobRevision();
     if (rev != g_coopRev || Now() > g_coopNext) { g_coopRev = rev; g_coopNext = Now() + 2000; CoopRefresh(); }   // + a slow poll for player names
     if (g_coop.id && g_coop.kind >= 1 && g_coop.status == COOP_LOBBY && !g_coop.hosting && g_coop.host != "you" && !g_menuOpen)
-        Text("In ~b~" + g_coop.host + (g_coop.kind == 2 ? "~s~'s deathmatch lobby" : g_coop.kind == 3 ? "~s~'s survival lobby" : "~s~'s race lobby") + ": waiting for the start.", 0.5f, 0.905f, 0.45f, 4, 255, 255, 255, 255, 0, 1.0f, true);
+        Text("In ~b~" + g_coop.host + (g_coop.kind == 2 ? "~s~'s deathmatch lobby" : g_coop.kind == 3 ? "~s~'s survival lobby" : g_coop.kind == 4 ? "~s~'s Arena War lobby" : "~s~'s race lobby") + ": waiting for the start.", 0.5f, 0.905f, 0.45f, 4, 255, 255, 255, 255, 0, 1.0f, true);
     if (!g_coop.id || g_coop.kind >= 1 || g_coop.hosting || g_coop.host == "you" || g_coop.status > COOP_RUNNING || g_mActive || g_menuOpen) return;
     // objective text like the host's (Online shows the same objective to the whole crew)
     std::string t = g_coop.status == COOP_LOBBY ? "Wait for ~b~" + g_coop.host + "~s~ to start the job."

@@ -83,7 +83,7 @@ static void OpenDmCorona(int arena) {
 static void OpenAwCorona() {
     CoronaDef d;
     d.title = "Arena War";
-    d.desc = "Events in the Maze Bank Arena: Carnage online against the other players, or any mode against bots.";
+    d.desc = "Events in the Maze Bank Arena: every mode online against the other players, or alone against bots.";
     d.theme = 2; d.maxPlayers = 8; d.payout = 12000;
     d.at = V3(-376.f, -1862.f, 20.f);
     CoronaOpt mode{"Mode", {}, g_awSel[6] % AWM_COUNT, ""}; for (int i = 0; i < AWM_COUNT; ++i) mode.values.push_back(AW_MODES[i].name);
@@ -93,7 +93,7 @@ static void OpenAwCorona() {
     d.opts = {mode, theme, {"Map", {"1"}, 0, "The arena's layout."}, light, veh,
               {"Bots", {"0", "2", "4", "6", "8"}, g_awSel[4] % 5, "AI drivers in arena vehicles (playing alone)."},
               {"Time", {"5 min", "10 min", "15 min"}, g_awSel[5] % 3, ""},
-              {"Traps", {"Off", "On"}, g_awSel[7] ? 1 : 0, "Flippers, fire pits, mines and spikes on the floor (playing alone)."}};
+              {"Traps", {"Off", "On"}, g_awSel[7] ? 1 : 0, "Flippers, fire pits, mines and spikes on the floor."}};
     d.onChange = [](CoronaDef &def) {   // the theme's playable maps; the mode's description
         int th = def.opts[1].sel;
         std::vector<std::string> maps;
@@ -110,7 +110,6 @@ static void OpenAwCorona() {
     };
     d.onPlay = [apply](const std::vector<int> &sel) { apply(sel); AwStart(false); };
     d.openLobby = [apply](const std::vector<int> &sel) {
-        if (sel[0] != AWM_CARNAGE) { Notify("~r~Online, Arena War is Carnage: the other modes are against bots."); return false; }
         apply(sel); AwStart(true); return g_aw.phase == AWP_LOBBY;
     };
     d.startLobby = [] { AwHostStart(); };

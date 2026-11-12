@@ -19,6 +19,9 @@
 //   member's side, e.g. "say hcut <scene>|0|-1|2|<bot name>" as a heist leader) | close (that job closed)
 //   home <property index> <building> (it owns a home there, as far as Gori's buzzer is concerned: it answers "aptq" for that
 //   building right away and lets a visitor in, "buzzok", 2 s after the "buzz")
+//   drive <model> x y z [heading] (it sits at the wheel of its own car there: Arena War's modes between players) | walk
+//   goto x y z <speed m/s> (its car, or the bot on foot, moves there in a straight line)
+//   score <n> [finishMs] (a scored event's RaceProgress) | run <text...> (its own job starts) | pass (its own job passed)
 // Build: ./build.sh probe (with netprobe). Use it against a test server, not the live one: it registers an account.
 #include <enet/enet.h>
 #include <chrono>
@@ -83,6 +86,7 @@ int main(int argc, char **argv) {
     // the player followed: its last state
     uint16_t lead = 0; RemoteState leadSt; bool haveLead = false;
     Vec3 stayAt{}; bool staying = false;
+    uint32_t carModel = 0; float carHeading = 0.f; Vec3 goTo{}; float goSpeed = 0.f; Vec3 carVel{};   // its own car (drive / goto)
     // jobs
     uint32_t joined = 0, wantJoin = 0; uint8_t joinedKind = 0;
     std::set<uint32_t> done;   // jobs over: not joined again
@@ -348,6 +352,15 @@ int main(int argc, char **argv) {
                     std::printf("t=%.1fs hosting \"%s\" (kind %d)\n", T(), title.c_str(), kind);
                 }
                 else if (c == "home") { is >> homeProp >> homeOb; }
+                else if (c == "drive") {
+                    std::string model; is >> model >> stayAt.x >> stayAt.y >> stayAt.z; if (!(is >> carHeading)) carHeading = 0.f;
+                    carModel = Joaat(model.c_str()); staying = true; following = false; goSpeed = 0.f;
+                }
+                else if (c == "walk") { carModel = 0; }
+                else if (c == "goto") { is >> goTo.x >> goTo.y >> goTo.z >> goSpeed; staying = true; following = false; }
+                else if (c == "score") { int n = 0; unsigned fin = 0; is >> n; is >> fin; progress((uint16_t)n, fin); }
+                else if (c == "run") { std::string text; std::getline(is, text); if (!text.empty() && text[0] == ' ') text.erase(0, 1); wire::Writer jw; Put(jw, JobUpdateMsg{kJobRunning, 0, {}, text}); send(jw, kChanEvents, true); }
+                else if (c == "pass") { wire::Writer jw; Put(jw, JobUpdateMsg{kJobPassed, 0, {}, ""}); send(jw, kChanEvents, true); }
                 else if (c == "close") { wire::Writer jw; Put(jw, JobUpdateMsg{kJobClosed, 0, {}, ""}); send(jw, kChanEvents, true); }
                 else if (c == "shoot") { std::string v; is >> v; shooting = v != "off"; }
                 else if (c == "down") { if (svWave) { svDown = true; progress((uint16_t)svKills, (uint32_t)svCleared | kSurvivalDown); } }
@@ -367,7 +380,25 @@ int main(int argc, char **argv) {
             PlayerStateMsg s;
             s.seq = ++seq; s.clientTimeMs = (uint32_t)(now - start); s.health = (uint8_t)std::max(0, hp); s.armour = (uint8_t)armour;
             if (hp <= 0) s.flags |= kFlagDead;
-            if (staying || !haveLead) { s.pos = staying ? stayAt : Vec3{-1037.8f, -2737.6f, 20.2f}; s.move = Move::Still; }
+            carVel = {};
+            if (staying && goSpeed > 0.f) {   // on its way to a point, 50 ms a step
+                float dx = goTo.x - stayAt.x, dy = goTo.y - stayAt.y, dz = goTo.z - stayAt.z, d = std::sqrt(dx * dx + dy * dy + dz * dz), step = goSpeed * 0.05f;
+                if (d <= step) { stayAt = goTo; goSpeed = 0.f; }
+                else {
+                    stayAt = {stayAt.x + dx / d * step, stayAt.y + dy / d * step, stayAt.z + dz / d * step};
+                    carVel = {dx / d * goSpeed, dy / d * goSpeed, dz / d * goSpeed};
+                    carHeading = std::fmod(std::atan2(-dx, dy) * 57.2958f + 360.f, 360.f);
+                }
+            }
+            if (staying && carModel) {   // at the wheel of its own car
+                s.flags |= kFlagInVehicle;
+                s.veh.model = carModel; s.veh.seat = -1; s.veh.driverNetId = self;
+                s.veh.pos = stayAt; s.veh.vel = carVel;
+                float hr = carHeading / 57.2958f / 2.f;
+                s.veh.rot = {0.f, 0.f, std::sin(hr), std::cos(hr)};
+                s.veh.vflags = kVehEngine;
+                s.pos = stayAt; s.vel = carVel; s.heading = carHeading; s.move = Move::Still;
+            } else if (staying || !haveLead) { s.pos = staying ? stayAt : Vec3{-1037.8f, -2737.6f, 20.2f}; s.vel = carVel; s.heading = carHeading; s.move = goSpeed > 0.f ? Move::Walk : Move::Still; }
             else if (leadSt.flags & kFlagInVehicle) {   // ride along: a passenger of the car the player drives
                 s.flags |= kFlagInVehicle;
                 s.veh = leadSt.veh;

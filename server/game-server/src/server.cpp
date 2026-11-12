@@ -1109,16 +1109,17 @@ void Server::HandleJobOpen(Client &c, const JobOpenMsg &m) {
     j.startedMs = NowMs();
     j.kind = m.kind;
     jobs_[j.id] = j;
-    LOGI("jobs", c.name.c_str(), "opened %s %u \"%s\" (payout %u)", j.kind == kJobRace ? "race" : j.kind == kJobDeathmatch ? "deathmatch" : j.kind == kJobSurvival ? "survival" : "job", j.id, j.title.c_str(), j.payout);
+    LOGI("jobs", c.name.c_str(), "opened %s %u \"%s\" (payout %u)", j.kind == kJobRace ? "race" : j.kind == kJobDeathmatch ? "deathmatch" : j.kind == kJobSurvival ? "survival" : j.kind == kJobScored ? "event" : "job", j.id, j.title.c_str(), j.payout);
     SendJobState(jobs_[j.id]);
     SendJobList(nullptr);
 }
 
-// v14: one player's mod to another's (the apartment buzzer...): only within the sender's session, at most 10 a second
+// v14: one player's mod to another's (the apartment buzzer...): only within the sender's session, at most 30 a second
+// (10 until 2026-11-11: Arena War's Bomb Ball sends its ball 8 times a second on top of the player's own state)
 void Server::HandlePlayerMessage(Client &c, const PlayerMessageMsg &m) {
     long long now = NowMs();
     if (now - c.msgWindowAt > 1000) { c.msgWindowAt = now; c.msgsInWindow = 0; }
-    if (++c.msgsInWindow > 10) { LOGW("msg", c.name.c_str(), "message rate limit"); return; }
+    if (++c.msgsInWindow > 30) { LOGW("msg", c.name.c_str(), "message rate limit"); return; }
     wire::Writer w;
     Put(w, PlayerMessageRelayMsg{c.netId, m.kind, m.text});
     int n = 0;
@@ -1164,6 +1165,10 @@ void Server::PayJob(const Job &j) {
             if (waves > kSurvivalWaves) waves = kSurvivalWaves;
             pay.push_back({kv.first, (uint32_t)((unsigned long long)j.payout * waves / kSurvivalWaves)});
         }
+    } else if (j.kind == kJobScored) {   // everyone who started, by position
+        static const double kShare[kMaxJobMembers] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};
+        std::vector<RaceEntry> order = RaceOrder(j);
+        for (size_t i = 0; i < order.size(); ++i) pay.push_back({order[i].netId, (uint32_t)(j.payout * kShare[i < kMaxJobMembers ? i : kMaxJobMembers - 1])});
     } else if (j.kind == kJobRace) {
         static const double kShare[kMaxJobMembers] = {1.0, 0.75, 0.6, 0.5, 0.4, 0.35, 0.3, 0.25};
         std::vector<RaceEntry> order = RaceOrder(j);
@@ -1179,7 +1184,7 @@ void Server::PayJob(const Job &j) {
         Client *c = ByNetId(id);
         if (!c || c->characterUuid.empty() || amount == 0) continue;
         long long wallet = 0, bank = 0;
-        std::string err, reason = (j.kind == kJobRace ? "Race: " : j.kind == kJobDeathmatch ? "Deathmatch: " : j.kind == kJobSurvival ? "Survival: " : "Job: ") + j.title;
+        std::string err, reason = (j.kind == kJobRace ? "Race: " : j.kind == kJobDeathmatch ? "Deathmatch: " : j.kind == kJobSurvival ? "Survival: " : j.kind == kJobScored ? "" : "Job: ") + j.title;
         if (reason.size() > kMaxMoneyReason) reason.resize(kMaxMoneyReason);
         if (!db_->AdjustAccounts(c->characterUuid, 0, (long long)amount, reason, wallet, bank, err)) {
             LOGW("jobs", c->name.c_str(), "payout of job %u failed: %s", j.id, err.c_str());
@@ -1237,10 +1242,21 @@ void Server::SendRaceStandings(const Job &j) {
 void Server::HandleRaceProgress(Client &c, const RaceProgressMsg &m) {
     for (auto &kv : jobs_) {
         Job &j = kv.second;
-        if ((j.kind != kJobRace && j.kind != kJobSurvival) || j.status != kJobRunning) continue;
+        if ((j.kind != kJobRace && j.kind != kJobSurvival && j.kind != kJobScored) || j.status != kJobRunning) continue;
         auto it = j.racers.find(c.netId);
         if (it == j.racers.end()) continue;
         Job::Racer &r = it->second;
+        if (j.kind == kJobScored) {   // the score as the player's game has it (it can go down); a finish time only once
+            if (NowMs() < j.startAt) return;
+            bool changed = m.checkpoints != r.checkpoints || (m.finishMs && !r.finishMs);
+            if (m.checkpoints != r.checkpoints) { r.checkpoints = m.checkpoints; r.atMs = NowMs(); }
+            if (m.finishMs && !r.finishMs) {
+                r.finishMs = m.finishMs;
+                LOGI("jobs", c.name.c_str(), "finished event %u in %.3f s", j.id, m.finishMs / 1000.0);
+            }
+            if (changed) SendRaceStandings(j);
+            return;
+        }
         if (j.kind == kJobSurvival) {   // kills never go back; the waves only grow, the down flag comes and goes
             if (NowMs() < j.startAt || m.checkpoints < r.checkpoints) return;
             uint32_t waves = m.finishMs & 0xFFFF, had = r.finishMs & 0xFFFF;
@@ -1279,7 +1295,7 @@ void Server::HandleJobUpdate(Client &c, const JobUpdateMsg &m) {
             j->racers[j->host] = {};
             for (uint16_t id : j->members) j->racers[id] = {};
             startStandings = true;   // everyone listed from the start: POSITION 1/2, not 1/1 until the first kill
-            LOGI("jobs", c.name.c_str(), "%s %u \"%s\" starts with %d player(s)", j->kind == kJobRace ? "race" : j->kind == kJobDeathmatch ? "deathmatch" : "survival", j->id, j->title.c_str(), (int)j->racers.size());
+            LOGI("jobs", c.name.c_str(), "%s %u \"%s\" starts with %d player(s)", j->kind == kJobRace ? "race" : j->kind == kJobDeathmatch ? "deathmatch" : j->kind == kJobScored ? "event" : "survival", j->id, j->title.c_str(), (int)j->racers.size());
         }
     }
     j->status = m.status; j->step = m.step; j->objective = m.objective; j->text = m.text;

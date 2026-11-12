@@ -67,6 +67,8 @@ static void BuzzMessages() {
             if (crew) { g_memberCut = a; g_memberCutAt = Now(); }
         } else if (kind == "rres") {   // another racer's vehicle, best lap and RP for the results board (Races.inc)
             RaceOtherResult(a);
+        } else if (!kind.compare(0, 2, "aw")) {   // Arena War between players (ArenaWar.inc)
+            AwMessage(from, kind, text);
         } else if (!kind.compare(0, 2, "nj")) {   // the next job vote's (NextJob.inc)
             NjMessage(from, kind, text);
         } else if ((kind == "buzzok" || kind == "buzzno") && from == g_buzz.waitingFor) {
