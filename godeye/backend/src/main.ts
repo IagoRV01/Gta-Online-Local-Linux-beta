@@ -45,7 +45,7 @@ interface Config {
 }
 const cfgPath = resolve(process.argv[2] ?? join(ROOT, "godeye.json"));
 const defaults: Config = {
-  http: { bind: "0.0.0.0", port: 8080 },
+  http: { bind: "0.0.0.0", port: 9999 },
   admin: { host: "127.0.0.1", port: 4500, secretFile: "D:/GTALocalOnline/data/admin.secret" },
   mapFile: "../data/map.json",
   map3dDir: "../data/map3d",

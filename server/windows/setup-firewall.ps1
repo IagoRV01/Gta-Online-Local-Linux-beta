@@ -1,11 +1,11 @@
 # Creates a narrow inbound rule for the game server: UDP <port> from the local subnet only.
 # Run once as administrator (it re-launches itself elevated):
 #   powershell -ExecutionPolicy Bypass -File server\windows\setup-firewall.ps1 [-Port 4499] [-GodEye]
-# -GodEye also allows GodEye's web page (TCP 8080) and its WebRTC video (UDP 8189) from the local subnet, for phones
+# -GodEye also allows GodEye's web page (TCP 9999) and its WebRTC video (UDP 8189) from the local subnet, for phones
 # and other PCs.
 # Rollback:  Remove-NetFirewallRule -DisplayName 'GTA Local Online GodEye (TCP)', 'GTA Local Online GodEye video (UDP)'
 # Rollback:  Remove-NetFirewallRule -DisplayName 'GTA Local Online (UDP)'
-param([int]$Port = 4499, [switch]$GodEye, [int]$GodEyePort = 8080)
+param([int]$Port = 4499, [switch]$GodEye, [int]$GodEyePort = 9999)
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) {
     Start-Process powershell -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$PSCommandPath`" -Port $Port$(if ($GodEye) { ' -GodEye' })"

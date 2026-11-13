@@ -17,7 +17,7 @@ All the phases of the brief are built.
 ## Placement
 
 - GodEye runs on the Windows PC as a **separate Node.js/TypeScript process**. Node 24 is already installed.
-- It serves the web app over HTTP and **WebSocket on TCP 8080** (`[godeye] http_port`).
+- It serves the web app over HTTP and **WebSocket on TCP 9999** (`[godeye] http_port`).
 
 ## Data flow
 
@@ -48,7 +48,7 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
 - **GodEye backend** (`godeye/backend`, Node 24 running the TypeScript directly, no packages).
   - Names: zone from the game's own `popzone.ipl` boxes (smallest box holding the point), vehicle from its model
     hash (881 models), weapon from its hash.
-  - Browsers: HTTP + WebSocket on 8080, private networks only, same-origin WebSockets, CSP. Forwards each telemetry
+  - Browsers: HTTP + WebSocket on 9999, private networks only, same-origin WebSockets, CSP. Forwards each telemetry
     delta as it comes (≤ 10 Hz); the full state on connect.
 - **Web app** (`godeye/frontend`).
   - Canvas map: terrain (25 m grid with hillshade), roads by class, zone names, traffic-light stops.

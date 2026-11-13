@@ -1,6 +1,7 @@
 #include "game/jobs.h"
 #include <cstdio>
 #include "common/log.h"
+#include "game/combat.h"
 #include "game/net_client.h"
 #include "game/remote.h"
 #include "game/session.h"
@@ -59,6 +60,10 @@ bool SendPlayerMessage(uint16_t to, const std::string &kind, const std::string &
     return true;
 }
 void OnPlayerMessage(const proto::PlayerMessageRelayMsg &m) {
+    if (m.kind.compare(0, 3, proto::kMsgClientPrefix) == 0) {   // the client's own (vehicle damage): not a mod's
+        if (m.kind == proto::kMsgVehicleDamage) combat::OnVehicleDamage(m.from, m.text);
+        return;
+    }
     auto clean = [](std::string s) { for (char &ch : s) if (ch == '\t' || ch == '\n' || ch == '\r') ch = ' '; return s; };
     if (g_msgs.size() > 8000) g_msgs.clear();   // nobody reading
     g_msgs += std::to_string(m.from) + "\t" + clean(m.kind) + "\t" + clean(m.text) + "\n";

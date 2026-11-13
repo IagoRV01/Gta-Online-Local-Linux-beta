@@ -8,7 +8,7 @@
                  LocalOnlineServer.exe   UDP 4499 (ENet)      ← authority
                    ├─ session/auth, world state, ownership
                    ├─ storage (SQLite → PostgreSQL later)
-                   └─ (Phase 9+) GodEye backend: HTTP/WS 8080
+                   └─ (Phase 9+) GodEye backend: HTTP/WS 9999
                  (Phase 12+) Camera Client = GTA Legacy + LocalOnline.asi in camera mode
                               │
                          LAN (1 Gbps wired)

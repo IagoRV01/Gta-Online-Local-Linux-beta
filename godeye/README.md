@@ -15,7 +15,7 @@ Furious films.
 - Design and the later phases: [../docs/godeye.md](../docs/godeye.md), [../docs/cameras.md](../docs/cameras.md).
 
 ```
-GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1:4500──► GodEye backend ──WebSocket :8080──► browsers
+GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1:4500──► GodEye backend ──WebSocket :9999──► browsers
 ```
 
 | Folder | What |
@@ -43,8 +43,8 @@ GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1
    - the zone boxes from `popzone.ipl`.
 3. **Configure GodEye.** Copy `backend/godeye.example.json` to `backend/godeye.json` and set `admin.secretFile` to the server's `admin.secret`.
 4. **Start it.** Run `server\windows\start-godeye.bat`, or `node src/main.ts godeye.json` inside `backend/`.
-5. **Open it.** Browse to `http://<server LAN IP>:8080` on any PC or phone on the LAN.
-   - Other devices need an inbound TCP 8080 rule in Windows Firewall. That is your decision; see `server/windows/setup-firewall.ps1`.
+5. **Open it.** Browse to `http://<server LAN IP>:9999` on any PC or phone on the LAN.
+   - Other devices need an inbound TCP 9999 rule in Windows Firewall. That is your decision; see `server/windows/setup-firewall.ps1`.
 6. **Make your account.**
    - On a fresh install the page shows **Set up GodEye**. The first account, made on the server PC or its LAN, is the
      **ADMIN**: the owner, with the control panel. It can never be made through the public address.
@@ -85,9 +85,16 @@ GTA clients ──ENet──► LocalOnlineServer.exe ──admin API, 127.0.0.1
   put a shortcut on the desktop.
 - Apps installed from the Store or as MSIX packages see a private copy of `AppData`. Files they write there are not
   where a double-clicked GodEye.exe looks for them, so set GodEye up from a normal Explorer or terminal window.
+- **The window's browser** is `browser=` in `GodEye.ini`: Firefox, Edge or Chrome. Empty takes the first of those
+  that is installed.
+  - Firefox has no app mode, so GodEye gives it its own profile (`%LOCALAPPDATA%\GodEye\window-firefox`) with the
+    tabs and the address bar hidden. Your everyday Firefox is not touched.
+  - Edge and Chrome open in app mode with their own profile (`%LOCALAPPDATA%\GodEye\window`).
+  - The login is kept per profile, so the first start with another browser asks for it again.
 - GodEye stays on while its window is open. Edge sometimes hands the window to a new process: on a fresh profile,
   and when it restarts after an update. So GodEye goes off only after 2 s with neither a process of the window's job
-  nor a "GodEye" window of the browser.
+  nor a "GodEye" window of the browser. With Firefox the second check is whether anything still runs on GodEye's
+  profile.
 
 **Choosing the graphics card.** GodEye draws on one card only: the 3D map, and later the camera client and the
 encoder.
@@ -102,10 +109,13 @@ encoder.
    - `gpu=auto`: Windows decides.
 3. With a card named there, GodEye refuses to open on any other and lists the ones it found.
 
-How it works: the window is Edge (or Chrome) in app mode with its own profile, started with
-`--use-angle=d3d11 --use-adapter-luid=<high>,<low>`. Chromium then renders on that adapter.
+How it works: an Edge (or Chrome) window is started with `--use-angle=d3d11 --use-adapter-luid=<high>,<low>`.
+Chromium then renders on that adapter.
 - Check it with `nvidia-smi`: the `msedge.exe` GPU process appears on that card.
 - With your monitor on another card, the finished frame is also presented there. That is normal.
+- **Firefox cannot be told which card to use.** With a Firefox window the 3D map draws on the card Windows gives
+  `firefox.exe` (Settings > System > Display > Graphics), and `gpu=` only checks that the card exists. The video
+  encoder keeps its own card (`video.gpu` in `godeye.json`).
 
 The camera GTA picks its card in its own settings (below).
 
@@ -155,7 +165,7 @@ GodEye can be reached from the internet through a Cloudflare Tunnel while it is 
 1. Create the tunnel and the private route to GodEye:
    ```
    npx wrangler tunnel create godeye
-   npx wrangler vpc service create godeye --type http --tunnel-id <tunnel id> --ipv4 127.0.0.1 --http-port 8080
+   npx wrangler vpc service create godeye --type http --tunnel-id <tunnel id> --ipv4 127.0.0.1 --http-port 9999
    ```
 2. Get the tunnel's token (Cloudflare API: `GET /accounts/<account>/cfd_tunnel/<id>/token`, or the dashboard). Save
    it in a file only you can read.

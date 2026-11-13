@@ -55,6 +55,10 @@ struct Player {
     unsigned long long vehIdleSince = 0;   // when the driver stopped using it (0 = in use)
     unsigned long long leavingSince = 0;   // exit animation started
     int lastHornMs = 0;
+    // vehicle damage sync: the puppet's healths as we last set them, what our weapons took off it since the last report
+    float vehBody = 1000.f, vehEngine = 1000.f;
+    float vdBody = 0.f, vdEngine = 0.f; bool vdExplosion = false;
+    unsigned long long vdSentAt = 0, vehDeadSince = 0;
     // Phase 6
     uint32_t weapon = 0;              // weapon currently given to the puppet
     Vec3 aim;                         // newest aim point
@@ -88,6 +92,7 @@ void DeleteVehicle(Player &p) {
     p.veh = 0;
     p.vehModel = 0;
     p.appliedVFlags = 0xFF;
+    p.vehBody = p.vehEngine = 1000.f; p.vdBody = p.vdEngine = 0.f; p.vdExplosion = false; p.vehDeadSince = 0;
 }
 
 void DeletePuppet(Player &p) {
@@ -395,7 +400,14 @@ void SpawnVehicle(Player &p, const interp::Sample &s) {
     N(N_SET_VEHICLE_DOORS_LOCKED, p.veh, 2);            // only its owner drives it
     N(N_SET_VEHICLE_HAS_BEEN_OWNED_BY_PLAYER, p.veh, 0);
     N(N_SET_VEHICLE_NUMBER_PLATE_TEXT, p.veh, p.name.substr(0, 8).c_str());
-    gta::SetInvincible(p.veh, true);                     // vehicle damage sync comes later
+    // damage sync (2026-11-13, VehicleDamage below): our weapons can hurt it; crashes cannot (its driver's game does its
+    // own), and it only blows up when its driver's does
+    gta::SetInvincible(p.veh, false);
+    N(N_SET_ENTITY_PROOFS, p.veh, 0, 0, 0, 1, 0, 0, 0, 0);   // collision proof
+    N(N_SET_VEHICLE_EXPLODES_ON_HIGH_EXPLOSION_DAMAGE, p.veh, 0);
+    N(N_SET_DISABLE_VEHICLE_PETROL_TANK_DAMAGE, p.veh, 1);
+    N(N_SET_DISABLE_VEHICLE_PETROL_TANK_FIRES, p.veh, 1);
+    p.vehBody = p.vehEngine = 1000.f; p.vdBody = p.vdEngine = 0.f; p.vdExplosion = false; p.vehDeadSince = 0;
     LOGI("remote", p.name.c_str(), "vehicle 0x%08X spawned (veh %d)", vb.model, p.veh);
 }
 
@@ -429,6 +441,52 @@ void DriveVehicle(Player &p, const interp::Result &r) {
     }
 }
 
+// Vehicle damage sync (2026-11-13). The puppet shows its driver's damage state (smoking, burning, blown up). What our own
+// weapons take off it is measured every frame, added up, told to its driver at most ten times a second ("lo.vd", whose
+// game takes it off the real car) and undone here. A puppet our rocket blew up although its driver's car still lives is
+// reported as a big explosion and replaced.
+void VehicleDamage(Player &p) {
+    const VehicleBlock &vb = p.lastVeh;
+    unsigned long long now = GetTickCount64();
+    bool dead = gta::Dead(p.veh);
+    if (vb.vflags & kVehWrecked) {
+        if (!dead) { N(N_EXPLODE_VEHICLE, p.veh, 1, 0); LOGI("remote", p.name.c_str(), "its vehicle blew up"); }
+        p.vehDeadSince = 0;
+        return;
+    }
+    float wantEngine = (vb.vflags & kVehBurning) ? -100.f : (vb.vflags & kVehSmoking) ? 300.f : 1000.f;
+    float body = N<float>(N_GET_VEHICLE_BODY_HEALTH, p.veh), eng = N<float>(N_GET_VEHICLE_ENGINE_HEALTH, p.veh);
+    float dBody = dead ? 1000.f : p.vehBody - body, dEng = dead ? 1000.f : p.vehEngine - eng;
+    if (dBody > 1.f || dEng > 1.f) {
+        int me = gta::PlayerPed();
+        int myVeh = gta::InVehicle(me) ? N<int>(N_GET_VEHICLE_PED_IS_IN, me, 0) : 0;
+        bool mine = NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, p.veh, me, 1)) || (myVeh && NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, p.veh, myVeh, 1)));
+        if (mine && !p.vehDeadSince) {
+            p.vdBody += dBody > 0.f ? dBody : 0.f; p.vdEngine += dEng > 0.f ? dEng : 0.f;
+            if (dead || dBody >= 400.f || dEng >= 400.f) p.vdExplosion = true;
+        }
+        N(N_CLEAR_ENTITY_LAST_DAMAGE_ENTITY, p.veh);
+    }
+    if ((p.vdBody > 0.f || p.vdEngine > 0.f) && now - p.vdSentAt >= 100) {
+        char text[64];
+        snprintf(text, sizeof text, "%d|%d|%u|%d", (int)p.vdBody, (int)p.vdEngine, combat::AttackWeapon(gta::PlayerPed()), p.vdExplosion ? 1 : 0);
+        jobs::SendPlayerMessage(p.netId, kMsgVehicleDamage, text);
+        LOGI("remote", p.name.c_str(), "we hit its vehicle: body -%d engine -%d%s", (int)p.vdBody, (int)p.vdEngine, p.vdExplosion ? " (explosion)" : "");
+        p.vdBody = p.vdEngine = 0.f; p.vdExplosion = false; p.vdSentAt = now;
+    }
+    if (dead) {   // blown up here only: a fresh one in a moment (its driver's game blows its own up if the damage was enough)
+        if (!p.vehDeadSince) p.vehDeadSince = now;
+        else if (now - p.vehDeadSince > 1500) { LOGI("remote", p.name.c_str(), "its vehicle's wreck replaced"); DeleteVehicle(p); }
+        return;
+    }
+    if (body != 1000.f || eng != wantEngine) {
+        N(N_SET_VEHICLE_BODY_HEALTH, p.veh, 1000.f);
+        N(N_SET_VEHICLE_ENGINE_HEALTH, p.veh, wantEngine);
+        N(N_SET_VEHICLE_PETROL_TANK_HEALTH, p.veh, 1000.f);
+    }
+    p.vehBody = 1000.f; p.vehEngine = wantEngine;
+}
+
 void VehicleFrame(Player &p, const interp::Result &r) {
     const VehicleBlock &vb = p.lastVeh;
     int veh = 0;
@@ -436,8 +494,10 @@ void VehicleFrame(Player &p, const interp::Result &r) {
         if (p.veh && (!gta::Exists(p.veh) || p.vehModel != vb.model)) DeleteVehicle(p);
         if (!p.veh) SpawnVehicle(p, r.s);
         if (!p.veh) return;
-        veh = p.veh;
         DriveVehicle(p, r);
+        VehicleDamage(p);
+        if (!p.veh) return;
+        veh = p.veh;
     } else {
         veh = VehicleOfDriver(vb.driverNetId);
     }

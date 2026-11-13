@@ -21,6 +21,7 @@
 //   building right away and lets a visitor in, "buzzok", 2 s after the "buzz")
 //   drive <model> x y z [heading] (it sits at the wheel of its own car there: Arena War's modes between players) | walk
 //   goto x y z <speed m/s> (its car, or the bot on foot, moves there in a straight line)
+//   carflags <n> (its car's damage state for the others: 32 smoking, 64 burning, 128 wrecked, 0 fine)
 //   score <n> [finishMs] (a scored event's RaceProgress) | run <text...> (its own job starts) | pass (its own job passed)
 // Build: ./build.sh probe (with netprobe). Use it against a test server, not the live one: it registers an account.
 #include <enet/enet.h>
@@ -86,6 +87,7 @@ int main(int argc, char **argv) {
     // the player followed: its last state
     uint16_t lead = 0; RemoteState leadSt; bool haveLead = false;
     Vec3 stayAt{}; bool staying = false;
+    uint8_t carFlags = 0;   // its car's damage state (carflags 32 smoking | 64 burning | 128 wrecked)
     uint32_t carModel = 0; float carHeading = 0.f; Vec3 goTo{}; float goSpeed = 0.f; Vec3 carVel{};   // its own car (drive / goto)
     // jobs
     uint32_t joined = 0, wantJoin = 0; uint8_t joinedKind = 0;
@@ -357,6 +359,7 @@ int main(int argc, char **argv) {
                     carModel = Joaat(model.c_str()); staying = true; following = false; goSpeed = 0.f;
                 }
                 else if (c == "walk") { carModel = 0; }
+                else if (c == "carflags") { int f = 0; is >> f; carFlags = (uint8_t)(f & 0xE0); }
                 else if (c == "goto") { is >> goTo.x >> goTo.y >> goTo.z >> goSpeed; staying = true; following = false; }
                 else if (c == "score") { int n = 0; unsigned fin = 0; is >> n; is >> fin; progress((uint16_t)n, fin); }
                 else if (c == "run") { std::string text; std::getline(is, text); if (!text.empty() && text[0] == ' ') text.erase(0, 1); wire::Writer jw; Put(jw, JobUpdateMsg{kJobRunning, 0, {}, text}); send(jw, kChanEvents, true); }
@@ -396,7 +399,7 @@ int main(int argc, char **argv) {
                 s.veh.pos = stayAt; s.veh.vel = carVel;
                 float hr = carHeading / 57.2958f / 2.f;
                 s.veh.rot = {0.f, 0.f, std::sin(hr), std::cos(hr)};
-                s.veh.vflags = kVehEngine;
+                s.veh.vflags = kVehEngine | carFlags;
                 s.pos = stayAt; s.vel = carVel; s.heading = carHeading; s.move = Move::Still;
             } else if (staying || !haveLead) { s.pos = staying ? stayAt : Vec3{-1037.8f, -2737.6f, 20.2f}; s.vel = carVel; s.heading = carHeading; s.move = goSpeed > 0.f ? Move::Walk : Move::Still; }
             else if (leadSt.flags & kFlagInVehicle) {   // ride along: a passenger of the car the player drives

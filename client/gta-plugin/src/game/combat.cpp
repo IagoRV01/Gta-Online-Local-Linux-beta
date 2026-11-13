@@ -1,6 +1,7 @@
 #include "game/combat.h"
 #include <windows.h>
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include "common/log.h"
 #include "engine/gta.h"
@@ -16,6 +17,8 @@ static unsigned long long g_lastShotSent = 0;
 static uint16_t g_lastAttacker = 0;
 static uint32_t g_lastAttackerWeapon = 0;
 static unsigned long long g_lastAttackedAt = 0;
+static uint16_t g_lastVehAttacker = 0;
+static unsigned long long g_lastVehAttackedAt = 0;
 static uint32_t g_lastFired = 0;
 static unsigned long long g_lastFiredAt = 0;
 
@@ -69,6 +72,32 @@ void OnDamageApply(const DamageApplyMsg &m) {
     LOGI("combat", "-", "hit by %s for %u (weapon 0x%08X) -> health %d", remote::NameOf(m.attacker).c_str(), m.amount, m.weapon, gta::Health(me));
 }
 
+// Vehicle damage sync (2026-11-13). Each game simulates its own car, so crashes need nothing; weapons do: a shot at
+// another player's car hits only its puppet here. The shooter's game measures what its weapons took off the puppet
+// (remote.cpp VehicleDamage) and tells the driver, whose game takes it off the real car. A big explosion blows it up.
+void OnVehicleDamage(uint16_t from, const std::string &text) {
+    int body = 0, engine = 0, explosion = 0; unsigned weapon = 0;
+    if (sscanf(text.c_str(), "%d|%d|%u|%d", &body, &engine, &weapon, &explosion) < 2) return;
+    int me = gta::PlayerPed();
+    if (gta::Dead(me) || !gta::InVehicle(me)) return;
+    int veh = N<int>(N_GET_VEHICLE_PED_IS_IN, me, 0);
+    if (!gta::Exists(veh) || gta::Dead(veh) || N<int>(N_GET_PED_IN_VEHICLE_SEAT, veh, -1, 0) != me) return;   // only the car we drive
+    body = body < 0 ? 0 : body > 2000 ? 2000 : body;
+    engine = engine < 0 ? 0 : engine > 2000 ? 2000 : engine;
+    float b = N<float>(N_GET_VEHICLE_BODY_HEALTH, veh) - (float)body, e = N<float>(N_GET_VEHICLE_ENGINE_HEALTH, veh) - (float)engine;
+    N(N_SET_VEHICLE_BODY_HEALTH, veh, b < 0.f ? 0.f : b);
+    N(N_SET_VEHICLE_ENGINE_HEALTH, veh, e < -3900.f ? -3900.f : e);
+    g_lastAttacker = from; g_lastAttackerWeapon = weapon; g_lastAttackedAt = GetTickCount64();   // a death in the wreck is theirs
+    g_lastVehAttacker = from; g_lastVehAttackedAt = g_lastAttackedAt;
+    bool boom = explosion && (body >= 800 || e < -1000.f);
+    if (boom) N(N_EXPLODE_VEHICLE, veh, 1, 0);
+    LOGI("combat", "-", "our vehicle hit by %s: body -%d engine -%d (weapon 0x%08X%s) -> body %.0f engine %.0f%s", remote::NameOf(from).c_str(), body, engine, weapon,
+         explosion ? ", explosion" : "", b, e, boom ? ", blown up" : "");
+}
+uint16_t LastVehicleAttacker(int withinMs) {
+    return g_lastVehAttacker && GetTickCount64() - g_lastVehAttackedAt < (unsigned long long)(withinMs > 0 ? withinMs : 0) ? g_lastVehAttacker : 0;
+}
+
 void OnLocalDeath() {
     DeathMsg d;
     if (g_lastAttacker && GetTickCount64() - g_lastAttackedAt < 10000) { d.killer = g_lastAttacker; d.weapon = g_lastAttackerWeapon; }
@@ -91,6 +120,6 @@ void OnKillFeed(const KillFeedMsg &m) {
     LOGI("combat", "-", "kill feed: victim %u killer %u weapon 0x%08X", m.victim, m.killer, m.weapon);
 }
 
-void Reset() { g_lastAttacker = 0; }
+void Reset() { g_lastAttacker = 0; g_lastVehAttacker = 0; }
 
 }  // namespace combat

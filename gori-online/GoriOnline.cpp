@@ -726,6 +726,7 @@ struct LocalOnlineApi {
     int (*getRaceStandings)(char *, int) = nullptr;
     void (*setRespawnPoint)(float, float, float, float, int) = nullptr;   // API v11: a job's respawn point, YOU's respawns so far
     int (*respawnCount)() = nullptr;
+    unsigned (*lastVehicleAttacker)(int) = nullptr;   // API v14: the player whose weapons last damaged the vehicle you drive
     int (*getPlayerPed)(unsigned) = nullptr;   // API v12: another player's puppet ped, the puppets held still for a cutscene
     void (*holdPuppets)(int) = nullptr;
     void (*setPlayerInfo)(int, int) = nullptr;                     // API v7: rank + flags (passive, in an activity), the players, the session
@@ -772,6 +773,7 @@ static LocalOnlineApi &LO() {
             api.setRespawnPoint = (void (*)(float, float, float, float, int))GetProcAddress(h, "LocalOnline_SetRespawnPoint");
             api.respawnCount = (int (*)())GetProcAddress(h, "LocalOnline_RespawnCount");
             if (!api.setRespawnPoint || !api.respawnCount) api.setRespawnPoint = nullptr, api.respawnCount = nullptr;
+            api.lastVehicleAttacker = (unsigned (*)(int))GetProcAddress(h, "LocalOnline_LastVehicleAttacker");
             api.getPlayerPed = (int (*)(unsigned))GetProcAddress(h, "LocalOnline_GetPlayerPed");
             api.holdPuppets = (void (*)(int))GetProcAddress(h, "LocalOnline_HoldPuppets");
             if (!api.getPlayerPed || !api.holdPuppets) api.getPlayerPed = nullptr, api.holdPuppets = nullptr;
@@ -5309,6 +5311,37 @@ static void CommandTick() {
             Log("lobbyquit: dm %d race %d sv %d", g_dm.phase, g_race.phase, g_sv.phase);
         }
         else if (a[0] == "dmstat") { auto sc = DmScores(); std::string t; for (auto &x : sc) t += " " + x.name + " " + std::to_string(x.kills) + "/" + std::to_string(x.deaths); Log("dmstat: phase %d health %d armour %d dead %d:%s", g_dm.phase, N<int>(N_GET_ENTITY_HEALTH, Me()), N<int>(N_GET_PED_ARMOUR, Me()), (int)Dead(Me()), t.c_str()); }
+        else if ((a[0] == "shootveh" || a[0] == "explodeveh") && LO().getPlayers && LO().getPlayerPed) {   // shootveh [n] / explodeveh: your rifle bullets / a rocket's explosion of yours on the nearest other player's car (test)
+            int me = Me(), best = 0; float bd = 1e9f;
+            for (auto &line : Split(CoopFetch(LO().getPlayers), '\n')) {
+                std::vector<std::string> f = Split(line, '|');
+                if (f.empty()) continue;
+                int ped = LO().getPlayerPed((unsigned)std::strtoul(f[0].c_str(), nullptr, 10));
+                if (!ped || !Exists(ped) || !NB(N<int>(N_IS_PED_IN_ANY_VEHICLE, ped, 0))) continue;
+                int v = N<int>(N_GET_VEHICLE_PED_IS_IN, ped, 0);
+                if (Exists(v) && Dist(Pos(v), Pos(me)) < bd) { bd = Dist(Pos(v), Pos(me)); best = v; }
+            }
+            if (!best) Log("%s: no other player's car here", a[0].c_str());
+            else {
+                Vec3 t = Pos(best);
+                if (a[0] == "explodeveh") N(N_ADD_OWNED_EXPLOSION, me, t.x, t.y, t.z, 4, 1.f, 1, 0, 1.f);
+                else { int n = a.size() > 1 ? std::atoi(a[1].c_str()) : 5; for (int k = 0; k < n; ++k) { N(N_SHOOT_SINGLE_BULLET_BETWEEN_COORDS_IGNORE_ENTITY, t.x, t.y, t.z + 2.2f, t.x, t.y, t.z, 40, 1, Joaat("weapon_carbinerifle"), me, 0, 1, 2000.f, me, 0); Wait(80); } }
+                Wait(300);
+                Log("%s: car %d at %.1f m: body %.0f engine %.0f dead %d", a[0].c_str(), best, bd, N<float>(N_GET_VEHICLE_BODY_HEALTH, best), N<float>(N_GET_VEHICLE_ENGINE_HEALTH, best), (int)Dead(best));
+            }
+        }
+        else if (a[0] == "mycarstate") {   // the car you are in: its health, who last damaged it with a weapon (test)
+            int v = InAnyVehicle() ? N<int>(N_GET_VEHICLE_PED_IS_IN, Me(), 0) : 0;
+            Log("mycarstate: in a car %d body %.0f engine %.0f dead %d | you dead %d health %d | last vehicle attacker %u | wanted %d arrested %d", (int)(v != 0), v ? N<float>(N_GET_VEHICLE_BODY_HEALTH, v) : -1.f, v ? N<float>(N_GET_VEHICLE_ENGINE_HEALTH, v) : -1.f, v ? (int)Dead(v) : 0,
+                (int)Dead(Me()), N<int>(N_GET_ENTITY_HEALTH, Me()), LO().lastVehicleAttacker ? LO().lastVehicleAttacker(10000) : 0u,
+                N<int>(N_GET_PLAYER_WANTED_LEVEL, Player()), N<int>(N_IS_PLAYER_BEING_ARRESTED, Player(), 1));
+        }
+        else if (a[0] == "setwanted" && a.size() > 1) {   // setwanted <0-5>: that wanted level now (test)
+            int w = std::atoi(a[1].c_str());
+            if (w <= 0) N(N_CLEAR_PLAYER_WANTED_LEVEL, Player());
+            else { N(N_SET_PLAYER_WANTED_LEVEL, Player(), w > 5 ? 5 : w, 0); N(N_SET_PLAYER_WANTED_LEVEL_NOW, Player(), 0); }
+            Log("setwanted: %d", N<int>(N_GET_PLAYER_WANTED_LEVEL, Player()));
+        }
         else if (a[0] == "shootpeds" && a.size() > 1) {   // shootpeds <radius>: a real rifle bullet of yours into every other ped that near (another player's puppet), so the hit counts as yours (test)
             static int peds[1024];
             int n = shv_worldGetAllPeds(peds, 1024), k = 0, me = Me();

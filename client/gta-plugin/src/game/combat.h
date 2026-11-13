@@ -13,6 +13,9 @@ proto::Vec3 AimPoint();                 // world point under the crosshair (came
 void Frame(int me);                     // every frame while YOU is active and online
 void OnDamageApply(const proto::DamageApplyMsg &m);
 void OnKillFeed(const proto::KillFeedMsg &m);
+// "lo.vd" (2026-11-13): another player's weapons hit the puppet of the vehicle we drive: its damage on our real one
+void OnVehicleDamage(uint16_t from, const std::string &text);
+uint16_t LastVehicleAttacker(int withinMs);   // who last damaged our vehicle that way (0: nobody that recently)
 void OnLocalDeath();                    // called once when our ped dies
 void Reset();                           // leaving YOU / disconnect
 // Weapon of our most recent shot (hits are detected a few frames later, possibly after we died and

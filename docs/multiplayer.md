@@ -608,6 +608,48 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - **Not covered:** driving the RC Bandito and flying the drone for real against another person, and how the RC Bandito's driver looks on the other players' games (the driver is hidden only on its own).
 - **Not done:** Online's own look for the wheel, its clothing prizes, joining an event only to watch, the turrets' props, the traps' own animations, Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 
+## Vehicle damage between players (client only, 2026-11-13)
+
+Before this, another player's car was an invincible puppet: you could empty a magazine into it and nothing happened on
+either game. Now your weapons hurt it on its driver's game, and its damage state shows on yours. No protocol change:
+it rides on player messages and three spare bits of the vehicle flags.
+
+- **Your weapons on another player's car** (`remote.cpp`, `VehicleDamage`):
+  - The puppet takes weapon damage (not crashes: its driver's game does its own, and it only blows up when its
+    driver's does).
+  - Every frame, what your weapons or your car took off its body and engine health is added up and put back.
+  - At most ten times a second the sum goes to its driver as the player message `lo.vd`
+    (`body|engine|weapon hash|explosion`). Kinds starting with `lo.` belong to the client and never reach a mod.
+  - A hit of 400 or more at once, or the puppet blown up here, counts as an explosion. A puppet blown up only here is
+    replaced by a fresh one 1.5 s later.
+- **Their weapons on the car you drive** (`combat.cpp`, `OnVehicleDamage`):
+  - Only for the car you are driving. The amounts come off its real body and engine health (capped at 2,000 a message).
+  - An explosion that took 800 or more off the body, or left the engine below -1,000, blows the car up.
+  - The sender becomes your last attacker for 10 s, so a death in the wreck is their kill in the kill feed.
+- **Your car's state on their game** (vehicle flags, `protocol.h`): `kVehSmoking` 32 (engine under 400), `kVehBurning`
+  64 (engine under 0 or on fire), `kVehWrecked` 128. The puppet's engine health follows them, and a wrecked one is
+  blown up there too.
+- **Mods:** `LocalOnline_LastVehicleAttacker(withinMs)` (API v14) is the net id of the player whose weapons last hit
+  the car you drive, or 0. Arena War credits a wreck with it.
+- **The police never bust YOU** (`session.cpp`). Online's police only shoot. The story's arrest left YOU with the
+  hands up for good, because its restart is paused while YOU is the player (seen after blowing up a car: one star, a
+  stopped car, an officer at the door). The arrest state is now refused every frame and undone if it starts anyway.
+- Test: Gori's `shootveh <n>` and `explodeveh` (your bullets and an explosion on the nearest player's car),
+  `mycarstate`, `setwanted <0-5>`; gobot's `carflags <32|64|128>` and `say lo.vd 150|200|0|0`.
+- **Verified in game 2026-11-13 with gobot:**
+  - Five rifle bullets on its car: five `lo.vd 40|0|...` on the bot. An explosion: `lo.vd 1000|1001|...|1`.
+  - Its `carflags` 128: "its vehicle blew up" here; back to 0: the wreck replaced by a fresh car. (Log only: the
+    screenshots faced away from the car, so the smoke and the fire of 32 and 64 were not looked at.)
+  - Its `lo.vd 150|200|0|0` on the car I drove: body 1000 to 850, engine 1000 to 800. Its `lo.vd 0|500|0|0`: engine
+    300, and my own flags went to "smoking". Its `lo.vd 1000|1000|0|1`: my car blown up, I died, "Bot killed You" in
+    my kill feed and "Alex killed by the bot" on the bot, respawn at the hospital.
+  - One star in a stopped car: the police pulled me out, "arrest undone" twice in the log, and the game went on
+    (they shot me later and I respawned as usual). Before the fix I stood there hands up until GTA was closed.
+- **Not covered:** two real GTAs shooting each other's cars (gobot does not simulate a car's health), how a smoking
+  or burning puppet looks, tyres and windows (not synced), and the officer still opening the door before the arrest
+  is undone. After an explosion of yours the fire you left keeps taking about 60 body a second off the puppet for some
+  20 s, and that is reported too.
+
 ## The apartment buzzer (Gori `Buzzer.inc`, protocol v14 player messages)
 
 - At the walk-in door of an apartment building where you own nothing: Online's corona and "Press E to use the buzzer". E asks your session who lives there (`aptq` building), each owner's game answers (`apta` home|name); you pick one (left / right) and E buzzes it (`buzz` home|name). The owner, at home, sees "<name> is at the door. E Let them in, Esc Ignore" and answers `buzzok` / `buzzno`; let in, you walk into that interior as a guest. An owner who is out answers that they're not home. In a building where you own a home, its own entrance is used instead.
@@ -774,7 +816,7 @@ Any Gori Online mission started by the YOU character becomes a server job that o
 
 **gobot (2026-11-06): a second player for tests** (`tools/netprobe/bot.cpp`, built by `./build.sh probe` as `build/gobot.exe`).
 - `gobot <server-ip> [port] [name] [seconds]`: it logs in, makes itself a character, shows its rank and look, and then by itself follows the first other player (2.5 m behind on foot, a passenger in the car that player drives), joins every job another player opens and leaves it when it ends, can host one (`host <kind> <payout> <title>`, `close`), owns a home for the buzzer (`home <property> <building>`), fights (health and armour; the hits other players report damage it, it dies with its killer credited and respawns 5 s later; in a deathmatch it circles the other player 12 m away and fires every `BOT_SHOOTMS` ms, default 2000, hitting for 25 with chance `BOT_ACC` %, default 50), plays survivals (each wave the host announces is cleared after `BOT_WAVEMS` ms, default 20000, with kills meanwhile), races (a checkpoint every `BOT_CPMS` ms, default 7000, finishing at the race's last one, then its results line), and votes in the shared next-job screen (`BOT_VOTE`, default slot 0).
-- Commands, one a line, in `gobot-<name>.cmd` next to it: `join <id>`, `leave`, `vote <slot>` (8: Freemode), `pace <ms>`, `shoot on|off`, `down` (survival), `stay x y z`, `follow`, `say <kind> <text>`, `quit`. Since 2026-11-11, for Arena War between players: `drive <model> x y z [heading]` (it sits at the wheel of its own car there), `walk`, `goto x y z <m/s>` (it moves there in a straight line), `score <n> [finishMs]` (a scored event's progress), `run <text>` (its own job starts) and `pass` (its own job passed).
+- Commands, one a line, in `gobot-<name>.cmd` next to it: `join <id>`, `leave`, `vote <slot>` (8: Freemode), `pace <ms>`, `shoot on|off`, `down` (survival), `stay x y z`, `follow`, `say <kind> <text>`, `quit`. Since 2026-11-11, for Arena War between players: `drive <model> x y z [heading]` (it sits at the wheel of its own car there), `walk`, `goto x y z <m/s>` (it moves there in a straight line), `score <n> [finishMs]` (a scored event's progress), `run <text>` (its own job starts) and `pass` (its own job passed). Since 2026-11-13: `carflags <n>` (its car's damage bits: 32 smoking, 64 burning, 128 wrecked).
 - It registers an account, so it runs against a **test server**: `build/server-run/start-test-server.bat` starts the same LocalOnlineServer.exe (so the firewall rule covers it) with `server-test.toml`: port 4498, its own copy of the database (`build/server-test/data/test.db`, made with SQLite's online backup), logs and admin file. The BC-250's client is pointed at it for a test and back afterwards, keeping its live `client.toml` and `cache` aside meanwhile.
 - Verified 2026-11-06 with the BC-250 as host: the bot is drawn in the session and inside the apartment, joins the Fleeca finale's open lobby (Players 2 of 4), plays the heist (the leader's cut 75 %, one crew at 25 %, both on the results board), joins a contact mission's lobby, is paid its cut by the server ($2,500, after the one-minute minimum), votes on the next-job screen (1/2 votes) and follows the host into the lobby the vote picked.
 - Found with it and fixed: another player inside an apartment was invisible (only the name tag showed): `LocalOnline.asi` now puts the puppet in our interior's room (`remote.cpp` RoomFix). Lester's cooldown is checked before the finale's scene plays, not after. After a race the host was alone in a private session, so the shared vote never reached the others: the crew now stays together after a job (Sessions, above).

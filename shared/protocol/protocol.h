@@ -101,7 +101,14 @@ struct Vec3 { float x = 0, y = 0, z = 0; };
 struct Quat { float x = 0, y = 0, z = 0, w = 1; };
 
 // Vehicle flags (VehicleBlock::vflags).
-enum VehicleFlags : uint8_t { kVehEngine = 1 << 0, kVehLights = 1 << 1, kVehHighBeams = 1 << 2, kVehSiren = 1 << 3, kVehHorn = 1 << 4 };
+// Bits 5-7 (2026-11-13, vehicle damage sync; the same byte, so still protocol v14): the damage state as its driver's game
+// has it: smoking (engine under 400), burning (engine under 0, or on fire), wrecked.
+enum VehicleFlags : uint8_t { kVehEngine = 1 << 0, kVehLights = 1 << 1, kVehHighBeams = 1 << 2, kVehSiren = 1 << 3, kVehHorn = 1 << 4,
+                              kVehSmoking = 1 << 5, kVehBurning = 1 << 6, kVehWrecked = 1 << 7 };
+// Player messages (v14) whose kind starts with "lo." are the client's own and never reach a mod:
+//   "lo.vd", to a vehicle's driver: "body|engine|weapon|explosion", the damage our weapons did to its puppet on our game
+constexpr const char *kMsgClientPrefix = "lo.";
+constexpr const char *kMsgVehicleDamage = "lo.vd";
 
 // Present in PlayerState/RemoteState only when flags has kFlagInVehicle.
 // The driver owns the vehicle: its pos/rot/vel are authoritative from the driver's client only;

@@ -360,6 +360,20 @@ unsigned long long g_finishRestartUntil = 0;   // let the game complete its paus
 unsigned long long g_tryNoPauseUntil = 0;
 void SuppressStoryRestart() {
     if (g_tryStateOfPlay) N(N_DISPLAY_HUD_WHEN_NOT_IN_STATE_OF_PLAY_THIS_FRAME);
+    // Online's police never bust a player, they only shoot. The story's arrest pulls YOU out of the car, hands up, and
+    // (its restart being paused here) leaves YOU like that for good (seen 2026-11-13 13:28, wanted after blowing up a car).
+    N(N_PREVENT_ARREST_STATE_THIS_FRAME, gta::PlayerId());
+    if (NB(N<int>(N_IS_PLAYER_BEING_ARRESTED, gta::PlayerId(), 1))) {
+        static unsigned long long lastAt = 0;
+        int me = gta::PlayerPed();
+        N(N_RESET_PLAYER_ARREST_STATE, gta::PlayerId());
+        if (GetTickCount64() - lastAt > 1000) {   // still arrested a second later: the hands-up task is thrown away
+            if (lastAt && GetTickCount64() - lastAt < 3000 && !gta::Dead(me)) N(N_CLEAR_PED_TASKS_IMMEDIATELY, me);
+            lastAt = GetTickCount64();
+            N(N_SET_PLAYER_CONTROL, gta::PlayerId(), 1, 0);
+            LOGI("session", Who(), "the police tried to bust YOU: arrest undone (wanted %d)", N<int>(N_GET_PLAYER_WANTED_LEVEL, gta::PlayerId()));
+        }
+    }
     // After our own respawn the game still has its death restart pending (paused below): until it
     // runs, the game treats the player as WASTED - no minimap, no pause menu (seen 2026-10-10). Let
     // it finish for a few seconds once YOU is alive again; if it rebuilds the ped, the freemode
@@ -577,6 +591,13 @@ void SendOwnState(int me) {
         if (high) vf |= proto::kVehHighBeams;
         if (NB(N<int>(N_IS_VEHICLE_SIREN_ON, veh))) vf |= proto::kVehSiren;
         if (NB(N<int>(N_IS_HORN_ACTIVE, veh))) vf |= proto::kVehHorn;
+        // its damage state, for the others' puppet of it (2026-11-13)
+        float eng = N<float>(N_GET_VEHICLE_ENGINE_HEALTH, veh);
+        if (gta::Dead(veh)) vf |= proto::kVehWrecked;
+        else if (eng < 0.f || NB(N<int>(N_IS_ENTITY_ON_FIRE, veh))) vf |= proto::kVehBurning;
+        else if (eng < 400.f) vf |= proto::kVehSmoking;
+        static uint8_t shown = 0;
+        if ((vf & 0xE0) != shown) { shown = vf & 0xE0; LOGI("vehicle", Who(), "our vehicle: %s (engine %.0f, body %.0f)", (vf & proto::kVehWrecked) ? "wrecked" : (vf & proto::kVehBurning) ? "burning" : (vf & proto::kVehSmoking) ? "smoking" : "fine", eng, N<float>(N_GET_VEHICLE_BODY_HEALTH, veh)); }
         vb.vflags = vf;
     }
     net::SendState(s);

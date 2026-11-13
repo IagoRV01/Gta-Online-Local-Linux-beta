@@ -520,6 +520,10 @@ static std::string AwWreckedBy() {
         if (Exists(g_aw.myVeh) && ((Exists(b.veh) && NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, g_aw.myVeh, b.veh, 1))) || (Exists(b.ped) && NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, g_aw.myVeh, b.ped, 1))))) return b.name;
     }
     if (!g_aw.hitBy.empty() && Now() - g_aw.hitAt < 6000) return g_aw.hitBy;   // a turret in the box
+    if (LO().lastVehicleAttacker) {   // a player's weapons (LocalOnline's vehicle damage sync, API v14)
+        unsigned id = LO().lastVehicleAttacker(6000);
+        if (id) for (auto &b : g_aw.botList) if (AwRemote(b) && b.netId == id && b.team != 1) return b.name;
+    }
     return "";
 }
 

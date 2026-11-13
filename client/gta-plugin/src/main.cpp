@@ -9,6 +9,7 @@
 #include "engine/crash.h"
 #include "engine/gta.h"
 #include "engine/shv.h"
+#include "game/combat.h"
 #include "game/jobs.h"
 #include "game/remote.h"
 #include "game/devcmd.h"
@@ -128,7 +129,9 @@ extern "C" __declspec(dllexport) void LocalOnline_RaceProgress(int checkpoints, 
     jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs > 0 ? (uint32_t)finishMs : 0);
 }
 extern "C" __declspec(dllexport) int LocalOnline_GetRaceStandings(char *buf, int cap) { return CopyOut(jobs::StandingsText(), buf, cap); }
-extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 13; }
+extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 14; }
+// API v14: vehicle damage sync: the player (netId, 0 nobody) whose weapons last damaged the vehicle we drive, within that many ms
+extern "C" __declspec(dllexport) unsigned LocalOnline_LastVehicleAttacker(int withinMs) { return combat::LastVehicleAttacker(withinMs); }
 // API v11: a job's respawn point instead of the nearest hospital (validMs from now), and how many times YOU has respawned
 extern "C" __declspec(dllexport) void LocalOnline_SetRespawnPoint(float x, float y, float z, float h, int validMs) { session::SetRespawnPoint(x, y, z, h, validMs); }
 extern "C" __declspec(dllexport) int LocalOnline_RespawnCount() { return session::RespawnCount(); }

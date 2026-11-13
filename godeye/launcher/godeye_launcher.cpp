@@ -3,7 +3,8 @@
 //                         GPU; closing the window stops what it started
 //   GodEye.exe --gpus     list the graphics adapters, to pick one for `gpu=` in GodEye.ini
 // Settings: GodEye.ini next to the exe, else %LOCALAPPDATA%\GodEye\GodEye.ini (see godeye/launcher/GodEye.example.ini).
-// The window is Edge (or Chrome) in app mode with its own profile, pinned to one adapter with --use-adapter-luid.
+// The window is Firefox with its own bare profile (no tabs, no address bar), or Edge / Chrome in app mode with its own
+// profile, pinned to one adapter with --use-adapter-luid (Firefox cannot be pinned: Windows chooses its card).
 #include <winsock2.h>
 #include <windows.h>
 #include <dxgi.h>
@@ -215,6 +216,61 @@ bool GodEyeWindowOpen(const std::string &browserExe) {
     return ctx.found;
 }
 
+bool IsFirefox(const std::string &exe) {
+    std::string l = Lower(exe);
+    size_t p = l.find_last_of("\\/");
+    return l.substr(p == std::string::npos ? 0 : p + 1) == "firefox.exe";
+}
+
+void WriteIfDifferent(const std::string &path, const std::string &text) {
+    std::string old;
+    if (FILE *f = std::fopen(path.c_str(), "rb")) {
+        char b[4096];
+        for (size_t n; (n = std::fread(b, 1, sizeof b, f)) > 0;) old.append(b, n);
+        std::fclose(f);
+        if (old == text) return;
+    }
+    if (FILE *f = std::fopen(path.c_str(), "wb")) { std::fwrite(text.data(), 1, text.size(), f); std::fclose(f); }
+}
+
+// Firefox has no app mode. Its own profile, with the tabs and the address bar hidden by userChrome.css and the first-run
+// pages off, gives the same bare window; the login and the page's settings stay in that profile.
+void PrepareFirefoxProfile(const std::string &profile) {
+    CreateDirectoryA(profile.c_str(), nullptr);
+    CreateDirectoryA((profile + "\\chrome").c_str(), nullptr);
+    WriteIfDifferent(profile + "\\user.js",
+        "// GodEye's window (written by GodEye.exe at every start)\n"
+        "user_pref(\"toolkit.legacyUserProfileCustomizations.stylesheets\", true);\n"
+        "user_pref(\"browser.tabs.inTitlebar\", 0);\n"
+        "user_pref(\"browser.toolbars.bookmarks.visibility\", \"never\");\n"
+        "user_pref(\"sidebar.revamp\", false);\n"
+        "user_pref(\"browser.shell.checkDefaultBrowser\", false);\n"
+        "user_pref(\"browser.aboutwelcome.enabled\", false);\n"
+        "user_pref(\"browser.startup.page\", 0);\n"
+        "user_pref(\"browser.startup.homepage_override.mstone\", \"ignore\");\n"
+        "user_pref(\"startup.homepage_welcome_url\", \"\");\n"
+        "user_pref(\"startup.homepage_welcome_url.additional\", \"\");\n"
+        "user_pref(\"browser.sessionstore.resume_from_crash\", false);\n"
+        "user_pref(\"browser.tabs.warnOnClose\", false);\n"
+        "user_pref(\"browser.warnOnQuit\", false);\n"
+        "user_pref(\"browser.uitour.enabled\", false);\n"
+        "user_pref(\"datareporting.policy.firstRunURL\", \"\");\n"
+        "user_pref(\"datareporting.policy.dataSubmissionPolicyBypassNotification\", true);\n"
+        "user_pref(\"media.autoplay.default\", 0);\n");
+    WriteIfDifferent(profile + "\\chrome\\userChrome.css",
+        "/* GodEye's window: no tabs, no address bar (written by GodEye.exe at every start) */\n"
+        "#TabsToolbar, #nav-bar, #PersonalToolbar, #sidebar-main, #sidebar-launcher-splitter { visibility: collapse !important; }\n"
+        "#navigator-toolbox { border: 0 !important; }\n");
+}
+
+// Firefox keeps parent.lock of the profile it runs on open for itself alone: while that fails to open, GodEye's window
+// (the only thing on that profile) is still there, whichever process shows it.
+bool FirefoxProfileInUse(const std::string &profile) {
+    HANDLE h = CreateFileA((profile + "\\parent.lock").c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h != INVALID_HANDLE_VALUE) { CloseHandle(h); return false; }
+    return GetLastError() == ERROR_SHARING_VIOLATION;
+}
+
 std::string ReadFirstLine(const std::string &path) {
     FILE *f = std::fopen(path.c_str(), "rb");
     if (!f) return "";
@@ -251,14 +307,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
     Ini ini;
     ini.path = FindSettings();
     std::string backend = ini.Get("backend", ""), node = ini.Get("node", "C:\\Program Files\\nodejs\\node.exe");
-    std::string url = ini.Get("url", "http://127.0.0.1:8080/");
-    int port = std::atoi(ini.Get("port", "8080").c_str());
+    std::string url = ini.Get("url", "http://127.0.0.1:9999/");
+    int port = std::atoi(ini.Get("port", "9999").c_str());
     std::string browser = ini.Get("browser", "");
     if (browser.empty())
-        for (const char *b : {"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+        for (const char *b : {"C:\\Program Files\\Mozilla Firefox\\firefox.exe", "C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe",
+                              "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
                               "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"})
             if (Exists(b)) { browser = b; break; }
-    if (browser.empty() || !Exists(browser)) Fail("No Edge or Chrome found: set browser= in " + ini.path);
+    if (browser.empty() || !Exists(browser)) Fail("No Firefox, Edge or Chrome found: set browser= in " + ini.path);
 
     // the GPU: only the configured one (or Windows' choice with gpu=auto)
     std::string sel = ini.Get("gpu", "auto");
@@ -300,22 +357,30 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
     std::string py = ini.Get("python", "pythonw.exe"), camScript = backend + "\\..\\camera\\camera_client.py";
     if (camera && !Start(py, "\"" + camScript + "\" start", "", "", false, nullptr)) camera = false;
 
-    std::string profile = LocalAppData() + "\\window";
+    bool firefox = IsFirefox(browser);
+    std::string profile = LocalAppData() + (firefox ? "\\window-firefox" : "\\window");
     CreateDirectoryA(LocalAppData().c_str(), nullptr);
-    std::string bargs = "--app=" + url + " --user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check --window-size=1500,920";
-    if (gpu) bargs += " --use-angle=d3d11 --use-adapter-luid=" + std::to_string(gpu->luidHigh) + "," + std::to_string(gpu->luidLow);
+    std::string bargs;
+    if (firefox) {   // gpu= cannot be passed on to Firefox: it draws on the card Windows gives it
+        PrepareFirefoxProfile(profile);
+        bargs = "-profile \"" + profile + "\" -new-window \"" + url + "\" -width 1500 -height 920";
+    } else {
+        bargs = "--app=" + url + " --user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check --window-size=1500,920";
+        if (gpu) bargs += " --use-angle=d3d11 --use-adapter-luid=" + std::to_string(gpu->luidHigh) + "," + std::to_string(gpu->luidLow);
+    }
     HANDLE win = nullptr, winJob = CreateJobObjectA(nullptr, nullptr);   // every process of the window, followed
     if (!Start(browser, bargs, "", "", false, &win, first ? winJob : nullptr)) Fail("Could not open the GodEye window with " + browser);
     if (!first) return 0;
     // GodEye stays on while its window is open. The browser we started may hand the window to a new process of its own
-    // (Edge does on a fresh profile, and when it restarts after an update), so GodEye goes off only after 2 s with
-    // neither a process of the window's job nor a "GodEye" window of the browser.
+    // (Edge does on a fresh profile, and when it restarts after an update; Firefox when one already runs on the profile),
+    // so GodEye goes off only after 2 s with neither a process of the window's job nor a "GodEye" window of the browser
+    // (for Firefox: nothing running on GodEye's profile).
     WaitForSingleObject(win, INFINITE);
     CloseHandle(win);
     for (int gone = 0; gone < 4; Sleep(500)) {
         JOBOBJECT_BASIC_ACCOUNTING_INFORMATION ai{};
         bool procs = QueryInformationJobObject(winJob, JobObjectBasicAccountingInformation, &ai, sizeof ai, nullptr) && ai.ActiveProcesses > 0;
-        gone = procs || GodEyeWindowOpen(browser) ? 0 : gone + 1;
+        gone = procs || (firefox ? FirefoxProfileInUse(profile) : GodEyeWindowOpen(browser)) ? 0 : gone + 1;
     }
     CloseHandle(winJob);
     if (camera) {   // close the camera GTA first (it is not in our job: Steam started it)
