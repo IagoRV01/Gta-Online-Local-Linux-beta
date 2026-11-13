@@ -91,6 +91,63 @@ static partial class Map3D
     static YmapFile Load(string path) { var y = new YmapFile(); y.Load(File.ReadAllBytes(path)); return y; }
 }
 
+// GodEyeMap <gta> findfile <name part> [more parts...]: every file in the game's archives whose path contains one of them
+static partial class Map3D
+{
+    public static int FindFile(string gta, string[] parts)
+    {
+        int n = 0;
+        foreach (var rel in GameRpfs(gta))
+        {
+            RpfFile rpf;
+            try { rpf = new RpfFile(Path.Combine(gta, rel), rel); rpf.ScanStructure(null, null); } catch { continue; }
+            foreach (var e in AllEntriesDeep(rpf).OfType<RpfFileEntry>())
+            {
+                if (!parts.Any(p => e.Path.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0)) continue;
+                if (++n <= 3000) Console.WriteLine(e.Path);
+            }
+        }
+        Console.WriteLine($"{n} files");
+        return 0;
+    }
+}
+
+// GodEyeMap <gta> mlosets <ytyp name part> [entity name part]: the interiors (MLOs) defined in the .ytyp files whose path
+// contains that text: each one's entity sets, and (with a second text) the entities whose archetype name contains it,
+// with their place in the interior
+static partial class Map3D
+{
+    public static int MloSets(string gta, string part, string ent)
+    {
+        foreach (var rel in GameRpfs(gta))
+        {
+            RpfFile rpf;
+            try { rpf = new RpfFile(Path.Combine(gta, rel), rel); rpf.ScanStructure(null, null); } catch { continue; }
+            foreach (var e in AllEntriesDeep(rpf).OfType<RpfFileEntry>())
+            {
+                if (!e.Path.EndsWith(".ytyp", StringComparison.OrdinalIgnoreCase) || e.Path.IndexOf(part, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                YtypFile yt;
+                try { yt = RpfFile.GetFile<YtypFile>(e); } catch { continue; }
+                foreach (var m in (yt?.AllArchetypes ?? Array.Empty<Archetype>()).OfType<MloArchetype>())
+                {
+                    Console.WriteLine($"{e.Path}: MLO {m.Name}, {m.entities?.Length ?? 0} entities, {m.entitySets?.Length ?? 0} entity sets");
+                    foreach (var en in m.entities ?? Array.Empty<MCEntityDef>())
+                        if (ent != null && en.Name.IndexOf(ent, StringComparison.OrdinalIgnoreCase) >= 0)
+                            Console.WriteLine($"  entity {en.Name} at {en.Data.position.X:0.00} {en.Data.position.Y:0.00} {en.Data.position.Z:0.00} rot {en.Data.rotation.X:0.000} {en.Data.rotation.Y:0.000} {en.Data.rotation.Z:0.000} {en.Data.rotation.W:0.000}");
+                    foreach (var set in m.entitySets ?? Array.Empty<MCMloEntitySet>())
+                    {
+                        Console.WriteLine($"  set {set.Name}: {set.Entities?.Length ?? 0} entities");
+                        foreach (var en in set.Entities ?? Array.Empty<MCEntityDef>())
+                            if (ent != null && (en.Name.IndexOf(ent, StringComparison.OrdinalIgnoreCase) >= 0 || set.Name.IndexOf(ent, StringComparison.OrdinalIgnoreCase) >= 0))
+                                Console.WriteLine($"    entity {en.Name} at {en.Data.position.X:0.00} {en.Data.position.Y:0.00} {en.Data.position.Z:0.00} rot {en.Data.rotation.X:0.000} {en.Data.rotation.Y:0.000} {en.Data.rotation.Z:0.000} {en.Data.rotation.W:0.000}");
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+}
+
 // GodEyeMap <gta> findytd <name part>: every texture dictionary whose path contains that text, with its textures
 static partial class Map3D
 {

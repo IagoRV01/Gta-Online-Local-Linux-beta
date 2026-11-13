@@ -547,7 +547,7 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - **The other four of Online's nine** (2026-11-07), described here as played solo against bots, after Online's descriptions (gta.wiki, GTABase); their numbers are ours:
     - **Wreck It:** a race through the traps (always on): 8 checkpoints over the floor in a loop around their middle, 3 laps, a start grid on level clear floor, a pit stop (green) that repairs the car when you slow down in it. The bots race the same checkpoints; one that hasn't passed its next for 20 s is moved on to it (our catch-up rule). HUD: lap, position. Pays by place: $16,000 first, $3,000 less a place (at least $4,000), 70 AP first, 10 less a place.
     - **Tag Team:** you and an AI partner against teams of bots (each a car with two lives). Drive into the tag zone and press E to tag out: your partner comes in and you watch from the box (a camera over the arena) while your car is repaired, up to 75 % ("repaired to a limited extent"); E after 10 s tags you back in. A wreck costs your team a life and sends the other one in. The last team standing wins; at the time limit the most lives left (equal: a draw). $15,000 / $9,000 / $5,000 plus $1,500 a wreck.
-    - **Bomb Ball:** a big ball (`stt_prop_stunt_soccer_lball`), your goal and theirs (the farthest-apart points of the floor), half the bots on your side. Rounds of 60 s: when the timer runs out the ball goes off, and the side whose half it isn't in scores 1; pushed into a goal it goes off at once for 3. The bots drive at the ball from behind, towards the other goal. $3,000 + $2,000 a point, $5,000 more for a win.
+    - **Bomb Ball:** Arena War's own bomb ball (`xs_prop_arena_bomb_l`, 4 m across; the stunt soccer ball before 2026-11-13), your goal and theirs (the farthest-apart points of the floor), half the bots on your side. Rounds of 60 s: when the timer runs out the ball goes off, and the side whose half it isn't in scores 1; pushed into a goal it goes off at once for 3. The bots drive at the ball from behind, towards the other goal. $3,000 + $2,000 a point, $5,000 more for a win.
     - **Buzzer Beater:** everyone's timer starts at 60 s and runs down; three checkpoints out at a time give +10 s, a wreck you cause +15 s, a jump over 1.5 s +5 s, being wrecked -10 s. At zero your car goes up and you're out; the last one standing wins. Bots short of time go for the checkpoints, the others for you. Pays by place, plus $1,000 a wreck.
   - **The arena's floor** wasn't found any more: every probe failed since the job sessions' flight up (2026-10-24), which streams around its camera in the sky, and with you held at z 150 above the arena's interior box its collision never loaded, so every spawn fell back to the middle (Bomb Ball's goals on one spot, a goal every 4 s). Now you are put inside the arena at z 112, the flight lands on black, the floor is probed (ray down, then GET_GROUND_Z) and the cars, bots and the mode's things are placed before the screen fades in. Verified: floor 103.2 on Apocalypse map 1, three events in a row. `awprobe [x y]` logs what each probe finds; `arenamodes` the new modes' state; `awgoto tag|pit|goal|ball`.
   - **Traps** (solo, on by default; menu "Traps (solo)"): the arena's own trap props in the theme's version, placed on the floor away from your car, with our own effects. Online's trap logic lives in Rockstar's job scripts and data.
@@ -599,7 +599,7 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - **Prizes:** RC Bandito, Battle Drone and Turret 22 % each, $2,000 to $10,000 14 %, 500 to 2,000 RP 10 %, 10 to 50 Arena Points 10 %. The second spin on costs $5,000 (ledger "Gori Online: Arena War Wheel").
   - **RC Bandito** (60 s): you drive a real `rcbandito` in the arena, unseen and invincible inside it; E drops a mine behind it (three, 1.5 s apart). A dropped mine arms in 1.5 s, goes off under a car like the arena's own and does not come back. The turn ends when the time is up or the car is wrecked.
   - **Battle Drone** (45 s): a camera on a drone prop (`xs_prop_arena_drone_01`, else the Terrorbyte's), flown like the Terrorbyte's drone (move, SPACE / CTRL up and down, SHIFT boost) within 70 m of the arena's middle and 30 m of its floor. The mouse button is an EMP pulse (every 8 s): cars within 10 m have their engine off for 3 s.
-  - **Turret** (30 s): a camera on one of four posts around the arena (LEFT / RIGHT change post), the mouse button fires 7 shots a second. A hit takes 35 off a car's body and 30 off its engine (below zero it burns); a bot's car is hit here, a player's on that player's own game.
+  - **Turret** (30 s): a camera on one of the arena's own turret posts (LEFT / RIGHT change post; see below), the mouse button fires 7 shots a second. A hit takes 35 off a car's body and 30 off its engine (below zero it burns); a bot's car is hit here, a player's on that player's own game.
   - ESC ends the drone's or the turret's turn early. Tag Team's box prompts wait while the wheel spins or a gadget is on; being tagged in ends it.
   - **Between players:** the RC Bandito is simply the car LocalOnline shows for you. Its mines (`awe M|point|name`), the drone's place four times a second (`awe D`, drawn as an orange ball), its pulse (`awe E`) and the turret's hits on a player's car (`awe S|victim|name`, five a second at most; a wreck within 6 s is credited to the shooter) are told to every game. Mines and Trap Cam choices now name the trap by its place as well as its number, because dropped mines are not at the same number on every game. A gadget does nothing to its own side.
   - **Help texts** over 90 characters are no longer cut in the middle of a word ("Anothe r turret").
@@ -634,7 +634,31 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
       while the arena loads, and the box clears any fall first and fetches back whoever drops below the arena.
   - **Not covered:** a spectator among several real players, changing your mind in a real lobby (`name|0`), and a
     spectator in Carnage (a deathmatch job; the same server path, not run).
-- **Not done:** Online's own look for the wheel, its clothing prizes, the turrets' props, the traps' own animations, Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
+- **The arena's own turret posts (2026-11-13).** The interior has them as entity sets, one per theme (`Set_Turrets`,
+  `Set_Turrets_Scifi`, `Set_Turrets_Wasteland`): six posts on top of the stands (`xs_prop_arena_turret_post_01a` and
+  its `_sf` / `_wl` versions). Every event now turns its theme's set on.
+  - The box's turret sits on the four posts along the long sides (interior coordinates ±83.4, ±94.0, foot at 39 m,
+    16.3 m tall; world place through `GET_OFFSET_FROM_INTERIOR_IN_WORLD_COORDS`), 2.2 m over the post's top. The two
+    posts at the far ends (±184 m) are too far from where the events are played.
+  - That is 126 m from the middle of the floor and 54 m above it, so the view is a gun sight's (30° instead of 60°,
+    the aim half as fast). It starts aimed at the middle of the floor. Until now the "posts" were four points 46 m out
+    and 16 m up, over the lower stands.
+  - Where the names came from: `tools/godeye-map` got two diagnostics, `findfile <text>...` (every file in the game's
+    archives whose path has that text) and `mlosets <ytyp text> [entity or set text]` (an interior's entity sets and
+    the entities in them, with their place). The big `xs_prop_arena_turret_01a` models (16 m across, 23 to 31 m tall)
+    are towers for the arena floor, not what stands on the posts, and are not used.
+  - Test: Gori's `awprops <model>...` lines props up 16 m ahead with a camera on them and logs their sizes
+    (`objclear` removes them and the camera); `dims <model>...`.
+  - **Verified in game 2026-11-13** (solo Tag Team, Apocalypse map 1): the turret from each post, posts 0, 1 and 3 at
+    2716.6 -3706.0 / 2883.5 -3706.0 / 2716.5 -3893.9, z 157.5; 8 hits on a bot from 126 m ("turret hit a bot");
+    aiming from one post along the stand and across the arena puts the sight on the next post. Solo Bomb Ball: the
+    bomb ball in the field, pushed around by the bots.
+  - **Not covered:** the Sci-Fi and Wasteland posts (same places, other models), a goal scored with the new ball
+    (0 - 0 in the half minute watched), and the turret between players from the new posts (the hits are told as
+    before).
+- **Not done:** Online's own look for the wheel, its clothing prizes, the traps' own animations (the flippers have no
+  animation clip in the game's files: their plate is a fragment the scripts move), Bomb Ball's goal props
+  (`xs_prop_arena_goal`, 47 m wide: wider than the part of the floor the events use), Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 
 ## Vehicle damage between players (client only, 2026-11-13)
 

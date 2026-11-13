@@ -184,6 +184,7 @@ constexpr uint64_t N_GET_NUM_VEHICLE_MODS = 0xE38E9162A2500646; // int GET_NUM_V
 constexpr uint64_t N_GET_OFFSET_FROM_COORD_AND_HEADING_IN_WORLD_COORDS = 0x163E252DE035A133; // Vector3 GET_OFFSET_FROM_COORD_AND_HEADING_IN_WORLD_COORDS(float xPos, float yPos, float zPos, float heading, float xOffset, float yOffset, float zOffset)
 constexpr uint64_t N_GET_OFFSET_FROM_ENTITY_GIVEN_WORLD_COORDS = 0x2274BC1C4885E333; // Vector3 GET_OFFSET_FROM_ENTITY_GIVEN_WORLD_COORDS(Entity entity, float posX, float posY, float posZ)
 constexpr uint64_t N_GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS = 0x1899F328B0E12848; // Vector3 GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Entity entity, float offsetX, float offsetY, float offsetZ)
+constexpr uint64_t N_GET_OFFSET_FROM_INTERIOR_IN_WORLD_COORDS = 0x9E3B3E6D66F6E22F; // Vector3 GET_OFFSET_FROM_INTERIOR_IN_WORLD_COORDS(Interior interior, float x, float y, float z)
 constexpr uint64_t N_GET_ONSCREEN_KEYBOARD_RESULT = 0x8362B09B91893647; // const char* GET_ONSCREEN_KEYBOARD_RESULT()
 constexpr uint64_t N_GET_PED_ARMOUR = 0x9483AF821605B1D8; // int GET_PED_ARMOUR(Ped ped)
 constexpr uint64_t N_GET_PED_BONE_INDEX = 0x3F428D08BE5AAE31; // int GET_PED_BONE_INDEX(Ped ped, int boneId)

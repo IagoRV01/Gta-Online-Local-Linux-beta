@@ -4924,6 +4924,7 @@ static void IslandMapTick() {
 // ---------------------------------------------------------------- Test commands (GoriOnline.cmd next to the .asi, one command per line)
 static int g_lastCmd = 0;
 static void ApplyOnlineMap(bool force);
+static int g_testCam = 0;
 static std::vector<int> *g_testObjs = nullptr;
 static void CommandTick() {
     if (Now() - g_lastCmd < 1000) return;
@@ -5753,7 +5754,34 @@ static void CommandTick() {
             else Log("objat %s: model not found", a[1].c_str());
             g_testObjs = &objs;
         }
-        else if (a[0] == "objclear") { if (g_testObjs) { for (int &o : *g_testObjs) N(N_DELETE_OBJECT, &o); g_testObjs->clear(); } }
+        else if (a[0] == "awprops" && a.size() > 1) {   // awprops <model>...: those props in a row 16 m ahead of you, on your level, their sizes logged; objclear removes them (test)
+            static std::vector<int> objs;
+            Vec3 p = Pos(Me()); float h = N<float>(N_GET_ENTITY_HEADING, Me()) * 0.0174533f;
+            float fx = -std::sin(h), fy = std::cos(h), rx = std::cos(h), ry = std::sin(h);
+            int n = (int)a.size() - 1;
+            for (int k = 0; k < n; ++k) {
+                uint32_t m = Joaat(a[(size_t)k + 1].c_str());
+                if (!LoadModel(m)) { Log("awprops %s: model not found", a[(size_t)k + 1].c_str()); continue; }
+                Vec3 mn{}, mx{};
+                N(N_GET_MODEL_DIMENSIONS, m, &mn, &mx);
+                float off = ((float)k - (float)(n - 1) / 2.f) * 9.f;
+                float x = p.x + fx * 16.f + rx * off, y = p.y + fy * 16.f + ry * off, z = p.z - 0.6f - mn.z;
+                int o = N<int>(N_CREATE_OBJECT_NO_OFFSET, m, x, y, z, 0, 0, 0, 0);
+                N(N_SET_ENTITY_HEADING, o, N<float>(N_GET_ENTITY_HEADING, Me()) + 180.f); N(N_FREEZE_ENTITY_POSITION, o, 1);
+                objs.push_back(o);
+                Log("awprops %s -> %d at %.1f %.1f %.1f: %.2f %.2f %.2f .. %.2f %.2f %.2f", a[(size_t)k + 1].c_str(), o, x, y, z, mn.x, mn.y, mn.z, mx.x, mx.y, mx.z);
+            }
+            g_testObjs = &objs;
+            // a camera behind and above you looking at the row (objclear takes it away)
+            static int cam = 0;
+            if (!cam) cam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
+            N(N_SET_CAM_COORD, cam, p.x - fx * 30.f, p.y - fy * 30.f, p.z + 16.f);
+            N(N_POINT_CAM_AT_COORD, cam, p.x + fx * 16.f, p.y + fy * 16.f, p.z + 9.f);
+            N(N_SET_CAM_FOV, cam, 62.f);
+            N(N_SET_CAM_ACTIVE, cam, 1); N(N_RENDER_SCRIPT_CAMS, 1, 0, 0, 1, 0, 0);
+            g_testCam = cam;
+        }
+        else if (a[0] == "objclear") { if (g_testCam) { N(N_RENDER_SCRIPT_CAMS, 0, 0, 0, 1, 0, 0); } if (g_testObjs) { for (int &o : *g_testObjs) N(N_DELETE_OBJECT, &o); g_testObjs->clear(); } }
         else if (a[0] == "yachtcfg" && a.size() > 1) { g_cust[YACHT_CFG] = (int)F(1); if (a.size() > 2) g_cust[YACHT_SPOT] = (int)F(2); else if (!g_cust.count(YACHT_SPOT)) g_cust[YACHT_SPOT] = YachtNearestSpot(); YachtUnload(); Save(); }   // test (delyacht undoes it)
         else if (a[0] == "delyacht") { YachtUnload(); g_cust.erase(YACHT_CFG); g_cust.erase(YACHT_SPOT); g_yachtName.clear(); g_yBlipSpot = -1; RemoveBlip(g_yBlip); Save(); Log("delyacht"); }
         else if (a[0] == "yachtgo") YachtTravel();

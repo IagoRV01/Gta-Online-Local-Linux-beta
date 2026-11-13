@@ -25,6 +25,8 @@ static class MapExport
         if (args[1] == "kids3d") return Map3D.Kids(args[0], args.Skip(2).ToArray());
         if (args[1] == "vcol3d") return Map3D.VCol(args[0], args.Skip(2).ToArray());
         if (args[1] == "findytd") return Map3D.FindYtd(args[0], args[2]);
+        if (args[1] == "mlosets") return Map3D.MloSets(args[0], args[2], args.Length > 3 ? args[3] : null);
+        if (args[1] == "findfile") return Map3D.FindFile(args[0], args.Skip(2).ToArray());
         if (args[1] == "map3d") return Map3D.Export(args[0], args[2], args.Skip(3).ToArray());
         Run(args[0], args[1]);
         return 0;

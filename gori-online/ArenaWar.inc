@@ -18,6 +18,8 @@ static const struct { const char *name, *set; } AW_LIGHTS[] = {{"Night", "Set_Li
     {"Midday", "Set_Lights_midday"}, {"Morning", "Set_Lights_morning"}, {"Storm", "Set_Lights_storm"}, {"Sandstorm", "Set_Lights_sandstorm"},
     {"Toxic", "Set_Lights_toxic"}, {"Hell", "Set_Lights_hell"}, {"Atlantis", "Set_Lights_atlantis"}, {"Saccharine", "Set_Lights_saccharine"}};
 static const int NAW_LIGHTS = (int)(sizeof AW_LIGHTS / sizeof *AW_LIGHTS);
+// the interior's turret posts, one entity set per theme (see AwTurretPost)
+static const char *const AW_TURRET_SETS[3] = {"Set_Turrets", "Set_Turrets_Scifi", "Set_Turrets_Wasteland"};
 // Apocalypse 11 and 13-16 are bare sets (only the base floor at 90.7: their layouts are props in Rockstar's jobs). Checked with awfloors / awview, 2026-10-18.
 static bool AwMapBare(int th, int m) { return th == 0 && (m == 10 || (m >= 12 && m <= 15)); }
 static int AwFixMap(int th, int m) {   // the next playable map from m on
@@ -143,6 +145,9 @@ static int AwLoadArena(int theme, int map, int light) {
     N(N_ACTIVATE_INTERIOR_ENTITY_SET, id, nm);
     N(N_ACTIVATE_INTERIOR_ENTITY_SET, id, AW_LIGHTS[light].set);
     N(N_ACTIVATE_INTERIOR_ENTITY_SET, id, "Set_Pit_Fence_Closed");
+    for (int i = 0; i < 3; ++i) {   // the theme's turret posts on top of the stands
+        if (i == theme) N(N_ACTIVATE_INTERIOR_ENTITY_SET, id, AW_TURRET_SETS[i]); else N(N_DEACTIVATE_INTERIOR_ENTITY_SET, id, AW_TURRET_SETS[i]);
+    }
     N(N_REFRESH_INTERIOR, id);
     Log("arena: %s, map %s, lights %s (interior %d)", t.name, nm, AW_LIGHTS[light].set, id);
     return id;
@@ -957,11 +962,26 @@ static void AwHitCar(int veh) {   // a turret's hit on a car: 35 off its body, 3
     N(N_SET_VEHICLE_BODY_HEALTH, veh, std::max(0.f, N<float>(N_GET_VEHICLE_BODY_HEALTH, veh) - 35.f));
     N(N_SET_VEHICLE_ENGINE_HEALTH, veh, N<float>(N_GET_VEHICLE_ENGINE_HEALTH, veh) - 30.f);
 }
-static void AwTurretPost(int k) {   // one of the four turret posts around the arena, looking in
+// The arena's own turret posts (2026-11-13): the interior has them as entity sets, one per theme, six posts on top of the
+// stands (xs_prop_arena_turret_post_01a and its _sf / _wl versions; places from xs_x18dlc_int_01.ytyp, in the interior's
+// own coordinates). The box's turret sits on the four along the long sides; the two at the far ends are too far from
+// where the events are played.
+static const float AW_TURRET_LOCAL[4][2] = {{-83.38f, 93.98f}, {83.48f, 93.98f}, {83.43f, -93.93f}, {-83.53f, -93.93f}};
+static const float AW_TURRET_BASE = 39.f, AW_TURRET_TOP = 16.28f;   // the posts' foot in the interior, their height
+static void AwTurretPost(int k) {   // one of the four turret posts along the arena's long sides, looking in
     g_aw.turretAt = ((k % 4) + 4) % 4;
-    float a = 0.7854f + 1.5708f * (float)g_aw.turretAt;
-    g_aw.gadPos = V3(AW_CENTRE.x + std::cos(a) * 46.f, AW_CENTRE.y + std::sin(a) * 46.f, g_aw.floorZ + 16.f);
-    g_aw.gadYaw = std::atan2(-(AW_CENTRE.x - g_aw.gadPos.x), AW_CENTRE.y - g_aw.gadPos.y) * 57.2958f; g_aw.gadPitch = -18.f;
+    Vec3 w{};
+    if (g_aw.interior) w = N<Vec3>(N_GET_OFFSET_FROM_INTERIOR_IN_WORLD_COORDS, g_aw.interior, AW_TURRET_LOCAL[g_aw.turretAt][0], AW_TURRET_LOCAL[g_aw.turretAt][1], AW_TURRET_BASE + AW_TURRET_TOP + 2.2f);
+    float away = std::hypot(w.x - AW_CENTRE.x, w.y - AW_CENTRE.y);
+    if (!g_aw.interior || away < 60.f || away > 250.f) {   // no such place in this interior: over the arena's edge, as before
+        float a = 0.7854f + 1.5708f * (float)g_aw.turretAt;
+        w = V3(AW_CENTRE.x + std::cos(a) * 46.f, AW_CENTRE.y + std::sin(a) * 46.f, g_aw.floorZ + 16.f);
+        away = 46.f;
+    }
+    g_aw.gadPos = w;
+    g_aw.gadYaw = std::atan2(-(AW_CENTRE.x - w.x), AW_CENTRE.y - w.y) * 57.2958f;
+    g_aw.gadPitch = -std::atan2(w.z - (g_aw.floorZ + 1.f), away) * 57.2958f;   // at the middle of the floor
+    Log("arena gadget: turret post %d at %.1f %.1f %.1f (%.0f m from the middle), yaw %.0f pitch %.0f", g_aw.turretAt, w.x, w.y, w.z, away, g_aw.gadYaw, g_aw.gadPitch);
 }
 static void AwGadgetEnd() {
     if (g_aw.gadget == AWG_NONE) return;
@@ -1007,7 +1027,7 @@ static bool AwGadgetStart(int k) {
         } else { AwTurretPost(Rand(4)); g_aw.gadgetUntil = Now() + 30000; }
         if (g_aw.trapCam >= 0) AwTrapCamSet(-1);
         g_aw.gadgetCam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
-        N(N_SET_CAM_FOV, g_aw.gadgetCam, 60.f);
+        N(N_SET_CAM_FOV, g_aw.gadgetCam, k == AWG_TURRET ? 30.f : 60.f);   // the turret's posts are over 100 m from the floor's middle: a gun sight's view
         if (g_aw.boxCam) N(N_SET_CAM_ACTIVE, g_aw.boxCam, 0);
         N(N_SET_CAM_ACTIVE, g_aw.gadgetCam, 1);
     } else return false;
@@ -1066,8 +1086,9 @@ static void AwGadgetTick() {
     // the drone and the turret: a camera of their own, flown / aimed with everything else off
     N(N_DISABLE_ALL_CONTROL_ACTIONS, 0);
     if (now >= g_aw.gadgetUntil || NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 2, 202))) { AwGadgetEnd(); return; }
-    g_aw.gadYaw -= N<float>(N_GET_DISABLED_CONTROL_NORMAL, 0, 1) * 5.f;
-    g_aw.gadPitch = std::max(-85.f, std::min(40.f, g_aw.gadPitch - N<float>(N_GET_DISABLED_CONTROL_NORMAL, 0, 2) * 4.f));
+    float aim = g_aw.gadget == AWG_TURRET ? 0.5f : 1.f;   // (slower through the turret's narrow view)
+    g_aw.gadYaw -= N<float>(N_GET_DISABLED_CONTROL_NORMAL, 0, 1) * 5.f * aim;
+    g_aw.gadPitch = std::max(-85.f, std::min(40.f, g_aw.gadPitch - N<float>(N_GET_DISABLED_CONTROL_NORMAL, 0, 2) * 4.f * aim));
     if (g_aw.gadget == AWG_DRONE) {
         float dt = std::min(0.1f, N<float>(N_GET_FRAME_TIME));
         float speed = NB(N<int>(N_IS_DISABLED_CONTROL_PRESSED, 0, 21)) ? 22.f : 11.f;
@@ -1273,7 +1294,8 @@ static void AwTagTeamTick() {
 
 // ---- Bomb Ball
 static uint32_t AwBallModel() {
-    static const char *const M[] = {"stt_prop_stunt_soccer_lball", "stt_prop_stunt_soccer_ball", "stt_prop_stunt_soccer_sball", "prop_beach_ball_01"};
+    static const char *const M[] = {"xs_prop_arena_bomb_l", "stt_prop_stunt_soccer_lball",   // Arena War's own bomb ball first (4 m across)
+                                     "stt_prop_stunt_soccer_ball", "stt_prop_stunt_soccer_sball", "prop_beach_ball_01"};
     for (const char *m : M) if (NB(N<int>(N_IS_MODEL_VALID, Joaat(m)))) return Joaat(m);
     return 0;
 }
