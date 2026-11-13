@@ -727,6 +727,7 @@ struct LocalOnlineApi {
     void (*setRespawnPoint)(float, float, float, float, int) = nullptr;   // API v11: a job's respawn point, YOU's respawns so far
     int (*respawnCount)() = nullptr;
     unsigned (*lastVehicleAttacker)(int) = nullptr;   // API v14: the player whose weapons last damaged the vehicle you drive
+    int (*apiVersion)() = nullptr;                    // (v15: RaceProgress finish -1 = only watching a scored event)
     int (*getPlayerPed)(unsigned) = nullptr;   // API v12: another player's puppet ped, the puppets held still for a cutscene
     void (*holdPuppets)(int) = nullptr;
     void (*setPlayerInfo)(int, int) = nullptr;                     // API v7: rank + flags (passive, in an activity), the players, the session
@@ -774,6 +775,7 @@ static LocalOnlineApi &LO() {
             api.respawnCount = (int (*)())GetProcAddress(h, "LocalOnline_RespawnCount");
             if (!api.setRespawnPoint || !api.respawnCount) api.setRespawnPoint = nullptr, api.respawnCount = nullptr;
             api.lastVehicleAttacker = (unsigned (*)(int))GetProcAddress(h, "LocalOnline_LastVehicleAttacker");
+            api.apiVersion = (int (*)())GetProcAddress(h, "LocalOnline_ApiVersion");
             api.getPlayerPed = (int (*)(unsigned))GetProcAddress(h, "LocalOnline_GetPlayerPed");
             api.holdPuppets = (void (*)(int))GetProcAddress(h, "LocalOnline_HoldPuppets");
             if (!api.getPlayerPed || !api.holdPuppets) api.getPlayerPed = nullptr, api.holdPuppets = nullptr;
@@ -5444,7 +5446,12 @@ static void CommandTick() {
         else if (a[0] == "awtrapstate") { for (size_t i = 0; i < g_aw.trapList.size(); ++i) { const AwTrap &t = g_aw.trapList[i]; Log("  trap %d: %s at %.1f %.1f %.1f there %d forced %d ms fire %d", (int)i, AW_TRAP_NAMES[t.kind], t.p.x, t.p.y, t.p.z, (int)Exists(t.obj), std::max(0, t.forcedUntil - Now()), t.fire); } }   // the traps and their state (test)
         else if (a[0] == "awwreck") { if (Exists(g_aw.myVeh)) N(N_EXPLODE_VEHICLE, g_aw.myVeh, 1, 0); }   // your arena car goes up (test)
         else if (a[0] == "awtime" && a.size() > 1) { g_aw.myTime = std::atoi(a[1].c_str()) * 1000; }   // Buzzer Beater: your time left, in seconds (test)
+        else if (a[0] == "awwatch" && a.size() > 1) {   // awwatch 0|1: join other players' events as a contender / only to watch (test)
+            g_awWatch = std::atoi(a[1].c_str()) != 0;
+            Log("awwatch: %d (can watch %d)", g_awWatch, (int)AwCanWatch());
+        }
         else if (a[0] == "awnet") {   // Arena War between players: what this game knows (test)
+            { std::string vs; for (auto &v : g_awViewers) vs += v + ","; Log("awnet: watching %d viewers [%s] of job %u (job %u)", (int)g_aw.viewer, vs.c_str(), g_awViewersJob, g_coop.id); }
             std::string ro; for (auto &r : g_aw.roster) ro += r + ",";
             std::string bb; for (int k : g_aw.bbCps) bb += std::to_string(k) + ",";
             Log("awnet: mode %d phase %d host %d solo %d layout %d roster [%s] me %d side %d partner '%s' score %d/%d kills %d deaths %d lives %d time %d out %d box %d place %d cps %d traps %d",

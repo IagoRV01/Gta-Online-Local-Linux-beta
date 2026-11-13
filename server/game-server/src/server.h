@@ -117,7 +117,7 @@ private:
         std::vector<uint16_t> members;   // not the host
         uint8_t kind = proto::kJobMission;
         long long startAt = 0;           // races: the server time of the start (0 = not started)
-        struct Racer { uint16_t checkpoints = 0; uint32_t finishMs = 0; long long atMs = 0; };
+        struct Racer { uint16_t checkpoints = 0; uint32_t finishMs = 0; long long atMs = 0; bool watching = false; };   // watching: kJobWatching
         std::map<uint16_t, Racer> racers;   // races: host and members, by netId
     };
     std::vector<proto::RaceEntry> RaceOrder(const Job &j) const;

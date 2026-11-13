@@ -1202,7 +1202,8 @@ void Server::PayJob(const Job &j) {
 // race order: finished first (by time), then by checkpoints passed, then by who got there first
 std::vector<RaceEntry> Server::RaceOrder(const Job &j) const {
     std::vector<std::pair<RaceEntry, long long>> rows;
-    for (const auto &kv : j.racers) rows.push_back({RaceEntry{kv.first, kv.second.checkpoints, kv.second.finishMs}, kv.second.atMs});
+    for (const auto &kv : j.racers)
+        if (!kv.second.watching) rows.push_back({RaceEntry{kv.first, kv.second.checkpoints, kv.second.finishMs}, kv.second.atMs});   // (those who only watch: not ranked, not paid)
     if (j.kind == kJobSurvival)   // most kills, then the most waves, then who got there first
         std::sort(rows.begin(), rows.end(), [](const auto &a, const auto &b) {
             if (a.first.checkpoints != b.first.checkpoints) return a.first.checkpoints > b.first.checkpoints;
@@ -1242,10 +1243,16 @@ void Server::SendRaceStandings(const Job &j) {
 void Server::HandleRaceProgress(Client &c, const RaceProgressMsg &m) {
     for (auto &kv : jobs_) {
         Job &j = kv.second;
-        if ((j.kind != kJobRace && j.kind != kJobSurvival && j.kind != kJobScored) || j.status != kJobRunning) continue;
+        bool watch = m.finishMs == kJobWatching && (j.kind == kJobScored || j.kind == kJobDeathmatch);
+        if ((j.kind != kJobRace && j.kind != kJobSurvival && j.kind != kJobScored && !watch) || j.status != kJobRunning) continue;
         auto it = j.racers.find(c.netId);
         if (it == j.racers.end()) continue;
         Job::Racer &r = it->second;
+        if (watch) {   // only watching (Arena War's spectator box): out of the standings and of the payout, from before the start on
+            if (!r.watching) { r.watching = true; LOGI("jobs", c.name.c_str(), "only watches job %u", j.id); SendRaceStandings(j); }
+            return;
+        }
+        if (r.watching) return;
         if (j.kind == kJobScored) {   // the score as the player's game has it (it can go down); a finish time only once
             if (NowMs() < j.startAt) return;
             bool changed = m.checkpoints != r.checkpoints || (m.finishMs && !r.finishMs);

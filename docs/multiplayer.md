@@ -606,7 +606,35 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - Test: `awwheel [0-5]` (a number: that prize, free), `awgadget 1|2|3`, `awgadgetend`, `awmine`, `awemp`, `awaim peer <i> | <yaw> <pitch>`, `awshoot [n]`, `awdrone x y z | peer <i>`, `awgstate`.
   - **Verified in game 2026-11-13:** solo Tag Team from the box: a free spin by SPACE (Turret), the RC Bandito with two mines dropped, the drone flown by W and its pulse stalling a bot, the turret hitting a bot from two posts and running out of time back to the box, a second spin for $5,000. With gobot: the mine, the drone's place and pulse and the turret's hits reach the other game; its mine, hits (body 750 to 680, "hit by Bot"), pulse ("EMP!") and drone arrive here.
   - **Not covered:** driving the RC Bandito and flying the drone for real against another person, and how the RC Bandito's driver looks on the other players' games (the driver is hidden only on its own).
-- **Not done:** Online's own look for the wheel, its clothing prizes, joining an event only to watch, the turrets' props, the traps' own animations, Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
+- **Joining an event only to watch (2026-11-13),** like the spectators of Online's Arena War lobbies. Arena War menu →
+  **Join events as: Contender / Spectator** (your choice for the events of other players; the host always plays).
+  - A spectator is in the event's job but not in the event: no car, no side, no place in the standings, no cash, RP or
+    AP. It goes straight up to the spectator box, with its Trap Cam, its wheel and its gadgets, for the whole event.
+    The HUD shows the time left and how many contenders are still in.
+  - **How the others know:** from the lobby on, the spectator's game says `awv name|1` to everyone every 2 s (`name|0`
+    if it changes its mind before the start). Every game keeps the list for that job and leaves those names out of the
+    roster, so the sides (Flag War, Bomb Ball, the monsters, Tag Team's pairs) only count who plays. A name that
+    turned out to only watch after the start is dropped from the roster then.
+  - **The server** is told with `RaceProgress` finish time `kJobWatching` (0xFFFFFFFF; from a mod:
+    `LocalOnline_RaceProgress(0, -1)`, API v15). In a scored event or a deathmatch that player is left out of the
+    standings and of the payout ("only watches job N" in the log). No wire change: the protocol stays v14.
+  - A host with only spectators in the lobby plays against bots, as with nobody ("Only spectators joined").
+  - What a spectator's gadgets do reaches the players as before (turret hits, mines, the EMP pulse, a trap set off);
+    its drone is not drawn on the other games, because they keep no entry for someone who is not playing.
+  - Test: Gori's `awwatch 0|1`, `awnet` (its first line: watching, the viewers of the job); gobot watches with
+    `say awv <name>|1` and `score 0 4294967295`.
+  - **Verified in game 2026-11-13 with gobot:**
+    - The bot hosts Tag Team, I join as a spectator: in the box from the start (the arena seen from its camera,
+      "CONTENDERS 1"), roster [Bot], the server's "Alex only watches job 3"; three turret hits told to the bot; the
+      bot passes after 72 s: it is paid $12,000, I get the celebration with +0 RP and $0.
+    - I host Flag War, Bot plays, Bot2 watches: "Bot2 only watches job 4" here and on the server, "2 players, you
+      are 0 (side 0)", the job starts with 3 and pays two: $12,000 to me (1st), $9,000 to Bot.
+    - First try: the spectator was dropped onto the arena floor before going up, was still falling when the box took
+      its collision away, and fell through the arena to the sea (a blue screen). It now goes up from where it hangs
+      while the arena loads, and the box clears any fall first and fetches back whoever drops below the arena.
+  - **Not covered:** a spectator among several real players, changing your mind in a real lobby (`name|0`), and a
+    spectator in Carnage (a deathmatch job; the same server path, not run).
+- **Not done:** Online's own look for the wheel, its clothing prizes, the turrets' props, the traps' own animations, Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 
 ## Vehicle damage between players (client only, 2026-11-13)
 
@@ -816,7 +844,7 @@ Any Gori Online mission started by the YOU character becomes a server job that o
 
 **gobot (2026-11-06): a second player for tests** (`tools/netprobe/bot.cpp`, built by `./build.sh probe` as `build/gobot.exe`).
 - `gobot <server-ip> [port] [name] [seconds]`: it logs in, makes itself a character, shows its rank and look, and then by itself follows the first other player (2.5 m behind on foot, a passenger in the car that player drives), joins every job another player opens and leaves it when it ends, can host one (`host <kind> <payout> <title>`, `close`), owns a home for the buzzer (`home <property> <building>`), fights (health and armour; the hits other players report damage it, it dies with its killer credited and respawns 5 s later; in a deathmatch it circles the other player 12 m away and fires every `BOT_SHOOTMS` ms, default 2000, hitting for 25 with chance `BOT_ACC` %, default 50), plays survivals (each wave the host announces is cleared after `BOT_WAVEMS` ms, default 20000, with kills meanwhile), races (a checkpoint every `BOT_CPMS` ms, default 7000, finishing at the race's last one, then its results line), and votes in the shared next-job screen (`BOT_VOTE`, default slot 0).
-- Commands, one a line, in `gobot-<name>.cmd` next to it: `join <id>`, `leave`, `vote <slot>` (8: Freemode), `pace <ms>`, `shoot on|off`, `down` (survival), `stay x y z`, `follow`, `say <kind> <text>`, `quit`. Since 2026-11-11, for Arena War between players: `drive <model> x y z [heading]` (it sits at the wheel of its own car there), `walk`, `goto x y z <m/s>` (it moves there in a straight line), `score <n> [finishMs]` (a scored event's progress), `run <text>` (its own job starts) and `pass` (its own job passed). Since 2026-11-13: `carflags <n>` (its car's damage bits: 32 smoking, 64 burning, 128 wrecked).
+- Commands, one a line, in `gobot-<name>.cmd` next to it: `join <id>`, `leave`, `vote <slot>` (8: Freemode), `pace <ms>`, `shoot on|off`, `down` (survival), `stay x y z`, `follow`, `say <kind> <text>`, `quit`. Since 2026-11-11, for Arena War between players: `drive <model> x y z [heading]` (it sits at the wheel of its own car there), `walk`, `goto x y z <m/s>` (it moves there in a straight line), `score <n> [finishMs]` (a scored event's progress), `run <text>` (its own job starts) and `pass` (its own job passed). Since 2026-11-13: `carflags <n>` (its car's damage bits: 32 smoking, 64 burning, 128 wrecked). Two gobots at once work (`Bot`, `Bot2`: each reads its own `gobot-<name>.cmd`); another player's job shows in its log as `jobs: [<id> "<title>" host <name> ...]`.
 - It registers an account, so it runs against a **test server**: `build/server-run/start-test-server.bat` starts the same LocalOnlineServer.exe (so the firewall rule covers it) with `server-test.toml`: port 4498, its own copy of the database (`build/server-test/data/test.db`, made with SQLite's online backup), logs and admin file. The BC-250's client is pointed at it for a test and back afterwards, keeping its live `client.toml` and `cache` aside meanwhile.
 - Verified 2026-11-06 with the BC-250 as host: the bot is drawn in the session and inside the apartment, joins the Fleeca finale's open lobby (Players 2 of 4), plays the heist (the leader's cut 75 %, one crew at 25 %, both on the results board), joins a contact mission's lobby, is paid its cut by the server ($2,500, after the one-minute minimum), votes on the next-job screen (1/2 votes) and follows the host into the lobby the vote picked.
 - Found with it and fixed: another player inside an apartment was invisible (only the name tag showed): `LocalOnline.asi` now puts the puppet in our interior's room (`remote.cpp` RoomFix). Lester's cooldown is checked before the finale's scene plays, not after. After a race the host was alone in a private session, so the shared vote never reached the others: the crew now stays together after a job (Sessions, above).

@@ -506,6 +506,8 @@ struct JobUpdateMsg { uint8_t status = kJobRunning; uint16_t step = 0; Vec3 obje
 struct JobStateMsg { uint32_t jobId = 0; uint16_t host = 0; uint8_t status = kJobLobby; uint16_t step = 0; Vec3 objective; std::string text; uint32_t payout = 0; std::vector<uint16_t> members;
                      uint8_t kind = kJobMission; uint32_t startAt = 0; };
 struct RaceProgressMsg { uint16_t checkpoints = 0; uint32_t finishMs = 0; };   // finishMs 0 = still racing
+// a scored event or a deathmatch: a player who sends this finishMs only watches it (not ranked, not paid; 2026-11-13)
+constexpr uint32_t kJobWatching = 0xFFFFFFFF;
 struct RaceEntry { uint16_t netId = 0, checkpoints = 0; uint32_t finishMs = 0; };
 struct RaceStandingsMsg { uint32_t jobId = 0; std::vector<RaceEntry> entries; };
 inline void Put(wire::Writer &w, const JobOpenMsg &m) { PutHeader(w, MsgType::JobOpen); w.Str(m.title, kMaxJobTitle); PutVec(w, m.start); w.U32(m.payout); w.U8(m.kind); }

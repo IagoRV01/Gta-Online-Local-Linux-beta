@@ -105,9 +105,22 @@ struct AwRun {
     int empUntil = 0, empFxAt = 0; Vec3 empFxPt{};   // a drone's pulse: my engine is out until then; its flash
     std::string hitBy; int hitAt = 0;                 // the player whose turret last hit my car
     bool noPay = false;   // the job was closed, not passed (its host left): nobody is paid
+    bool viewer = false; int watchSentAt = 0;   // I only watch this event (the spectator box from its start); when the server was last told
 };
 static AwRun g_aw;
 static int g_awSel[8] = {0, 0, 0, 0, 2, 0, 0, 1};   // menu choices: theme, map, light, vehicle, bots (x2), minutes index, mode, traps
+// Watching only (2026-11-13). A player who joins another's event as a spectator is in its job but not in the event: no
+// car, no side, no place in the standings, no pay (the server is told: RaceProgress finish -1, API v15). It goes straight
+// to the spectator box with its Trap Cam, wheel and gadgets. It says so to everyone from the lobby on ("awv" name|1,
+// every 2 s; name|0 if it plays after all), so every game leaves it out of the sides.
+static int g_awWatch = 0;   // my choice for the events I join: 0 contender, 1 spectator
+static std::set<std::string> g_awViewers; static unsigned g_awViewersJob = 0;   // who only watches, in that job
+static bool AwCanWatch() { return LO().apiVersion && LO().apiVersion() >= 15 && LO().sendPlayerMessage && LO().raceProgress; }
+static bool AwViewer(const std::string &name) { return g_awViewersJob && g_awViewersJob == g_coop.id && g_awViewers.count(name) > 0; }
+static void AwViewerSet(const std::string &name, bool on) {
+    if (g_awViewersJob != g_coop.id) { g_awViewers.clear(); g_awViewersJob = g_coop.id; }
+    if (on) g_awViewers.insert(name); else g_awViewers.erase(name);
+}
 static const int AW_MINUTES[] = {5, 10, 15};
 
 static std::string AwModel(int theme, int veh) { return AW_VEHS[veh][1 + theme]; }
@@ -429,11 +442,12 @@ static void AwPeersTick(bool now = false) {
         at = Now() + 1000;
         const std::string &me = AwMyName();
         std::vector<std::string> cur;   // its host, then its members
-        auto add = [&](std::string n) { if (n == "you") n = me; if (!n.empty() && std::find(cur.begin(), cur.end(), n) == cur.end()) cur.push_back(n); };
+        auto add = [&](std::string n) { if (n == "you") n = me; if (!n.empty() && !AwViewer(n) && std::find(cur.begin(), cur.end(), n) == cur.end()) cur.push_back(n); };   // (not those who only watch)
         add(g_coop.hosting || g_coop.host == "you" ? me : g_coop.host);
         for (auto &n : Split(g_coop.members, ',')) add(n);
         bool listed = g_coop.id && g_coop.status <= COOP_RUNNING;
         if (listed) for (auto &n : cur) if (std::find(g_aw.roster.begin(), g_aw.roster.end(), n) == g_aw.roster.end()) g_aw.roster.push_back(n);   // only ever longer: the sides stay
+        g_aw.roster.erase(std::remove_if(g_aw.roster.begin(), g_aw.roster.end(), [](const std::string &r) { return AwViewer(r); }), g_aw.roster.end());   // (but for one who turned out to only watch)
         int n = (int)g_aw.roster.size();
         std::string players = LO().getPlayers ? CoopFetch(LO().getPlayers) : std::string();
         for (int i = 0; i < n; ++i) {
@@ -451,6 +465,7 @@ static void AwPeersTick(bool now = false) {
         }
         g_aw.partner.clear();
         for (auto &b : g_aw.botList) {
+            if (AwRemote(b) && AwViewer(b.name)) { if (!b.out) Notify("~b~" + b.name + "~s~ watches from the box."); b.out = true; b.side = -100; }   // was taken for a contender at first
             b.team = b.side == g_aw.side ? 1 : 0;
             if (g_aw.mode == AWM_TAGTEAM && b.team == 1) g_aw.partner = b.name;
         }
@@ -487,6 +502,15 @@ static std::vector<DmScore> g_awScores;   // the server's standings, kept for th
 static void AwStateTick(bool force = false) {   // my progress to the others ("aws": at once when it changes, every 2 s anyway), my score to the server
     if (g_aw.solo) return;
     int now = Now();
+    if (g_aw.viewer) {   // only watching: the server is told so (not ranked, not paid); its standings kept for the results
+        if (force || now - g_aw.watchSentAt >= 3000) {
+            g_aw.watchSentAt = now;
+            if (LO().raceProgress) LO().raceProgress(0, -1);
+            std::vector<DmScore> sc = DmScores();
+            if (!sc.empty()) g_awScores = sc;
+        }
+        return;
+    }
     char key[200];
     std::snprintf(key, sizeof key, "%s|%d|%d|%d|%d|%d|%d|%d", AwMyName().c_str(), g_aw.score, AwScoreNow(), g_aw.myLives, g_aw.myOut ? 1 : 0, g_aw.myFinishMs, g_aw.kills, g_aw.inBox ? 1 : 0);
     if (force || (g_aw.stateSent != key && now - g_aw.stateAt >= 250) || now - g_aw.stateAt >= 2000) {
@@ -1165,14 +1189,15 @@ static void AwBoxHold() {
     // (unseen and untouchable wherever you are in the arena: the view is the box's camera. Moving you back up every frame
     // fought LocalOnline, which undoes any jump of over 40 m for a few seconds after a respawn. Only from outside the arena.)
     Vec3 mp = Pos(me);
-    if (std::hypot(mp.x - AW_CENTRE.x, mp.y - AW_CENTRE.y) > 150.f) {
+    if (std::hypot(mp.x - AW_CENTRE.x, mp.y - AW_CENTRE.y) > 150.f || mp.z < g_aw.floorZ - 30.f) {   // (or fallen out below it)
         static int at = 0;
-        if (Now() >= at) { at = Now() + 1000; N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y - 55.f, g_aw.floorZ + 44.f, 0, 0, 0, 0); Log("arena: back up to the box"); }
+        if (Now() >= at) { at = Now() + 1000; N(N_CLEAR_PED_TASKS_IMMEDIATELY, me); N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y - 55.f, g_aw.floorZ + 44.f, 0, 0, 0, 0); Log("arena: back up to the box"); }
     }
     N(N_FREEZE_ENTITY_POSITION, me, 1); N(N_SET_ENTITY_VISIBLE, me, 0, 0); N(N_SET_ENTITY_COLLISION, me, 0, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
 }
 static void AwBoxEnter() {   // up to the box with no partner coming in: out of the event (online), watching
     int me = Me();
+    N(N_CLEAR_PED_TASKS_IMMEDIATELY, me);   // (a fall or a ragdoll goes on through the box once its collision is off)
     if (Exists(g_aw.myVeh)) { N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y, g_aw.floorZ + 30.f, 0, 0, 0, 0); DeleteEntity(g_aw.myVeh); g_aw.myVeh = 0; }
     N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y - 55.f, g_aw.floorZ + 44.f, 0, 0, 0, 0);
     N(N_FREEZE_ENTITY_POSITION, me, 1); N(N_SET_ENTITY_VISIBLE, me, 0, 0); N(N_SET_ENTITY_COLLISION, me, 0, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
@@ -1522,8 +1547,10 @@ static void AwBegin(int startsInMs) {
     }
     Log("arena: collision after %d ms", Now() - t0);
     g_aw.floorZ = AwFindFloor();
-    N(N_FREEZE_ENTITY_POSITION, Me(), 0);
-    AwPlacePlayer();
+    // (one who only watches goes from where it hangs, frozen, straight up to the box: dropped onto the floor first, it was
+    // still falling when the box took its collision away, and fell on through the arena to the sea, 2026-11-13)
+    if (g_aw.viewer) AwBoxEnter();
+    else { N(N_FREEZE_ENTITY_POSITION, Me(), 0); AwPlacePlayer(); }
     if (Exists(g_aw.myVeh)) N(N_FREEZE_ENTITY_POSITION, g_aw.myVeh, 1);
     if (g_aw.solo) g_aw.botList.assign(g_aw.bots, AwBot());   // (online the other players are in it already)
     if (g_aw.solo && g_aw.mode == AWM_BOMBBALL) for (size_t i = 0; i < g_aw.botList.size() / 2; ++i) g_aw.botList[i].team = 1;   // half of them on your side
@@ -1543,6 +1570,11 @@ static void AwBegin(int startsInMs) {
         g_aw.minutes, (int)g_aw.botList.size(), (int)g_aw.trapList.size(), g_aw.solo ? "solo" : "online");
     if (!g_aw.solo) Log("arena war online: %d players, you are %d (side %d)%s%s", (int)g_aw.roster.size(), g_aw.rosterIdx, g_aw.side, g_aw.partner.empty() ? "" : ", partner ", g_aw.partner.c_str());
     if (!g_aw.solo && g_aw.mode == AWM_TAGTEAM && !g_aw.partner.empty() && g_aw.rosterIdx % 2 == 1) AwTagOut(false);   // the second of a pair starts in the box
+    if (g_aw.viewer) {   // only watching: in the box from the start
+        AwStateTick(true);
+        Notify("~b~Spectator:~s~ you watch this event from the box.");
+        Log("arena war online: watching (%d contenders)", (int)g_aw.roster.size());
+    }
 }
 static void AwCpClear() { if (g_aw.cpHandle) { N(N_DELETE_CHECKPOINT, g_aw.cpHandle); g_aw.cpHandle = 0; } RemoveBlip(g_aw.cpBlip); }
 static void AwModesClear() {   // the new modes' things: the ball, the partner, the box camera
@@ -1576,6 +1608,11 @@ static void AwFinish() {
     if (g_aw.mode == AWM_WRECKIT && !g_aw.myPlace) g_aw.myPlace = AwRacePlace();
     if (g_aw.mode == AWM_BUZZER && !g_aw.myPlace) { int better = 0; for (auto &b : g_aw.botList) if (!b.out && b.timeMs > g_aw.myTime) ++better; g_aw.myPlace = better + 1; }
     AwCpClear(); AwFlagClear(); AwTrapsClear(); AwModesClear();
+    if (g_aw.viewer) {   // watched it: nothing earned but what the wheel gave
+        Save();
+        JobCelebrate(std::string("Arena War - ") + AW_MODES[g_aw.mode].name, 0, true, g_jobStartedAt ? Now() - g_jobStartedAt : 0, g_rp, 0, 0, "You watched from the spectator box");
+        return;
+    }
     int ap = 20 + 10 * g_aw.kills, cash = std::min(60000, 5000 + 1500 * g_aw.kills);
     std::string line = std::to_string(g_aw.kills) + " kills, " + std::to_string(g_aw.deaths) + " deaths";
     if (g_aw.mode == AWM_HOTBOMB) { ap = 20 + 15 * g_aw.score; cash = std::min(60000, 4000 + 2000 * g_aw.score); line = std::to_string(g_aw.score) + " rounds survived"; }
@@ -1657,9 +1694,11 @@ static void AwStart(bool online) {
 }
 static void AwHostStart() {
     if (!g_aw.host || g_aw.phase != AWP_LOBBY || !LO().jobUpdate) return;
-    if (g_aw.mode != AWM_CARNAGE && g_coop.members.empty()) {   // nobody joined: the event against bots
+    bool anyone = false;   // (a member who only watches is nobody to play against)
+    for (auto &n : Split(g_coop.members, ',')) if (!n.empty() && !AwViewer(n)) anyone = true;
+    if (g_aw.mode != AWM_CARNAGE && !anyone) {   // nobody joined to play: the event against bots
         LO().jobUpdate(COOP_CLOSED, 0, 0, 0, 0, "");
-        Notify("Nobody joined: the event is against bots.");
+        Notify(g_coop.members.empty() ? "Nobody joined: the event is against bots." : "Only spectators joined: the event is against bots.");
         g_aw.solo = true; g_aw.phase = AWP_NONE;
         AwBegin(4000);
         return;
@@ -1685,7 +1724,25 @@ static void AwFollowJob() {
     g_aw.payout = g_coop.payout;
     g_aw.mode = f.size() > 6 ? std::max(0, std::min((int)AWM_COUNT - 1, std::atoi(f[6].c_str()))) : (int)AWM_CARNAGE;
     g_aw.traps = (f.size() > 7 && std::atoi(f[7].c_str()) != 0) || g_aw.mode == AWM_WRECKIT;
+    if (!host && g_awWatch && AwCanWatch()) {   // I only watch it: out from the start, on nobody's side
+        g_aw.viewer = true; g_aw.myOut = true; g_aw.side = -1; g_aw.rosterIdx = -1;
+        AwViewerSet(AwMyName(), true);
+        LO().sendPlayerMessage(0, "awv", (AwMyName() + "|1").c_str());
+    }
     AwBegin((int)g_coop.startsIn);
+}
+// my word on whether I only watch the Arena War event I joined: every 2 s from its lobby on (and "I play after all" if I
+// change my mind in the lobby)
+static void AwWatchTick() {
+    static int at = 0; static unsigned told = 0;
+    bool member = g_coop.id && !(g_coop.hosting || g_coop.host == "you") && (g_coop.kind == 2 || g_coop.kind == 4) && g_coop.status <= COOP_RUNNING && !g_coop.text.compare(0, 2, "A|");
+    if (!member || !AwCanWatch() || Now() < at) return;
+    bool before = g_aw.phase == AWP_NONE || g_aw.phase == AWP_LOBBY;
+    bool watch = before ? g_awWatch != 0 : g_aw.viewer;
+    if (!watch && (!before || told != g_coop.id)) return;   // playing: nothing to say (unless I said I'd watch this one)
+    at = Now() + 2000; told = watch ? g_coop.id : 0;
+    AwViewerSet(AwMyName(), watch);
+    LO().sendPlayerMessage(0, "awv", (AwMyName() + (watch ? "|1" : "|0")).c_str());
 }
 
 // ---- the bot modes' rules
@@ -1764,6 +1821,14 @@ static void AwObject(char what, const std::string &name, const Vec3 &p, int ms) 
 }
 // the other players' messages (Buzzer.inc hands over every "aw..." kind)
 static void AwMessage(unsigned from, const std::string &kind, const std::string &text) {
+    if (kind == "awv") {   // a player of my job only watches it (1), or plays after all (0: only before the event)
+        std::vector<std::string> v = Split(text, '|');
+        if (v.size() < 2 || v[0].empty() || !g_coop.id || v[0] == AwMyName()) return;
+        bool on = v[1] == "1", had = AwViewer(v[0]), running = !g_aw.solo && (g_aw.phase == AWP_COUNTDOWN || g_aw.phase == AWP_PLAYING);
+        if (on && !had) { AwViewerSet(v[0], true); Log("arena: %s only watches job %u", v[0].c_str(), g_coop.id); if (running) AwPeersTick(true); }
+        else if (!on && had && !running) AwViewerSet(v[0], false);
+        return;
+    }
     if (g_aw.solo || (g_aw.phase != AWP_COUNTDOWN && g_aw.phase != AWP_PLAYING)) return;
     std::vector<std::string> a = Split(text, '|');
     if (kind == "aws" && a.size() >= 9) {   // a player's progress
@@ -1943,6 +2008,10 @@ static void AwModeTick() {
 static void AwHud() {
     int row = 0;
     RaceBar(row++, "TIME LEFT", RaceTime(std::max(0, g_aw.endAt - Now())).substr(0, 5));
+    if (g_aw.viewer) {   // only watching: who is still in, nothing of mine
+        RaceBar(row++, "CONTENDERS", std::to_string(AwAliveBots()), true);
+        return;
+    }
     if (g_aw.mode == AWM_HOTBOMB) {
         RaceBar(row++, "BOMB", AwLabel(g_aw.bombHolder));
         RaceBar(row++, "FUSE", RaceTime(std::max(0, g_aw.bombEnds - Now())).substr(0, 5));
@@ -2015,6 +2084,7 @@ static void AwResults() {
              {{"PLAYER", 0.f}, {c1, 0.48f}, {c2, 0.65f}, {"BOTS", 0.79f}, {"AP TOTAL", 0.9f}}, {me});
 }
 static void ArenaWarTick() {
+    AwWatchTick();
     AwFollowJob();
     if (g_aw.phase == AWP_NONE || g_aw.phase == AWP_LOBBY) return;
     int me = Me();
@@ -2182,6 +2252,8 @@ static bool ArenaWarMenu(const Frame &f, std::string &title, std::string &sub, s
     items.push_back({"Bots (solo)", "< " + std::to_string(g_awSel[4] * 2) + " >", "AI drivers that come for you.", [] { g_awSel[4] = (g_awSel[4] + 1) % 5; }});
     items.push_back({"Time", "< " + std::to_string(AW_MINUTES[g_awSel[5]]) + " min >", "", [] { g_awSel[5] = (g_awSel[5] + 1) % 3; }});
     items.push_back({"Traps", g_awSel[7] ? "< On >" : "< Off >", "Flippers, fire pits, mines and spikes on the arena floor.", [] { g_awSel[7] = !g_awSel[7]; }});
+    if (AwCanWatch()) items.push_back({"Join events as", g_awWatch ? "< Spectator >" : "< Contender >",
+                     "Another player's event: play it, or only watch it from the spectator box with its Trap Cam, wheel and gadgets. Spectators earn nothing.", [] { g_awWatch = !g_awWatch; }});
     items.push_back({"Play", "", "The event's lobby: mode, arena, vehicle and the rest, alone or online.", [] { CloseMenu(); OpenAwCorona(); }});
     items.push_back({"Arena Points", std::to_string(AwApGet()), "Earned in every Arena War event.", nullptr});
     items.push_back({"Set GPS to the Maze Bank Arena", "", "", [] { N(N_SET_NEW_WAYPOINT, -376.f, -1862.f); CloseMenu(); }});

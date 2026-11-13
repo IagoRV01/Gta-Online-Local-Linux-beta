@@ -126,10 +126,11 @@ extern "C" __declspec(dllexport) bool LocalOnline_JobOpenKind(const char *title,
     return jobs::Open(title ? title : "Job", proto::Vec3{x, y, z}, payout > 0 ? (uint32_t)payout : 0, k);
 }
 extern "C" __declspec(dllexport) void LocalOnline_RaceProgress(int checkpoints, int finishMs) {
-    jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs > 0 ? (uint32_t)finishMs : 0);
+    // API v15: finishMs -1 in a scored event or a deathmatch = you only watch it (not ranked, not paid)
+    jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs == -1 ? proto::kJobWatching : finishMs > 0 ? (uint32_t)finishMs : 0);
 }
 extern "C" __declspec(dllexport) int LocalOnline_GetRaceStandings(char *buf, int cap) { return CopyOut(jobs::StandingsText(), buf, cap); }
-extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 14; }
+extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 15; }
 // API v14: vehicle damage sync: the player (netId, 0 nobody) whose weapons last damaged the vehicle we drive, within that many ms
 extern "C" __declspec(dllexport) unsigned LocalOnline_LastVehicleAttacker(int withinMs) { return combat::LastVehicleAttacker(withinMs); }
 // API v11: a job's respawn point instead of the nearest hospital (validMs from now), and how many times YOU has respawned
