@@ -58,14 +58,16 @@ static const char *AW_TRAP_MODELS[AWT_COUNT][3] = {
 static const int AW_TRAP_COUNT[AWT_COUNT] = {3, 2, 4, 2};
 static const float AW_TRAP_RADIUS[AWT_COUNT] = {3.5f, 3.f, 2.4f, 2.6f};
 struct AwTrap { int kind = 0, obj = 0, nextAt = 0, until = 0, fire = 0, launched = 0; Vec3 p{}; float h = 0.f;
-                int forcedUntil = 0; };   // set off from the box's Trap Cam: it acts until then, whatever its own timer says
+                int forcedUntil = 0;      // set off from the box's Trap Cam: it acts until then, whatever its own timer says
+                bool once = false; };     // a mine dropped by an RC Bandito: it does not come back
 static const uint32_t AW_ROOM = 0x113B4A40;   // the arena's room (GET_ROOM_KEY_FROM_ENTITY once inside)
 static const Vec3 AW_CENTRE = V3(2800.f, -3800.f, 100.f);
 
 enum AwPhase { AWP_NONE, AWP_LOBBY, AWP_COUNTDOWN, AWP_PLAYING, AWP_RESULTS };
 struct AwBot { int veh = 0, ped = 0, blip = 0, respawnAt = 0, retaskAt = 0, idleSince = 0;
                int team = 0, lives = 2, cp = 0, finished = 0, timeMs = 60000, cpAt = 0; bool out = false;
-               std::string name; unsigned netId = 0; int side = 0, score = 0, kills = 0; bool inBox = false; };   // team 1: on your side (Bomb Ball); cp/finished: Wreck It; lives: Tag Team; timeMs: Buzzer Beater
+               std::string name; unsigned netId = 0; int side = 0, score = 0, kills = 0; bool inBox = false;
+               Vec3 gadPt{}; int gadAt = 0, empUntil = 0; };   // team 1: on your side (Bomb Ball); cp/finished: Wreck It; lives: Tag Team; timeMs: Buzzer Beater
 struct AwRun {
     int phase = AWP_NONE, theme = 0, map = 0, light = 0, minutes = 5, veh = 0, bots = 4;
     bool host = false, solo = true, ended = false, wasDown = false;
@@ -95,6 +97,13 @@ struct AwRun {
     std::string ballOwner; int ballSendAt = 0, ballClaimAt = 0; std::map<int, int> bbTaken;
     unsigned jobId = 0;   // the job this event is (a member's event ends when that job does)
     int trapCam = -1, trapCamAt = 0;   // the box's Trap Cam: the trap looked at (-1: the box's own view), when it can be used again
+    // the box's Arena War Wheel and its gadgets: which one is on (AWG_*), its car / prop / camera, its turn's end, the RC
+    // Bandito's mines, the next use, the next message; the drone's / turret's aim and place; the wheel's spins and prize
+    int gadget = 0, gadgetVeh = 0, gadgetObj = 0, gadgetCam = 0, gadgetUntil = 0, gadgetMines = 0, gadgetNext = 0, gadgetSendAt = 0, turretAt = 0;
+    float gadYaw = 0.f, gadPitch = 0.f; Vec3 gadPos{};
+    int wheelSpins = 0, wheelUntil = 0, wheelPrize = -1, wheelValue = 0;
+    int empUntil = 0, empFxAt = 0; Vec3 empFxPt{};   // a drone's pulse: my engine is out until then; its flash
+    std::string hitBy; int hitAt = 0;                 // the player whose turret last hit my car
     bool noPay = false;   // the job was closed, not passed (its host left): nobody is paid
 };
 static AwRun g_aw;
@@ -131,6 +140,8 @@ static void AwForceRoom() {   // every frame in the arena: player, car and camer
     if (Exists(g_aw.myVeh)) N(N_FORCE_ROOM_FOR_ENTITY, g_aw.myVeh, g_aw.interior, AW_ROOM);
     for (auto &b : g_aw.botList) if (Exists(b.veh)) N(N_FORCE_ROOM_FOR_ENTITY, b.veh, g_aw.interior, AW_ROOM);
     for (auto &t : g_aw.trapList) if (Exists(t.obj)) N(N_FORCE_ROOM_FOR_ENTITY, t.obj, g_aw.interior, AW_ROOM);
+    if (Exists(g_aw.gadgetVeh)) N(N_FORCE_ROOM_FOR_ENTITY, g_aw.gadgetVeh, g_aw.interior, AW_ROOM);
+    if (Exists(g_aw.gadgetObj)) N(N_FORCE_ROOM_FOR_ENTITY, g_aw.gadgetObj, g_aw.interior, AW_ROOM);
     N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, g_aw.interior, AW_ROOM);
     N(N_SET_RADAR_AS_INTERIOR_THIS_FRAME, Joaat("xs_x18_int_01"), AW_CENTRE.x, AW_CENTRE.y, 0, 0);
     N(N_HIDE_MINIMAP_EXTERIOR_MAP_THIS_FRAME);
@@ -508,6 +519,7 @@ static std::string AwWreckedBy() {
         if (src && (src == b.ped || src == b.veh)) return b.name;
         if (Exists(g_aw.myVeh) && ((Exists(b.veh) && NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, g_aw.myVeh, b.veh, 1))) || (Exists(b.ped) && NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ENTITY, g_aw.myVeh, b.ped, 1))))) return b.name;
     }
+    if (!g_aw.hitBy.empty() && Now() - g_aw.hitAt < 6000) return g_aw.hitBy;   // a turret in the box
     return "";
 }
 
@@ -602,8 +614,8 @@ static void AwTrapsTick() {
                 N(N_ADD_EXPLOSION, t.p.x, t.p.y, t.p.z + 0.3f, 4, 0.4f, 1, 0, 1.f, 0);   // 40%: armoured arena cars take a couple
                 Log("trap: mine under %s", hit == g_aw.myVeh ? "you" : "a bot");
                 DeleteEntity(t.obj);
-                t.nextAt = Now() + 20000;
-                if (!g_aw.solo) AwSend("awe", "m|" + std::to_string((int)(&t - g_aw.trapList.data())));   // gone on everyone's game
+                t.nextAt = t.once ? 0 : Now() + 20000;
+                if (!g_aw.solo) AwSend("awe", "m|" + std::to_string((int)(&t - g_aw.trapList.data())) + "|" + AwPt(t.p));   // gone on everyone's game
             }
         } else if (t.kind == AWT_SPIKES && hit) {   // tyres out
             if (t.launched != hit) {   // once per car: arena cars come with bulletproof tyres, so let them burst first
@@ -627,8 +639,19 @@ static void AwTrapSetOff(int i) {
     else if (t.kind == AWT_FIRE) { t.forcedUntil = Now() + 3000; if (g_aw.solo && !t.until) t.nextAt = Now(); }
     else if (t.kind == AWT_MINE) {
         N(N_ADD_EXPLOSION, t.p.x, t.p.y, t.p.z + 0.3f, 4, 0.4f, 1, 0, 1.f, 0);
-        DeleteEntity(t.obj); t.obj = 0; t.nextAt = Now() + 20000;
+        DeleteEntity(t.obj); t.obj = 0; t.nextAt = t.once ? 0 : Now() + 20000;
     }
+}
+// the trap another game means: by its place when given (the mines RC Banditos drop are not at the same number on every
+// game), else by its number
+static int AwTrapAt(int i, const std::string &pt) {
+    Vec3 p;
+    if (!pt.empty() && AwPtOf(pt, p)) {
+        int best = -1; float bd = 1.5f;
+        for (size_t k = 0; k < g_aw.trapList.size(); ++k) { float d = Dist(g_aw.trapList[k].p, p); if (d < bd) { bd = d; best = (int)k; } }
+        if (best >= 0) return best;
+    }
+    return i >= 0 && i < (int)g_aw.trapList.size() ? i : -1;
 }
 
 // ---- Flag War
@@ -811,6 +834,7 @@ static void AwBoxCam(bool on) {
 // between uses), DOWN goes back to the box's view. Spikes have nothing to set off. Between players everyone's game is
 // told ("awe T|trap|name") and applies it to its own car.
 static const char *const AW_TRAP_NAMES[AWT_COUNT] = {"Flipper", "Fire pit", "Mine", "Spikes"};
+static void AwWheelSpin(int forced);
 static void AwTrapCamSet(int i) {
     g_aw.trapCam = i >= 0 && i < (int)g_aw.trapList.size() ? i : -1;
     if (!g_aw.boxCam) return;
@@ -831,21 +855,25 @@ static void AwTrapCamFire() {
     AwTrapSetOff(g_aw.trapCam);
     g_aw.trapCamAt = Now() + 6000;
     Sound("Kill_List_Score", "DLC_AW_Frontend_Sounds");
-    AwSend("awe", "T|" + std::to_string(g_aw.trapCam) + "|" + AwMyName());
+    AwSend("awe", "T|" + std::to_string(g_aw.trapCam) + "|" + AwMyName() + "|" + AwPt(t.p));
 }
 static void AwTrapCamTick() {
-    if (!g_aw.inBox || !g_aw.boxCam) return;
+    if (!g_aw.inBox || !g_aw.boxCam || g_aw.gadget || g_aw.wheelUntil) return;
     std::vector<int> usable;
-    for (size_t i = 0; i < g_aw.trapList.size(); ++i) if (g_aw.trapList[i].kind != AWT_SPIKES) usable.push_back((int)i);
-    if (usable.empty()) return;
-    int step = JustPressed(175) ? 1 : JustPressed(174) ? -1 : 0;
+    for (size_t i = 0; i < g_aw.trapList.size(); ++i) if (g_aw.trapList[i].kind != AWT_SPIKES && !(g_aw.trapList[i].once && !Exists(g_aw.trapList[i].obj))) usable.push_back((int)i);
+    int step = usable.empty() ? 0 : JustPressed(175) ? 1 : JustPressed(174) ? -1 : 0;
     if (step) {
         auto it = std::find(usable.begin(), usable.end(), g_aw.trapCam);
         int n = (int)usable.size(), k = it == usable.end() ? (step > 0 ? 0 : n - 1) : ((int)(it - usable.begin()) + step + n) % n;
         AwTrapCamSet(usable[(size_t)k]);
         Sound("NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET");
     }
-    if (g_aw.trapCam < 0) { Text("Trap Cam:  LEFT / RIGHT  look at a trap", 0.5f, 0.9f, 0.4f, 4, 255, 255, 255, 220, 0, 1.f, true); return; }
+    if (g_aw.trapCam < 0) {   // the box's own view: the Trap Cam, and the Arena War Wheel
+        Text(std::string(usable.empty() ? "" : "Trap Cam:  LEFT / RIGHT  look at a trap        ") + "SPACE  spin the Arena War Wheel (" + (g_aw.wheelSpins ? "$5,000" : "free") + ")", 0.5f, 0.9f, 0.4f, 4, 255, 255, 255, 220, 0, 1.f, true);
+        if (JustPressed(22)) AwWheelSpin(-1);
+        return;
+    }
+    if (g_aw.trapCam >= (int)g_aw.trapList.size()) { AwTrapCamSet(-1); return; }
     if (JustPressed(173)) { AwTrapCamSet(-1); return; }
     const AwTrap &t = g_aw.trapList[(size_t)g_aw.trapCam];
     bool there = Exists(t.obj);
@@ -854,6 +882,224 @@ static void AwTrapCamTick() {
     Text(std::string("Trap Cam:  ") + AW_TRAP_NAMES[t.kind] + (!there ? "  (gone for now)" : left > 0 ? "  ready in " + std::to_string(left) + " s" : "  SPACE  set it off") + "     LEFT / RIGHT  next     DOWN  back",
          0.5f, 0.9f, 0.4f, 4, 255, there && left <= 0 ? 200 : 255, there && left <= 0 ? 80 : 255, 220, 0, 1.f, true);
     if (there && left <= 0 && JustPressed(22)) AwTrapCamFire();
+}
+
+// ---- the box's Arena War Wheel and its gadgets (2026-11-13), after Online's Spectator Box: from the box SPACE spins the
+// wheel (the first spin of an event free, then $5,000) for cash, RP, Arena Points, or a turn in the arena with an RC
+// Bandito (60 s, three mines dropped behind it), a Battle Drone (45 s, an EMP pulse that stalls the cars within 10 m
+// for 3 s) or a turret (30 s, four posts around the arena). The numbers are ours. Between players: the RC Bandito is the
+// car LocalOnline shows for you; its mines ("awe M"), the drone's place ("awe D", four a second) and pulse ("awe E") and
+// the turret's hits on a player's car ("awe S": that player's own game takes the damage) are told to everyone.
+enum { AWG_NONE, AWG_RC, AWG_DRONE, AWG_TURRET };
+static const char *const AW_GADGET_NAMES[] = {"", "RC Bandito", "Battle Drone", "Turret"};
+static const char *const AW_WHEEL_NAMES[] = {"GTA$", "RP", "Arena Points", "RC Bandito", "Battle Drone", "Turret"};
+static int AwApGet();
+static void AwMineDrop(const Vec3 &p) {   // a mine left by an RC Bandito: armed in 1.5 s, goes off once
+    AwTrap t; t.kind = AWT_MINE; t.p = p; t.once = true;
+    g_aw.trapList.push_back(t);
+    AwTrapMake(g_aw.trapList.back());
+    g_aw.trapList.back().nextAt = Now() + 1500;
+}
+static void AwEmpAt(const Vec3 &p, const std::string &by) {   // a drone's pulse: the cars within 10 m stall for 3 s (not its own side's)
+    g_aw.empFxAt = Now(); g_aw.empFxPt = p;
+    Sound("Bomb_Passed", "DLC_AW_Hot_Bomb_Sounds");
+    int w = AwWho(by);
+    bool friendly = w >= 0 && g_aw.botList[(size_t)w].team == 1;
+    if (!friendly && Exists(g_aw.myVeh) && Dist(Pos(g_aw.myVeh), p) < 10.f) { g_aw.empUntil = Now() + 3000; Notify("~r~EMP!~s~ Your engine is out for a moment."); }
+    for (auto &b : g_aw.botList) if (!AwRemote(b) && b.team != 1 && Exists(b.veh) && Dist(Pos(b.veh), p) < 10.f) b.empUntil = Now() + 3000;
+}
+static void AwEmpTick() {
+    if (g_aw.empUntil) {
+        if (Now() < g_aw.empUntil) { if (Exists(g_aw.myVeh)) N(N_SET_VEHICLE_ENGINE_ON, g_aw.myVeh, 0, 1, 1); }
+        else { g_aw.empUntil = 0; if (Exists(g_aw.myVeh)) N(N_SET_VEHICLE_ENGINE_ON, g_aw.myVeh, 1, 1, 0); }
+    }
+    for (auto &b : g_aw.botList) {
+        if (b.empUntil) {
+            if (Now() < b.empUntil) { if (Exists(b.veh)) N(N_SET_VEHICLE_ENGINE_ON, b.veh, 0, 1, 1); }
+            else { b.empUntil = 0; if (Exists(b.veh)) N(N_SET_VEHICLE_ENGINE_ON, b.veh, 1, 1, 0); b.retaskAt = 0; }
+        }
+        if (b.gadAt && Now() - b.gadAt < 700)   // another player's drone
+            N(N_DRAW_MARKER, 28, b.gadPt.x, b.gadPt.y, b.gadPt.z, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.45f, 0.45f, 0.45f, 255, 140, 0, 200, 0, 0, 2, 0, 0, 0, 0);
+    }
+    int fx = Now() - g_aw.empFxAt;
+    if (g_aw.empFxAt && fx < 500) { float r = 10.f * fx / 500.f; N(N_DRAW_MARKER, 28, g_aw.empFxPt.x, g_aw.empFxPt.y, g_aw.empFxPt.z, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, r, r, r, 80, 160, 255, 90, 0, 0, 2, 0, 0, 0, 0); }
+}
+static void AwHitCar(int veh) {   // a turret's hit on a car: 35 off its body, 30 off its engine (below zero it burns)
+    if (!Exists(veh)) return;
+    N(N_SET_VEHICLE_BODY_HEALTH, veh, std::max(0.f, N<float>(N_GET_VEHICLE_BODY_HEALTH, veh) - 35.f));
+    N(N_SET_VEHICLE_ENGINE_HEALTH, veh, N<float>(N_GET_VEHICLE_ENGINE_HEALTH, veh) - 30.f);
+}
+static void AwTurretPost(int k) {   // one of the four turret posts around the arena, looking in
+    g_aw.turretAt = ((k % 4) + 4) % 4;
+    float a = 0.7854f + 1.5708f * (float)g_aw.turretAt;
+    g_aw.gadPos = V3(AW_CENTRE.x + std::cos(a) * 46.f, AW_CENTRE.y + std::sin(a) * 46.f, g_aw.floorZ + 16.f);
+    g_aw.gadYaw = std::atan2(-(AW_CENTRE.x - g_aw.gadPos.x), AW_CENTRE.y - g_aw.gadPos.y) * 57.2958f; g_aw.gadPitch = -18.f;
+}
+static void AwGadgetEnd() {
+    if (g_aw.gadget == AWG_NONE) return;
+    Log("arena gadget: %s over", AW_GADGET_NAMES[g_aw.gadget]);
+    int me = Me();
+    if (g_aw.gadget == AWG_RC && Exists(g_aw.gadgetVeh) && !Dead(me)) { Vec3 p = Pos(g_aw.gadgetVeh); N(N_SET_ENTITY_COORDS, me, p.x, p.y, p.z + 1.f, 0, 0, 0, 0); }
+    if (Exists(g_aw.gadgetVeh)) DeleteEntity(g_aw.gadgetVeh);
+    if (Exists(g_aw.gadgetObj)) DeleteEntity(g_aw.gadgetObj);
+    g_aw.gadgetVeh = g_aw.gadgetObj = 0;
+    if (g_aw.gadgetCam) {
+        if (g_aw.boxCam) N(N_SET_CAM_ACTIVE, g_aw.boxCam, 1);
+        N(N_SET_CAM_ACTIVE, g_aw.gadgetCam, 0); N(N_DESTROY_CAM, g_aw.gadgetCam, 0); g_aw.gadgetCam = 0;
+    }
+    g_aw.gadget = AWG_NONE;
+    if (g_aw.inBox) { AwBoxCam(true); AwTrapCamSet(-1); }   // back to the box's view
+}
+static bool AwGadgetStart(int k) {
+    if (!g_aw.inBox || g_aw.gadget != AWG_NONE || g_aw.phase != AWP_PLAYING) return false;
+    int me = Me(); float h = 0.f;
+    if (k == AWG_RC) {
+        uint32_t m = Joaat("rcbandito");
+        if (!NB(N<int>(N_IS_MODEL_VALID, m))) return false;
+        Vec3 p = AwSpawnPoint(h);
+        int v = AwCar("rcbandito", p, h);
+        if (!Exists(v) || (uint32_t)N<int>(N_GET_ENTITY_MODEL, v) != m) { if (Exists(v)) DeleteEntity(v); return false; }
+        AwBoxCam(false);
+        N(N_FREEZE_ENTITY_POSITION, me, 0); N(N_SET_ENTITY_COLLISION, me, 1, 1);
+        N(N_SET_ENTITY_COORDS, me, p.x, p.y, p.z + 1.f, 0, 0, 0, 0);
+        N(N_SET_PED_INTO_VEHICLE, me, v, -1);
+        N(N_SET_ENTITY_VISIBLE, me, 0, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
+        g_aw.gadgetVeh = v; g_aw.gadgetMines = 3; g_aw.gadgetUntil = Now() + 60000;
+    } else if (k == AWG_DRONE || k == AWG_TURRET) {
+        if (k == AWG_DRONE) {
+            uint32_t m = 0;
+            for (const char *n : {"xs_prop_arena_drone_01", "xs_prop_arena_drone_02", "ba_prop_battle_drone_quad"}) if (NB(N<int>(N_IS_MODEL_VALID, Joaat(n)))) { m = Joaat(n); break; }
+            g_aw.gadPos = V3(AW_CENTRE.x, AW_CENTRE.y - 20.f, g_aw.floorZ + 10.f);
+            if (m && LoadModel(m)) {
+                g_aw.gadgetObj = N<int>(N_CREATE_OBJECT_NO_OFFSET, m, g_aw.gadPos.x, g_aw.gadPos.y, g_aw.gadPos.z, 0, 0, 0, 0);
+                N(N_SET_MODEL_AS_NO_LONGER_NEEDED, m);
+                if (Exists(g_aw.gadgetObj)) { N(N_SET_ENTITY_COLLISION, g_aw.gadgetObj, 0, 0); N(N_FREEZE_ENTITY_POSITION, g_aw.gadgetObj, 1); }
+            }
+            g_aw.gadYaw = 0.f; g_aw.gadPitch = -20.f; g_aw.gadgetUntil = Now() + 45000;
+        } else { AwTurretPost(Rand(4)); g_aw.gadgetUntil = Now() + 30000; }
+        if (g_aw.trapCam >= 0) AwTrapCamSet(-1);
+        g_aw.gadgetCam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
+        N(N_SET_CAM_FOV, g_aw.gadgetCam, 60.f);
+        if (g_aw.boxCam) N(N_SET_CAM_ACTIVE, g_aw.boxCam, 0);
+        N(N_SET_CAM_ACTIVE, g_aw.gadgetCam, 1);
+    } else return false;
+    g_aw.gadget = k; g_aw.gadgetNext = 0; g_aw.gadgetSendAt = 0;
+    Log("arena gadget: %s (%d s)", AW_GADGET_NAMES[k], (g_aw.gadgetUntil - Now()) / 1000);
+    return true;
+}
+static void AwRcMine() {   // the RC Bandito leaves a mine behind it
+    int v = g_aw.gadgetVeh;
+    if (g_aw.gadget != AWG_RC || !Exists(v) || g_aw.gadgetMines <= 0 || Now() < g_aw.gadgetNext) return;
+    Vec3 p = N<Vec3>(N_GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS, v, 0.f, -1.6f, -0.15f);
+    AwMineDrop(p);
+    AwSend("awe", "M|" + AwPt(p) + "|" + AwMyName());
+    --g_aw.gadgetMines; g_aw.gadgetNext = Now() + 1500;
+    Sound("Bomb_Passed", "DLC_AW_Hot_Bomb_Sounds");
+    Log("arena gadget: a mine dropped at %.1f %.1f %.1f (%d left)", p.x, p.y, p.z, g_aw.gadgetMines);
+}
+static void AwDronePulse() {
+    if (g_aw.gadget != AWG_DRONE || Now() < g_aw.gadgetNext) return;
+    g_aw.gadgetNext = Now() + 8000;
+    AwEmpAt(g_aw.gadPos, "");
+    AwSend("awe", "E|" + AwPt(g_aw.gadPos) + "|" + AwMyName());
+    int n = 0; for (auto &b : g_aw.botList) if (b.empUntil > Now()) ++n;
+    Log("arena gadget: EMP pulse at %.1f %.1f %.1f (%d bots stalled)", g_aw.gadPos.x, g_aw.gadPos.y, g_aw.gadPos.z, n);
+}
+static void AwTurretShot() {   // from the post along the aim; whose car it hits takes the damage on its own game
+    int me = Me(), now = Now();
+    if (g_aw.gadget != AWG_TURRET || now < g_aw.gadgetNext) return;
+    g_aw.gadgetNext = now + 140;
+    Vec3 d = CamDir(g_aw.gadPitch, g_aw.gadYaw), p = g_aw.gadPos;
+    Vec3 from = V3(p.x + d.x * 2.f, p.y + d.y * 2.f, p.z + d.z * 2.f), to = V3(p.x + d.x * 300.f, p.y + d.y * 300.f, p.z + d.z * 300.f);
+    N(N_SHOOT_SINGLE_BULLET_BETWEEN_COORDS_IGNORE_ENTITY, from.x, from.y, from.z, to.x, to.y, to.z, 5, 1, Joaat("VEHICLE_WEAPON_TURRET_INSURGENT"), me, 1, 0, -1.f, me, 0);
+    int hit = 0, ent = 0; Vec3 end{}, nrm{};
+    int st = N<int>(N_START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE, from.x, from.y, from.z, to.x, to.y, to.z, 3, me, 7);
+    if (st) N<int>(N_GET_SHAPE_TEST_RESULT, st, &hit, &end, &nrm, &ent);
+    if (!hit || !ent) return;
+    for (auto &b : g_aw.botList) {
+        if (b.veh != ent || b.team == 1) continue;
+        if (!AwRemote(b)) { AwHitCar(b.veh); Log("arena gadget: turret hit a bot (engine %.0f)", N<float>(N_GET_VEHICLE_ENGINE_HEALTH, b.veh)); }
+        else if (now >= g_aw.gadgetSendAt) { g_aw.gadgetSendAt = now + 200; AwSend("awe", "S|" + b.name + "|" + AwMyName()); }
+        break;
+    }
+}
+static void AwGadgetTick() {
+    if (g_aw.gadget == AWG_NONE) return;
+    int me = Me(), now = Now(), left = std::max(0, (g_aw.gadgetUntil - now + 999) / 1000);
+    if (g_aw.gadget == AWG_RC) {
+        int v = g_aw.gadgetVeh;
+        N(N_SET_ENTITY_VISIBLE, me, 0, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
+        bool gone = !Exists(v) || Dead(v) || !NB(N<int>(N_IS_VEHICLE_DRIVEABLE, v, 0)) || Dead(me) || !NB(N<int>(N_IS_PED_IN_ANY_VEHICLE, me, 0));
+        if (gone || now >= g_aw.gadgetUntil) { if (gone) Notify("Your ~b~RC Bandito~s~ is gone."); AwGadgetEnd(); return; }
+        if (JustPressed(86)) AwRcMine();
+        Help("RC Bandito: " + std::to_string(left) + " s~n~~INPUT_VEH_HORN~ Drop a mine (" + std::to_string(g_aw.gadgetMines) + " left)");
+        return;
+    }
+    // the drone and the turret: a camera of their own, flown / aimed with everything else off
+    N(N_DISABLE_ALL_CONTROL_ACTIONS, 0);
+    if (now >= g_aw.gadgetUntil || NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 2, 202))) { AwGadgetEnd(); return; }
+    g_aw.gadYaw -= N<float>(N_GET_DISABLED_CONTROL_NORMAL, 0, 1) * 5.f;
+    g_aw.gadPitch = std::max(-85.f, std::min(40.f, g_aw.gadPitch - N<float>(N_GET_DISABLED_CONTROL_NORMAL, 0, 2) * 4.f));
+    if (g_aw.gadget == AWG_DRONE) {
+        float dt = std::min(0.1f, N<float>(N_GET_FRAME_TIME));
+        float speed = NB(N<int>(N_IS_DISABLED_CONTROL_PRESSED, 0, 21)) ? 22.f : 11.f;
+        float fw = -N<float>(N_GET_DISABLED_CONTROL_NORMAL, 0, 31), side = N<float>(N_GET_DISABLED_CONTROL_NORMAL, 0, 30);
+        float up = (NB(N<int>(N_IS_DISABLED_CONTROL_PRESSED, 0, 22)) ? 1.f : 0.f) - (NB(N<int>(N_IS_DISABLED_CONTROL_PRESSED, 0, 36)) ? 1.f : 0.f);
+        float y = g_aw.gadYaw * 0.0174533f;
+        Vec3 &p = g_aw.gadPos;
+        p.x += (-std::sin(y) * fw + std::cos(y) * side) * speed * dt;
+        p.y += (std::cos(y) * fw + std::sin(y) * side) * speed * dt;
+        p.z += up * speed * dt;
+        float r = std::hypot(p.x - AW_CENTRE.x, p.y - AW_CENTRE.y);   // inside the arena: 70 m from its middle, just over the floor to 30 m up
+        if (r > 70.f) { p.x = AW_CENTRE.x + (p.x - AW_CENTRE.x) * 70.f / r; p.y = AW_CENTRE.y + (p.y - AW_CENTRE.y) * 70.f / r; }
+        p.z = std::max(g_aw.floorZ + 1.2f, std::min(g_aw.floorZ + 30.f, p.z));
+        if (Exists(g_aw.gadgetObj)) { N(N_SET_ENTITY_COORDS_NO_OFFSET, g_aw.gadgetObj, p.x, p.y, p.z, 0, 0, 0); N(N_SET_ENTITY_HEADING, g_aw.gadgetObj, g_aw.gadYaw); }
+        N(N_SET_CAM_COORD, g_aw.gadgetCam, p.x, p.y, p.z - 0.15f);
+        if (now >= g_aw.gadgetSendAt) { g_aw.gadgetSendAt = now + 250; AwSend("awe", "D|" + AwPt(p) + "|" + AwMyName()); }
+        if (NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 0, 24))) AwDronePulse();
+        int cd = std::max(0, (g_aw.gadgetNext - now + 999) / 1000);
+        Help("Battle Drone: " + std::to_string(left) + " s~n~~INPUT_ATTACK~ EMP pulse" + (cd ? " (" + std::to_string(cd) + " s)" : std::string()) + "~n~~INPUT_JUMP~ / ~INPUT_DUCK~ Up / Down~n~~INPUT_SPRINT~ Boost~n~~INPUT_FRONTEND_CANCEL~ Back to the box");
+    } else {
+        bool next = NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 0, 175)), prev = NB(N<int>(N_IS_DISABLED_CONTROL_JUST_PRESSED, 0, 174));
+        if (next || prev) AwTurretPost(g_aw.turretAt + (next ? 1 : -1));
+        N(N_SET_CAM_COORD, g_aw.gadgetCam, g_aw.gadPos.x, g_aw.gadPos.y, g_aw.gadPos.z);
+        if (NB(N<int>(N_IS_DISABLED_CONTROL_PRESSED, 0, 24))) AwTurretShot();
+        Help("Turret: " + std::to_string(left) + " s~n~~INPUT_ATTACK~ Fire~n~~INPUT_CELLPHONE_LEFT~ ~INPUT_CELLPHONE_RIGHT~ Next turret~n~~INPUT_FRONTEND_CANCEL~ Back to the box");
+    }
+    N(N_SET_CAM_ROT, g_aw.gadgetCam, g_aw.gadPitch, 0.f, g_aw.gadYaw, 2);
+    Crosshair();
+}
+// the wheel: forced >= 0 is a test's prize, free
+static void AwWheelSpin(int forced) {
+    if (!g_aw.inBox || g_aw.gadget != AWG_NONE || g_aw.wheelUntil || g_aw.phase != AWP_PLAYING) return;
+    if (forced < 0) {
+        if (g_aw.wheelSpins > 0) { PayWhat why("Arena War Wheel"); if (!Pay(5000)) return; }
+        ++g_aw.wheelSpins;
+    }
+    int r = Rand(100), p = forced >= 0 ? forced % 6 : r < 22 ? 3 : r < 44 ? 4 : r < 66 ? 5 : r < 80 ? 0 : r < 90 ? 1 : 2;
+    g_aw.wheelPrize = p;
+    g_aw.wheelValue = p == 0 ? 1000 * (2 + Rand(9)) : p == 1 ? 250 * (2 + Rand(7)) : p == 2 ? 10 * (1 + Rand(5)) : 0;
+    g_aw.wheelUntil = Now() + 3000;
+    Sound("CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET");
+}
+static void AwWheelTick() {
+    if (!g_aw.wheelUntil) return;
+    int left = g_aw.wheelUntil - Now();
+    if (left > 0) {   // spinning: the prizes go by, slower and slower
+        int k = (Now() / (left > 1500 ? 90 : left > 600 ? 180 : 320)) % 6;
+        Text("ARENA WAR WHEEL", 0.5f, 0.36f, 0.7f, 4, 255, 140, 0, 255, 0, 1.f, true);
+        Text(AW_WHEEL_NAMES[k], 0.5f, 0.42f, 1.1f, 4, 255, 255, 255, 255, 0, 1.f, true);
+        return;
+    }
+    g_aw.wheelUntil = 0;
+    int p = g_aw.wheelPrize, v = g_aw.wheelValue;
+    if (p >= 3 && !AwGadgetStart(p - 2)) { p = 2; v = 20; }   // no such gadget in this game: Arena Points
+    if (p == 0) { AddCash(v); Shard("~o~ARENA WAR WHEEL", Money(v)); }
+    else if (p == 1) { GiveRP(v, nullptr); Shard("~o~ARENA WAR WHEEL", std::to_string(v) + " RP"); }
+    else if (p == 2) { AcidSet("arena_ap", AwApGet() + v); Shard("~o~ARENA WAR WHEEL", std::to_string(v) + " Arena Points"); }
+    else Shard("~o~ARENA WAR WHEEL", AW_WHEEL_NAMES[p]);
+    Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET");
+    Log("arena wheel: %s %d (spin %d)", AW_WHEEL_NAMES[p], v, g_aw.wheelSpins);
 }
 static void AwPartnerRemove() {
     RemoveBlip(g_aw.partnerBlip);
@@ -883,6 +1129,7 @@ static void AwTagOut(bool wrecked) {   // you go up to the box, your partner com
     else Notify(wrecked ? "~r~Wrecked.~s~ Your partner is in; you're in the box." : "~b~Tagged out.~s~ Your partner is in the arena.");
 }
 static void AwTagIn() {   // back in at the tag zone, the car repaired as far as the box got it
+    AwGadgetEnd(); g_aw.wheelUntil = 0;
     AwPartnerRemove();
     int me = Me();
     N(N_FREEZE_ENTITY_POSITION, me, 0); N(N_SET_ENTITY_VISIBLE, me, 1, 0); N(N_SET_ENTITY_COLLISION, me, 1, 1); N(N_SET_ENTITY_INVINCIBLE, me, 0);
@@ -939,6 +1186,7 @@ static void AwTagTeamOnline() {
     int pw = AwWho(g_aw.partner);
     AwBot *pb = pw >= 0 ? &g_aw.botList[(size_t)pw] : nullptr;
     if (g_aw.inBox) {
+        if (g_aw.gadget || g_aw.wheelUntil) return;   // (the wheel, a gadget's turn: their own keys)
         if (pb && !pb->out) {
             if (g_aw.boxCam && g_aw.trapCam < 0 && Exists(pb->veh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, pb->veh, 0.f, 0.f, 0.f, 1);
             Help("In the box: ~b~" + pb->name + "~s~ is in the arena and tags you in at the tag zone.");
@@ -982,6 +1230,7 @@ static void AwTagTeamTick() {
             AwTagIn();
             return;
         }
+        if (g_aw.gadget || g_aw.wheelUntil) return;   // (the wheel, a gadget's turn: their own keys)
         int left = 10 - (Now() - g_aw.boxSince) / 1000;
         if (left > 0) Help("In the box: your car is being repaired. Tag back in in " + std::to_string(left) + " s.");
         else { Help("Press ~INPUT_CONTEXT~ to tag back in."); if (JustPressed(51)) AwTagIn(); }
@@ -1293,6 +1542,7 @@ static void AwBegin(int startsInMs) {
 }
 static void AwCpClear() { if (g_aw.cpHandle) { N(N_DELETE_CHECKPOINT, g_aw.cpHandle); g_aw.cpHandle = 0; } RemoveBlip(g_aw.cpBlip); }
 static void AwModesClear() {   // the new modes' things: the ball, the partner, the box camera
+    AwGadgetEnd(); g_aw.wheelUntil = 0;
     if (Exists(g_aw.ball)) DeleteEntity(g_aw.ball);
     RemoveBlip(g_aw.ballBlip);
     AwPartnerRemove();
@@ -1598,13 +1848,26 @@ static void AwMessage(unsigned from, const std::string &kind, const std::string 
         if (g_aw.mode == AWM_BUZZER && !g_aw.myOut) { g_aw.myTime += 15000; Notify("~g~+15 s~s~  " + a[2] + " wrecked"); }
         else Notify("~r~" + a[2] + " wrecked~s~  +10 AP");
     } else if (e == "m" && a.size() >= 2) {   // a mine went off under someone
-        int i = std::atoi(a[1].c_str());
-        if (i < 0 || i >= (int)g_aw.trapList.size() || !Exists(g_aw.trapList[(size_t)i].obj)) return;
+        int i = AwTrapAt(std::atoi(a[1].c_str()), a.size() >= 3 ? a[2] : std::string());
+        if (i < 0 || !Exists(g_aw.trapList[(size_t)i].obj)) return;
         AwTrap &t = g_aw.trapList[(size_t)i];
         N(N_ADD_EXPLOSION, t.p.x, t.p.y, t.p.z + 0.3f, 4, 0.4f, 1, 0, 1.f, 1);   // seen and heard here, no damage
-        DeleteEntity(t.obj); t.obj = 0; t.nextAt = Now() + 20000;
+        DeleteEntity(t.obj); t.obj = 0; t.nextAt = t.once ? 0 : Now() + 20000;
     } else if (e == "T" && a.size() >= 2) {   // someone in the box set a trap off (the Trap Cam)
-        AwTrapSetOff(std::atoi(a[1].c_str()));
+        AwTrapSetOff(AwTrapAt(std::atoi(a[1].c_str()), a.size() >= 4 ? a[3] : std::string()));
+    } else if (e == "M" && a.size() >= 2) {   // an RC Bandito left a mine
+        Vec3 p; if (AwPtOf(a[1], p)) AwMineDrop(p);
+    } else if (e == "E" && a.size() >= 2) {   // a drone's EMP pulse
+        Vec3 p; if (AwPtOf(a[1], p)) AwEmpAt(p, a.size() >= 3 ? a[2] : std::string());
+    } else if (e == "D" && a.size() >= 3) {   // where a player's drone is
+        int w = AwPeerFrom(from, a[2]); Vec3 p;
+        if (w >= 0 && AwPtOf(a[1], p)) { g_aw.botList[(size_t)w].gadPt = p; g_aw.botList[(size_t)w].gadAt = Now(); }
+    } else if (e == "S" && a.size() >= 3) {   // a turret in the box hit my car
+        if (a[1] != AwMyName() || !Exists(g_aw.myVeh)) return;
+        int w = AwWho(a[2]);
+        if (w >= 0 && g_aw.botList[(size_t)w].team == 1) return;
+        AwHitCar(g_aw.myVeh);
+        g_aw.hitBy = a[2]; g_aw.hitAt = Now();
     } else if (e == "bbt" && a.size() >= 2) {   // Buzzer Beater: someone took that checkpoint
         auto it = std::find(g_aw.bbCps.begin(), g_aw.bbCps.end(), std::atoi(a[1].c_str()));
         if (it != g_aw.bbCps.end()) g_aw.bbCps.erase(it);
@@ -1864,7 +2127,8 @@ static void ArenaWarTick() {
         }
         if (g_aw.solo) AwBotsTick();
         AwTrapsTick();
-        if (g_aw.inBox) { AwBoxHold(); AwTrapCamTick(); }
+        if (g_aw.inBox) { if (g_aw.gadget != AWG_RC) AwBoxHold(); AwWheelTick(); AwGadgetTick(); AwTrapCamTick(); }
+        AwEmpTick();
         if (g_aw.mode == AWM_FLAGWAR) AwFlagTick();
         if (g_aw.mode == AWM_WRECKIT) AwWreckItTick();
         if (g_aw.mode == AWM_TAGTEAM) AwTagTeamTick();

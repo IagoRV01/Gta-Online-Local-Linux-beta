@@ -157,6 +157,15 @@ static void Help(const char *text) {
             int tildes = 0;
             for (size_t i = at; i < at + n; ++i) tildes += s[i] == '~';
             if (tildes % 2) n = s.rfind('~', at + n - 1) - at;
+            // and not in the middle of a word (the parts are shown with a gap between them: "Anothe r turret"): back to the
+            // last space, or to the start of the last ~token~
+            else if (s[at + n - 1] != ' ' && s[at + n - 1] != '~' && s[at + n] != ' ' && s[at + n] != '~') {
+                size_t sp = s.find_last_of(" ~", at + n - 1);
+                if (sp != std::string::npos && sp > at + 30) {
+                    if (s[sp] == ' ') n = sp + 1 - at;
+                    else { int td = 0; for (size_t i = at; i <= sp; ++i) td += s[i] == '~'; n = (td % 2 ? sp : sp + 1) - at; }
+                }
+            }
         }
         parts.push_back(s.substr(at, n));
         at += n;
@@ -5369,6 +5378,35 @@ static void CommandTick() {
         }
         else if (a[0] == "arenastart") { Log("arenastart: members '%s'", g_coop.members.c_str()); AwHostStart(); }   // the lobby's start (test)
         else if (a[0] == "awtrapcam" && a.size() > 1) { AwTrapCamSet(std::atoi(a[1].c_str())); Log("awtrapcam: %d (in the box %d, camera %d, %d traps), you at %.1f %.1f %.1f health %d", g_aw.trapCam, (int)g_aw.inBox, (int)(g_aw.boxCam != 0), (int)g_aw.trapList.size(), Pos(Me()).x, Pos(Me()).y, Pos(Me()).z, N<int>(N_GET_ENTITY_HEALTH, Me())); }   // the box's Trap Cam on that trap (-1: the box's view) (test)
+        else if (a[0] == "awwheel") { AwWheelSpin(a.size() > 1 ? std::atoi(a[1].c_str()) : -1); Log("awwheel: prize %d until %d ms (in the box %d, spins %d)", g_aw.wheelPrize, std::max(0, g_aw.wheelUntil - Now()), (int)g_aw.inBox, g_aw.wheelSpins); }   // awwheel [0-5]: the box's wheel spun (a number: that prize, free) (test)
+        else if (a[0] == "awgadget" && a.size() > 1) { bool ok = AwGadgetStart(std::atoi(a[1].c_str())); Log("awgadget %s: %d", a[1].c_str(), (int)ok); }   // 1 RC Bandito, 2 Battle Drone, 3 turret (test)
+        else if (a[0] == "awgadgetend") AwGadgetEnd();
+        else if (a[0] == "awmine") AwRcMine();        // the RC Bandito drops a mine (test)
+        else if (a[0] == "awemp") AwDronePulse();     // the drone's pulse (test)
+        else if (a[0] == "awaim" && a.size() > 2) {   // awaim peer <i> | <yaw> <pitch>: the drone's / turret's aim (test)
+            if (a[1] == "peer" && std::atoi(a[2].c_str()) < (int)g_aw.botList.size() && Exists(g_aw.botList[std::atoi(a[2].c_str())].veh)) {
+                Vec3 t = Pos(g_aw.botList[std::atoi(a[2].c_str())].veh), p = g_aw.gadPos;
+                g_aw.gadYaw = std::atan2(-(t.x - p.x), t.y - p.y) * 57.2958f;
+                g_aw.gadPitch = std::atan2(t.z - p.z, std::hypot(t.x - p.x, t.y - p.y)) * 57.2958f;
+            } else { g_aw.gadYaw = F(1); g_aw.gadPitch = F(2); }
+            Log("awaim: yaw %.1f pitch %.1f", g_aw.gadYaw, g_aw.gadPitch);
+        }
+        else if (a[0] == "awshoot") { int n = a.size() > 1 ? std::atoi(a[1].c_str()) : 1; for (int k = 0; k < n; ++k) { g_aw.gadgetNext = 0; g_aw.gadgetSendAt = 0; AwTurretShot(); Wait(60); } }   // awshoot [n]: the turret fires (test)
+        else if (a[0] == "awdrone" && a.size() > 2) {   // awdrone x y z | peer <i>: the drone moved there / 4 m over that car (test)
+            if (a[1] == "peer") { int i = std::atoi(a[2].c_str()); if (i >= 0 && i < (int)g_aw.botList.size() && Exists(g_aw.botList[i].veh)) { g_aw.gadPos = Pos(g_aw.botList[i].veh); g_aw.gadPos.z += 4.f; } }
+            else g_aw.gadPos = V3(F(1), F(2), F(3));
+            Log("awdrone: at %.1f %.1f %.1f", g_aw.gadPos.x, g_aw.gadPos.y, g_aw.gadPos.z);
+        }
+        else if (a[0] == "awgstate") {   // the box's gadget, the wheel, my car's health (test)
+            Vec3 gp = Exists(g_aw.gadgetVeh) ? Pos(g_aw.gadgetVeh) : g_aw.gadPos;
+            int mines = 0; for (auto &t : g_aw.trapList) if (t.once && Exists(t.obj)) ++mines;
+            Log("awgstate: gadget %d (%d s left) car %d prop %d cam %d at %.1f %.1f %.1f mines left %d dropped mines out %d traps %d | wheel spins %d | in the box %d box cam %d | my car body %.0f engine %.0f emp %d ms hit by '%s' | you at %.1f %.1f %.1f in a car %d",
+                g_aw.gadget, std::max(0, g_aw.gadgetUntil - Now()) / 1000, (int)Exists(g_aw.gadgetVeh), (int)Exists(g_aw.gadgetObj), (int)(g_aw.gadgetCam != 0), gp.x, gp.y, gp.z, g_aw.gadgetMines, mines, (int)g_aw.trapList.size(),
+                g_aw.wheelSpins, (int)g_aw.inBox, (int)(g_aw.boxCam != 0),
+                Exists(g_aw.myVeh) ? N<float>(N_GET_VEHICLE_BODY_HEALTH, g_aw.myVeh) : -1.f, Exists(g_aw.myVeh) ? N<float>(N_GET_VEHICLE_ENGINE_HEALTH, g_aw.myVeh) : -1.f, std::max(0, g_aw.empUntil - Now()), g_aw.hitBy.c_str(),
+                Pos(Me()).x, Pos(Me()).y, Pos(Me()).z, (int)InAnyVehicle());
+            for (size_t i = 0; i < g_aw.botList.size(); ++i) { const AwBot &b = g_aw.botList[i]; if (Exists(b.veh)) Log("  car %d: body %.0f engine %.0f emp %d ms drone seen %d ms ago", (int)i, N<float>(N_GET_VEHICLE_BODY_HEALTH, b.veh), N<float>(N_GET_VEHICLE_ENGINE_HEALTH, b.veh), std::max(0, b.empUntil - Now()), b.gadAt ? Now() - b.gadAt : -1); }
+        }
         else if (a[0] == "awtrapfire") { g_aw.trapCamAt = 0; AwTrapCamFire(); }   // the trap in view set off (test)
         else if (a[0] == "awtrapstate") { for (size_t i = 0; i < g_aw.trapList.size(); ++i) { const AwTrap &t = g_aw.trapList[i]; Log("  trap %d: %s at %.1f %.1f %.1f there %d forced %d ms fire %d", (int)i, AW_TRAP_NAMES[t.kind], t.p.x, t.p.y, t.p.z, (int)Exists(t.obj), std::max(0, t.forcedUntil - Now()), t.fire); } }   // the traps and their state (test)
         else if (a[0] == "awwreck") { if (Exists(g_aw.myVeh)) N(N_EXPLODE_VEHICLE, g_aw.myVeh, 1, 0); }   // your arena car goes up (test)
