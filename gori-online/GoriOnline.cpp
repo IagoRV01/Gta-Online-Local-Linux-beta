@@ -5754,6 +5754,13 @@ static void CommandTick() {
             else Log("objat %s: model not found", a[1].c_str());
             g_testObjs = &objs;
         }
+        else if (a[0] == "camat" && a.size() > 6) {   // camat x y z tx ty tz [fov]: a camera there looking at that point; objclear takes it away (test: screenshots)
+            if (!g_testCam) g_testCam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
+            N(N_SET_CAM_COORD, g_testCam, F(1), F(2), F(3));
+            N(N_POINT_CAM_AT_COORD, g_testCam, F(4), F(5), F(6));
+            N(N_SET_CAM_FOV, g_testCam, a.size() > 7 ? F(7) : 50.f);
+            N(N_SET_CAM_ACTIVE, g_testCam, 1); N(N_RENDER_SCRIPT_CAMS, 1, 0, 0, 1, 0, 0);
+        }
         else if (a[0] == "awprops" && a.size() > 1) {   // awprops <model>...: those props in a row 16 m ahead of you, on your level, their sizes logged; objclear removes them (test)
             static std::vector<int> objs;
             Vec3 p = Pos(Me()); float h = N<float>(N_GET_ENTITY_HEADING, Me()) * 0.0174533f;
@@ -5773,13 +5780,12 @@ static void CommandTick() {
             }
             g_testObjs = &objs;
             // a camera behind and above you looking at the row (objclear takes it away)
-            static int cam = 0;
-            if (!cam) cam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
+            if (!g_testCam) g_testCam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
+            int cam = g_testCam;
             N(N_SET_CAM_COORD, cam, p.x - fx * 30.f, p.y - fy * 30.f, p.z + 16.f);
             N(N_POINT_CAM_AT_COORD, cam, p.x + fx * 16.f, p.y + fy * 16.f, p.z + 9.f);
             N(N_SET_CAM_FOV, cam, 62.f);
             N(N_SET_CAM_ACTIVE, cam, 1); N(N_RENDER_SCRIPT_CAMS, 1, 0, 0, 1, 0, 0);
-            g_testCam = cam;
         }
         else if (a[0] == "objclear") { if (g_testCam) { N(N_RENDER_SCRIPT_CAMS, 0, 0, 0, 1, 0, 0); } if (g_testObjs) { for (int &o : *g_testObjs) N(N_DELETE_OBJECT, &o); g_testObjs->clear(); } }
         else if (a[0] == "yachtcfg" && a.size() > 1) { g_cust[YACHT_CFG] = (int)F(1); if (a.size() > 2) g_cust[YACHT_SPOT] = (int)F(2); else if (!g_cust.count(YACHT_SPOT)) g_cust[YACHT_SPOT] = YachtNearestSpot(); YachtUnload(); Save(); }   // test (delyacht undoes it)

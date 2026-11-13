@@ -454,7 +454,7 @@ void VehicleDamage(Player &p) {
         p.vehDeadSince = 0;
         return;
     }
-    float wantEngine = (vb.vflags & kVehBurning) ? -100.f : (vb.vflags & kVehSmoking) ? 300.f : 1000.f;
+    float wantEngine = (vb.vflags & kVehBurning) ? -100.f : (vb.vflags & kVehSmoking) ? 100.f : 1000.f;   // (at 300 a puppet showed no smoke at all, 2026-11-13)
     float body = N<float>(N_GET_VEHICLE_BODY_HEALTH, p.veh), eng = N<float>(N_GET_VEHICLE_ENGINE_HEALTH, p.veh);
     float dBody = dead ? 1000.f : p.vehBody - body, dEng = dead ? 1000.f : p.vehEngine - eng;
     if (dBody > 1.f || dEng > 1.f) {

@@ -690,15 +690,17 @@ it rides on player messages and three spare bits of the vehicle flags.
   `mycarstate`, `setwanted <0-5>`; gobot's `carflags <32|64|128>` and `say lo.vd 150|200|0|0`.
 - **Verified in game 2026-11-13 with gobot:**
   - Five rifle bullets on its car: five `lo.vd 40|0|...` on the bot. An explosion: `lo.vd 1000|1001|...|1`.
-  - Its `carflags` 128: "its vehicle blew up" here; back to 0: the wreck replaced by a fresh car. (Log only: the
-    screenshots faced away from the car, so the smoke and the fire of 32 and 64 were not looked at.)
+  - Its `carflags` 128: "its vehicle blew up" here; back to 0: the wreck replaced by a fresh car.
+  - Looked at from a fixed camera (Gori's `camat x y z tx ty tz [fov]`) the same evening: 64 shows flames at the
+    engine, 128 the burning wreck, 0 a fresh car. **32 (smoking) shows nothing**: the puppet's engine health is set
+    (300 at first, then 100) and its engine runs, but the game draws no engine smoke on it. Known gap.
   - Its `lo.vd 150|200|0|0` on the car I drove: body 1000 to 850, engine 1000 to 800. Its `lo.vd 0|500|0|0`: engine
     300, and my own flags went to "smoking". Its `lo.vd 1000|1000|0|1`: my car blown up, I died, "Bot killed You" in
     my kill feed and "Alex killed by the bot" on the bot, respawn at the hospital.
   - One star in a stopped car: the police pulled me out, "arrest undone" twice in the log, and the game went on
     (they shot me later and I respawned as usual). Before the fix I stood there hands up until GTA was closed.
-- **Not covered:** two real GTAs shooting each other's cars (gobot does not simulate a car's health), how a smoking
-  or burning puppet looks, tyres and windows (not synced), and the officer still opening the door before the arrest
+- **Not covered:** two real GTAs shooting each other's cars (gobot does not simulate a car's health), smoke on a
+  smoking puppet (see above: it would need a particle effect of our own), tyres and windows (not synced), and the officer still opening the door before the arrest
   is undone. After an explosion of yours the fire you left keeps taking about 60 body a second off the puppet for some
   20 s, and that is reported too.
 
