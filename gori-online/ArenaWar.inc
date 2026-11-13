@@ -57,7 +57,8 @@ static const char *AW_TRAP_MODELS[AWT_COUNT][3] = {
     {"xs_prop_arena_spikes_01a", "xs_prop_arena_spikes_01a_sf", "xs_prop_arena_spikes_01a"}};
 static const int AW_TRAP_COUNT[AWT_COUNT] = {3, 2, 4, 2};
 static const float AW_TRAP_RADIUS[AWT_COUNT] = {3.5f, 3.f, 2.4f, 2.6f};
-struct AwTrap { int kind = 0, obj = 0, nextAt = 0, until = 0, fire = 0, launched = 0; Vec3 p{}; float h = 0.f; };
+struct AwTrap { int kind = 0, obj = 0, nextAt = 0, until = 0, fire = 0, launched = 0; Vec3 p{}; float h = 0.f;
+                int forcedUntil = 0; };   // set off from the box's Trap Cam: it acts until then, whatever its own timer says
 static const uint32_t AW_ROOM = 0x113B4A40;   // the arena's room (GET_ROOM_KEY_FROM_ENTITY once inside)
 static const Vec3 AW_CENTRE = V3(2800.f, -3800.f, 100.f);
 
@@ -93,6 +94,7 @@ struct AwRun {
     int objSeq[2] = {0, 0}; std::string objBy[2], objText;   // objText: the bomb's / flag's last claim, for a member who asks again
     std::string ballOwner; int ballSendAt = 0, ballClaimAt = 0; std::map<int, int> bbTaken;
     unsigned jobId = 0;   // the job this event is (a member's event ends when that job does)
+    int trapCam = -1, trapCamAt = 0;   // the box's Trap Cam: the trap looked at (-1: the box's own view), when it can be used again
     bool noPay = false;   // the job was closed, not passed (its host left): nobody is paid
 };
 static AwRun g_aw;
@@ -512,12 +514,19 @@ static std::string AwWreckedBy() {
 // ---- traps
 static void AwTrapMake(AwTrap &t);
 static void AwTrapPlace(AwTrap &t) {
-    for (int tries = 0; tries < 20; ++tries) {   // on the floor, clear of the others and of your car
+    // on the floor, clear of the others and of your car; never on the mode's own places (its bases, tag zone, pit stop,
+    // goals), whatever else has to give: with eleven traps the spacing often can't be had, and until 2026-11-13 the last
+    // ones then went anywhere (a mine on the tag zone)
+    for (int tries = 0; tries < 40; ++tries) {
         float h = 0.f; Vec3 p = AwSpawnPoint(h);
         bool ok = !Exists(g_aw.myVeh) || Dist(p, Pos(g_aw.myVeh)) > 15.f;
         for (auto &o : g_aw.trapList) if (&o != &t && o.obj && Dist(p, o.p) < 12.f) ok = false;
-        if (g_aw.mode == AWM_FLAGWAR && (Dist(p, g_aw.myBase) < 12.f || Dist(p, g_aw.botBase) < 12.f)) ok = false;
-        if (!ok && tries < 19) continue;
+        bool clear = true;
+        if (g_aw.mode == AWM_FLAGWAR && (Dist(p, g_aw.myBase) < 12.f || Dist(p, g_aw.botBase) < 12.f)) clear = false;
+        if (g_aw.mode == AWM_TAGTEAM && Dist(p, g_aw.tagZone) < 12.f) clear = false;
+        if (g_aw.mode == AWM_WRECKIT && Dist(p, g_aw.pit) < 10.f) clear = false;
+        if (g_aw.mode == AWM_BOMBBALL && (Dist(p, g_aw.goalMine) < 12.f || Dist(p, g_aw.goalBots) < 12.f)) clear = false;
+        if (!(clear && (ok || tries >= 19)) && tries < 39) continue;
         t.p = V3(p.x, p.y, p.z - 1.f); t.h = (float)Rand(360);
         break;
     }
@@ -564,7 +573,10 @@ static void AwTrapsTick() {
                 N(N_APPLY_FORCE_TO_ENTITY, t.launched, 5, 0.f, 0.f, 0.f, 0.f, 3.f, 0.f, 0, 1, 1, 1, 0, 1);   // and a roll
             }
             if (t.until && Now() > t.until) { t.until = 0; t.launched = 0; }
-            if (hit && Now() >= t.nextAt) {   // (tilting the frozen plate pushed cars through the floor: the launch alone)
+            bool forced = Now() < t.forcedUntil;   // set off from the box: whatever is within 7 m, at once
+            if (forced && !hit) for (int v : cars) { Vec3 c = Pos(v); if (std::hypot(c.x - t.p.x, c.y - t.p.y) < 7.f && std::fabs(c.z - t.p.z) < 3.f) { hit = v; break; } }
+            if (hit && (Now() >= t.nextAt || forced)) {   // (tilting the frozen plate pushed cars through the floor: the launch alone)
+                t.forcedUntil = 0;
                 t.launched = hit;
                 t.until = Now() + 600; t.nextAt = Now() + 4000;
                 Log("trap: flipper launched %s", hit == g_aw.myVeh ? "you" : "a bot");
@@ -572,7 +584,7 @@ static void AwTrapsTick() {
         } else if (t.kind == AWT_FIRE) {   // 4 s quiet, then 3 s of fire (a warning glow first)
             if (!g_aw.solo) {   // online: the same 7 s cycle on every game, counted from the event's start
                 int ph = (((Now() - g_aw.startAt - 700 * (int)(&t - g_aw.trapList.data())) % 7000) + 7000) % 7000;
-                bool burning = ph >= 4000;
+                bool burning = ph >= 4000 || Now() < t.forcedUntil;
                 if (!burning && ph >= 2800) N(N_DRAW_MARKER, 25, t.p.x, t.p.y, t.p.z + 0.15f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 5.f, 5.f, 1.f, 255, 90, 0, 140, 0, 0, 2, 0, 0, 0, 0);
                 if (burning && !t.fire) t.fire = N<int>(N_START_SCRIPT_FIRE, t.p.x, t.p.y, t.p.z + 0.2f, 6, 0);
                 if (!burning && t.fire) { N(N_REMOVE_SCRIPT_FIRE, t.fire); t.fire = 0; }
@@ -601,6 +613,21 @@ static void AwTrapsTick() {
                 Log("trap: spikes under %s (tyre burst %d)", hit == g_aw.myVeh ? "you" : "a bot", (int)NB(N<int>(N_IS_VEHICLE_TYRE_BURST, hit, 0, 0)));
             }
         }
+    }
+}
+
+// a trap set off from the box's Trap Cam (here, or on another player's game: "awe T"): a flipper throws whatever is
+// within 7 m, a fire pit burns for 3 s, a mine goes off (each game's explosion damages its own car only: the other
+// players' cars are puppets)
+static void AwTrapSetOff(int i) {
+    if (i < 0 || i >= (int)g_aw.trapList.size()) return;
+    AwTrap &t = g_aw.trapList[(size_t)i];
+    if (!Exists(t.obj)) return;
+    if (t.kind == AWT_FLIPPER) t.forcedUntil = Now() + 1500;
+    else if (t.kind == AWT_FIRE) { t.forcedUntil = Now() + 3000; if (g_aw.solo && !t.until) t.nextAt = Now(); }
+    else if (t.kind == AWT_MINE) {
+        N(N_ADD_EXPLOSION, t.p.x, t.p.y, t.p.z + 0.3f, 4, 0.4f, 1, 0, 1.f, 0);
+        DeleteEntity(t.obj); t.obj = 0; t.nextAt = Now() + 20000;
     }
 }
 
@@ -776,7 +803,57 @@ static void AwBoxCam(bool on) {
     } else if (!on && g_aw.boxCam) {
         N(N_RENDER_SCRIPT_CAMS, 0, 1, 600, 1, 0, 0);
         N(N_DESTROY_CAM, g_aw.boxCam, 0); g_aw.boxCam = 0;
+        g_aw.trapCam = -1;
     }
+}
+// The box's Trap Cam (2026-11-13), after Online's spectator box: from the box (tagged out in Tag Team, or out of the
+// event between players) LEFT / RIGHT look down on the arena's traps one by one, SPACE sets the one in view off (6 s
+// between uses), DOWN goes back to the box's view. Spikes have nothing to set off. Between players everyone's game is
+// told ("awe T|trap|name") and applies it to its own car.
+static const char *const AW_TRAP_NAMES[AWT_COUNT] = {"Flipper", "Fire pit", "Mine", "Spikes"};
+static void AwTrapCamSet(int i) {
+    g_aw.trapCam = i >= 0 && i < (int)g_aw.trapList.size() ? i : -1;
+    if (!g_aw.boxCam) return;
+    if (g_aw.trapCam < 0) {
+        N(N_SET_CAM_COORD, g_aw.boxCam, AW_CENTRE.x, AW_CENTRE.y - 55.f, g_aw.floorZ + 45.f);
+        N(N_POINT_CAM_AT_COORD, g_aw.boxCam, AW_CENTRE.x, AW_CENTRE.y, g_aw.floorZ);
+    } else {
+        const AwTrap &t = g_aw.trapList[(size_t)g_aw.trapCam];
+        N(N_SET_CAM_COORD, g_aw.boxCam, t.p.x, t.p.y - 11.f, t.p.z + 9.f);
+        N(N_POINT_CAM_AT_COORD, g_aw.boxCam, t.p.x, t.p.y, t.p.z);
+    }
+}
+static void AwTrapCamFire() {
+    if (g_aw.trapCam < 0 || g_aw.trapCam >= (int)g_aw.trapList.size() || Now() < g_aw.trapCamAt) return;
+    const AwTrap &t = g_aw.trapList[(size_t)g_aw.trapCam];
+    if (!Exists(t.obj) || t.kind == AWT_SPIKES) return;
+    Log("trap cam: %s %d set off", AW_TRAP_NAMES[t.kind], g_aw.trapCam);
+    AwTrapSetOff(g_aw.trapCam);
+    g_aw.trapCamAt = Now() + 6000;
+    Sound("Kill_List_Score", "DLC_AW_Frontend_Sounds");
+    AwSend("awe", "T|" + std::to_string(g_aw.trapCam) + "|" + AwMyName());
+}
+static void AwTrapCamTick() {
+    if (!g_aw.inBox || !g_aw.boxCam) return;
+    std::vector<int> usable;
+    for (size_t i = 0; i < g_aw.trapList.size(); ++i) if (g_aw.trapList[i].kind != AWT_SPIKES) usable.push_back((int)i);
+    if (usable.empty()) return;
+    int step = JustPressed(175) ? 1 : JustPressed(174) ? -1 : 0;
+    if (step) {
+        auto it = std::find(usable.begin(), usable.end(), g_aw.trapCam);
+        int n = (int)usable.size(), k = it == usable.end() ? (step > 0 ? 0 : n - 1) : ((int)(it - usable.begin()) + step + n) % n;
+        AwTrapCamSet(usable[(size_t)k]);
+        Sound("NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET");
+    }
+    if (g_aw.trapCam < 0) { Text("Trap Cam:  LEFT / RIGHT  look at a trap", 0.5f, 0.9f, 0.4f, 4, 255, 255, 255, 220, 0, 1.f, true); return; }
+    if (JustPressed(173)) { AwTrapCamSet(-1); return; }
+    const AwTrap &t = g_aw.trapList[(size_t)g_aw.trapCam];
+    bool there = Exists(t.obj);
+    int left = (g_aw.trapCamAt - Now() + 999) / 1000;
+    if (there) N(N_DRAW_MARKER, 0, t.p.x, t.p.y, t.p.z + 3.2f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.4f, 1.4f, 1.4f, 255, 140, 0, 200, 1, 0, 2, 0, 0, 0, 0);
+    Text(std::string("Trap Cam:  ") + AW_TRAP_NAMES[t.kind] + (!there ? "  (gone for now)" : left > 0 ? "  ready in " + std::to_string(left) + " s" : "  SPACE  set it off") + "     LEFT / RIGHT  next     DOWN  back",
+         0.5f, 0.9f, 0.4f, 4, 255, there && left <= 0 ? 200 : 255, there && left <= 0 ? 80 : 255, 220, 0, 1.f, true);
+    if (there && left <= 0 && JustPressed(22)) AwTrapCamFire();
 }
 static void AwPartnerRemove() {
     RemoveBlip(g_aw.partnerBlip);
@@ -828,6 +905,21 @@ static int AwTeamsAlive() {   // the other teams still in: a bot is a team; onli
     for (auto &b : g_aw.botList) if (!b.out && b.team != 1) { if (AwRemote(b)) sides.insert(b.side); else ++n; }
     return n + (int)sides.size();
 }
+// In the box nothing touches you: after a wreck that killed you, LocalOnline's respawn puts YOU back where you died and
+// makes you mortal again, so you stood unseen on the arena's floor, and a mine set off from the Trap Cam beside you
+// killed you (2026-11-13)
+static void AwBoxHold() {
+    int me = Me();
+    if (Dead(me)) return;
+    // (unseen and untouchable wherever you are in the arena: the view is the box's camera. Moving you back up every frame
+    // fought LocalOnline, which undoes any jump of over 40 m for a few seconds after a respawn. Only from outside the arena.)
+    Vec3 mp = Pos(me);
+    if (std::hypot(mp.x - AW_CENTRE.x, mp.y - AW_CENTRE.y) > 150.f) {
+        static int at = 0;
+        if (Now() >= at) { at = Now() + 1000; N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y - 55.f, g_aw.floorZ + 44.f, 0, 0, 0, 0); Log("arena: back up to the box"); }
+    }
+    N(N_FREEZE_ENTITY_POSITION, me, 1); N(N_SET_ENTITY_VISIBLE, me, 0, 0); N(N_SET_ENTITY_COLLISION, me, 0, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
+}
 static void AwBoxEnter() {   // up to the box with no partner coming in: out of the event (online), watching
     int me = Me();
     if (Exists(g_aw.myVeh)) { N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y, g_aw.floorZ + 30.f, 0, 0, 0, 0); DeleteEntity(g_aw.myVeh); g_aw.myVeh = 0; }
@@ -848,7 +940,7 @@ static void AwTagTeamOnline() {
     AwBot *pb = pw >= 0 ? &g_aw.botList[(size_t)pw] : nullptr;
     if (g_aw.inBox) {
         if (pb && !pb->out) {
-            if (g_aw.boxCam && Exists(pb->veh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, pb->veh, 0.f, 0.f, 0.f, 1);
+            if (g_aw.boxCam && g_aw.trapCam < 0 && Exists(pb->veh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, pb->veh, 0.f, 0.f, 0.f, 1);
             Help("In the box: ~b~" + pb->name + "~s~ is in the arena and tags you in at the tag zone.");
         } else {
             int left = 10 - (Now() - g_aw.boxSince) / 1000;
@@ -875,7 +967,7 @@ static void AwTagTeamTick() {
     N(N_DRAW_MARKER, 1, t.x, t.y, t.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 8.f, 8.f, 1.f, 60, 140, 255, 120, 0, 0, 2, 0, 0, 0, 0);
     if (!AwTeamsLeft()) { Shard("~g~LAST TEAM STANDING", "Every other team is out."); g_aw.endAt = std::min(g_aw.endAt, Now() + 3000); return; }
     if (g_aw.inBox) {
-        if (g_aw.boxCam && Exists(g_aw.partnerVeh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, g_aw.partnerVeh, 0.f, 0.f, 0.f, 1);
+        if (g_aw.boxCam && g_aw.trapCam < 0 && Exists(g_aw.partnerVeh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, g_aw.partnerVeh, 0.f, 0.f, 0.f, 1);
         static int partnerTaskAt = 0;   // your partner goes for the nearest of the other teams
         if (Exists(g_aw.partnerPed) && Exists(g_aw.partnerVeh) && Now() >= partnerTaskAt) {
             int target = 0; float best = 1e9f;
@@ -1511,6 +1603,8 @@ static void AwMessage(unsigned from, const std::string &kind, const std::string 
         AwTrap &t = g_aw.trapList[(size_t)i];
         N(N_ADD_EXPLOSION, t.p.x, t.p.y, t.p.z + 0.3f, 4, 0.4f, 1, 0, 1.f, 1);   // seen and heard here, no damage
         DeleteEntity(t.obj); t.obj = 0; t.nextAt = Now() + 20000;
+    } else if (e == "T" && a.size() >= 2) {   // someone in the box set a trap off (the Trap Cam)
+        AwTrapSetOff(std::atoi(a[1].c_str()));
     } else if (e == "bbt" && a.size() >= 2) {   // Buzzer Beater: someone took that checkpoint
         auto it = std::find(g_aw.bbCps.begin(), g_aw.bbCps.end(), std::atoi(a[1].c_str()));
         if (it != g_aw.bbCps.end()) g_aw.bbCps.erase(it);
@@ -1770,6 +1864,7 @@ static void ArenaWarTick() {
         }
         if (g_aw.solo) AwBotsTick();
         AwTrapsTick();
+        if (g_aw.inBox) { AwBoxHold(); AwTrapCamTick(); }
         if (g_aw.mode == AWM_FLAGWAR) AwFlagTick();
         if (g_aw.mode == AWM_WRECKIT) AwWreckItTick();
         if (g_aw.mode == AWM_TAGTEAM) AwTagTeamTick();

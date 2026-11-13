@@ -5368,6 +5368,9 @@ static void CommandTick() {
             Log("arenahost: phase %d solo %d job %u kind %d", g_aw.phase, (int)g_aw.solo, g_coop.id, g_coop.kind);
         }
         else if (a[0] == "arenastart") { Log("arenastart: members '%s'", g_coop.members.c_str()); AwHostStart(); }   // the lobby's start (test)
+        else if (a[0] == "awtrapcam" && a.size() > 1) { AwTrapCamSet(std::atoi(a[1].c_str())); Log("awtrapcam: %d (in the box %d, camera %d, %d traps), you at %.1f %.1f %.1f health %d", g_aw.trapCam, (int)g_aw.inBox, (int)(g_aw.boxCam != 0), (int)g_aw.trapList.size(), Pos(Me()).x, Pos(Me()).y, Pos(Me()).z, N<int>(N_GET_ENTITY_HEALTH, Me())); }   // the box's Trap Cam on that trap (-1: the box's view) (test)
+        else if (a[0] == "awtrapfire") { g_aw.trapCamAt = 0; AwTrapCamFire(); }   // the trap in view set off (test)
+        else if (a[0] == "awtrapstate") { for (size_t i = 0; i < g_aw.trapList.size(); ++i) { const AwTrap &t = g_aw.trapList[i]; Log("  trap %d: %s at %.1f %.1f %.1f there %d forced %d ms fire %d", (int)i, AW_TRAP_NAMES[t.kind], t.p.x, t.p.y, t.p.z, (int)Exists(t.obj), std::max(0, t.forcedUntil - Now()), t.fire); } }   // the traps and their state (test)
         else if (a[0] == "awwreck") { if (Exists(g_aw.myVeh)) N(N_EXPLODE_VEHICLE, g_aw.myVeh, 1, 0); }   // your arena car goes up (test)
         else if (a[0] == "awtime" && a.size() > 1) { g_aw.myTime = std::atoi(a[1].c_str()) * 1000; }   // Buzzer Beater: your time left, in seconds (test)
         else if (a[0] == "awnet") {   // Arena War between players: what this game knows (test)
