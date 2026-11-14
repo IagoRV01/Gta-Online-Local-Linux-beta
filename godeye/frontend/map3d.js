@@ -9,7 +9,11 @@ let hemi, sun, sky, skyCanvas, skyTex, seaMat, waterMat, maxAniso = 4;   // the 
 const emitMats = new Set();         // window lights: brighter at night, off in a blackout
 const tiles = new Map();            // "x,y" -> {info, far, tree: {group, layer1: []} | null, near: group | null, loading}
 const materials = new Map();        // tex key + kind -> material
-const texCache = new Map();         // tex key -> THREE.DataTexture (loading or loaded)
+const texCache = new Map();         // tex key -> its texture: a grey pixel until its pack arrives
+const texFilled = new Set();        // tex keys whose real texture is in
+const texBig = new Set();           // tex keys whose larger texture (a big pack's) is in
+const texUsers = new Map();         // tex key -> the materials drawing with it (a filled texture is a new object)
+let s3tc = false;                   // the GPU takes BC1 as it is (and its sRGB form): no decoding, a quarter of the memory
 const markers = new Map();          // player id -> {group, label}
 const ver = () => (index?.built ? "?v=" + index.built : "");   // a new export never mixes with cached old tiles
 const orbit = { tx: 0, ty: -900, tz: 30, dist: 5200, yaw: -0.35, pitch: 0.95 };
@@ -29,15 +33,16 @@ const HALF = (() => {   // half float -> float lookup for the UVs
   return t;
 })();
 
-function decodeBC1(buf) {
+// one level of a BC1 texture (its blocks start at `at`) to RGBA
+function decodeBC1(buf, at = 8, w = 0, h = 0) {
   const dv = new DataView(buf);
-  const w = dv.getUint16(0, true), h = dv.getUint16(2, true);
+  if (!w) { w = dv.getUint16(0, true); h = dv.getUint16(2, true); }
   const out = new Uint8Array(w * h * 4);
   const bw = (w + 3) >> 2, bh = (h + 3) >> 2;
   const pal = new Uint8Array(16);
   for (let by = 0; by < bh; by++)
     for (let bx = 0; bx < bw; bx++) {
-      const o = 8 + (by * bw + bx) * 8;
+      const o = at + (by * bw + bx) * 8;
       const c0 = dv.getUint16(o, true), c1 = dv.getUint16(o + 2, true), bits = dv.getUint32(o + 4, true);
       const r0 = ((c0 >> 11) & 31) * 255 / 31, g0 = ((c0 >> 5) & 63) * 255 / 63, b0 = (c0 & 31) * 255 / 31;
       const r1 = ((c1 >> 11) & 31) * 255 / 31, g1 = ((c1 >> 5) & 63) * 255 / 63, b1 = (c1 & 31) * 255 / 31;
@@ -61,40 +66,67 @@ function texture(key) {
   t = new THREE.DataTexture(new Uint8Array([150, 150, 150, 255]), 1, 1);
   t.needsUpdate = true;
   texCache.set(key, t);
-  if (!index?.packs) fetch(BASE + "tex/" + key + ".bc1" + ver()).then((r) => (r.ok ? r.arrayBuffer() : null)).then((buf) => { if (buf) fillTexture(t, buf); }).catch(() => {});
+  if (!index?.packs) fetch(BASE + "tex/" + key + ".bc1" + ver()).then((r) => (r.ok ? r.arrayBuffer() : null)).then((buf) => { if (buf) fillTexture(key, buf); }).catch(() => {});
   return t;
 }
 
-function fillTexture(t, buf) {
-    const { w, h, data } = decodeBC1(buf);
-    t.image = { data, width: w, height: h };
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.magFilter = THREE.LinearFilter;
-    t.minFilter = THREE.LinearMipmapLinearFilter;
+// A texture file: u16 width, u16 height, u8 has cut-out pixels, u8 levels (0 in exports before 2026-11-13: one level),
+// u16 0, then BC1 blocks, each level after the other. With its levels and a GPU that takes S3TC it goes up as it is;
+// otherwise the level of at most 256 px is decoded here and the GPU makes the smaller ones.
+function fillTexture(key, buf) {
+  const dv = new DataView(buf);
+  const w = dv.getUint16(0, true), h = dv.getUint16(2, true), alpha = dv.getUint8(4), levels = dv.getUint8(5) || 1;
+  const sizes = [];
+  for (let i = 0, at = 8, lw = w, lh = h; i < levels; i++) {
+    const len = ((lw + 3) >> 2) * ((lh + 3) >> 2) * 8;
+    sizes.push({ at, len, w: lw, h: lh });
+    at += len; lw = Math.max(1, lw >> 1); lh = Math.max(1, lh >> 1);
+  }
+  let t;
+  if (s3tc && levels > 1) {
+    const mips = sizes.map((l) => ({ data: new Uint8Array(buf, l.at, l.len), width: l.w, height: l.h }));
+    t = new THREE.CompressedTexture(mips, w, h, alpha ? THREE.RGBA_S3TC_DXT1_Format : THREE.RGB_S3TC_DXT1_Format);
+  } else {
+    const l = sizes.find((x) => Math.max(x.w, x.h) <= 256) ?? sizes[0];
+    const { data } = decodeBC1(buf, l.at, l.w, l.h);
+    t = new THREE.DataTexture(data, l.w, l.h);
     t.generateMipmaps = true;
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = maxAniso;
-    t.needsUpdate = true;
-    t.userData.filled = true;
-    redraw();
+  }
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = maxAniso;
+  t.needsUpdate = true;
+  const old = texCache.get(key);
+  texCache.set(key, t);
+  texFilled.add(key);
+  for (const m of texUsers.get(key) ?? []) m.map = t;
+  old?.dispose();
+  redraw();
 }
 
-// a tile's texture pack: "GET1", u32 count, (u32 key, u32 length) per texture, then the BC1 files back to back
+// a tile's texture pack: "GET1", u32 count, (u32 key, u32 length) per texture, then the BC1 files back to back.
+// A tile has three: far (with its far file), near (with its near file: the textures the far pack lacks) and big, the
+// larger files of everything the tile draws. Those take the place of the small ones when the camera is close, and only
+// where the GPU keeps them compressed: decoded, a city of them would not fit a phone's memory (nor its data plan).
 async function loadPack(t, kind) {
   const flag = kind + "Tex";
   if (t[flag]) return;
   t[flag] = "loading";
   try {
     const r = await fetch(`${BASE}t_${t.info.x}_${t.info.y}.${kind}.tex${ver()}`);
-    if (!r.ok) { t[flag] = null; return; }
+    if (!r.ok) { t[flag] = r.status === 404 ? "none" : null; return; }   // not there: not asked for again
     const buf = await r.arrayBuffer(), dv = new DataView(buf);
     if (dv.getUint32(0, true) !== 0x31544547) throw new Error("not a GodEye texture pack");
     const n = dv.getUint32(4, true);
     let off = 8 + n * 8;
     for (let i = 0; i < n; i++) {
       const key = dv.getUint32(8 + i * 8, true).toString(16).padStart(8, "0"), len = dv.getUint32(12 + i * 8, true);
-      const tex = texCache.get(key) ?? texture(key);
-      if (!tex.userData.filled) fillTexture(tex, buf.slice(off, off + len));
+      if (kind === "big" ? !texBig.has(key) : !texFilled.has(key)) {
+        fillTexture(key, buf.slice(off, off + len));
+        if (kind === "big") texBig.add(key);
+      }
       off += len;
     }
     t[flag] = "done";
@@ -120,7 +152,10 @@ function material(key, kind) {
     // not the units'
     if (kind === "decal") { m.polygonOffset = true; m.polygonOffsetFactor = -2; m.polygonOffsetUnits = 0; }
   }
-  if (key && key !== "@water" && kind !== "water") m.map = texture(key);
+  if (key && key !== "@water" && kind !== "water") {
+    m.map = texture(key);
+    (texUsers.get(key) ?? texUsers.set(key, new Set()).get(key)).add(m);
+  }
   materials.set(k, m);
   return m;
 }
@@ -217,6 +252,7 @@ function stream() {
     const mx = (t.info.x + 0.5) * index.tile, my = (t.info.y + 0.5) * index.tile;
     const d = Math.hypot(mx - cx, my - cy);
     t.nearWanted = d < nearR && t.info.near > 0;
+    if (s3tc && d < nearR && t.info.btex > 0 && t.far && !t.bigTex) loadPack(t, "big");   // its larger textures
     if (d < farR && !t.far && !t.loading) order.push([d, t, "far"]);
     if (t.nearWanted && !t.near && !t.loading) order.push([d * 0.5, t, "near"]);
     if (d < treeR && t.far && !t.tree && t.info.tree > 0 && !t.loading) order.push([d * 0.8, t, "tree"]);
@@ -239,11 +275,12 @@ function build() {
     renderer.dispose();
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
   }
-  renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));   // sharp enough, and far cheaper on 4K screens
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));   // every pixel of a 1440p screen; a 4K one is drawn at half
+  s3tc = renderer.extensions.has("WEBGL_compressed_texture_s3tc") && renderer.extensions.has("WEBGL_compressed_texture_s3tc_srgb");
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;   // keeps the colours; ACES washed the map out
   renderer.toneMappingExposure = 1.05;
-  maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  maxAniso = Math.min(16, renderer.capabilities.getMaxAnisotropy());
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9ec4e8);
   scene.fog = new THREE.Fog(0x9ec4e8, 6000, 16000);
@@ -529,7 +566,12 @@ export async function start() {
 
 export function stop() { running = false; }
 
-export function focus(x, y, z, dist = 400) { orbit.tx = x; orbit.ty = y; orbit.tz = z; orbit.dist = dist; redraw(); }
+export function focus(x, y, z, dist = 400, yaw, pitch) {
+  orbit.tx = x; orbit.ty = y; orbit.tz = z; orbit.dist = dist;
+  if (yaw !== undefined) orbit.yaw = yaw;
+  if (pitch !== undefined) orbit.pitch = pitch;
+  redraw();
+}
 
 export function stats() {
   let far = 0, near = 0, meshes = 0;

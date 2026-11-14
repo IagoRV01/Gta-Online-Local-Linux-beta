@@ -469,7 +469,7 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
   // the 3D map: only the names tools/godeye-map writes (no paths from the request reach the file system)
-  const m3 = /^\/data\/map3d\/(index\.json|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near|tree)\.bin|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near)\.tex|tex\/[0-9a-f]{8}\.bc1)$/.exec(path);
+  const m3 = /^\/data\/map3d\/(index\.json|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near|tree)\.bin|t_-?\d{1,3}_-?\d{1,3}\.(?:far|near|big)\.tex|tex\/[0-9a-f]{8}\.bc1)$/.exec(path);
   if (m3 && isPublic(req) && settings.value.publicMap3d !== "open" && !sessions.get(req.headers["cookie"])) {
     send(res, 401, "application/json", JSON.stringify({ error: "log in to see the 3D map" }));
     return;

@@ -12,8 +12,12 @@ using SharpDX;
 //                               and the SLOD2 models 4 m lower (the game's distant hills, which SLOD1 leaves out)
 //   t_<x>_<y>.near.bin          up close: the LOD models that replace that tile's SLOD1 ones
 //   t_<x>_<y>.tree.bin          the far file's trees, loaded only when the camera comes closer (a fifth of its weight)
-//   t_<x>_<y>.far.tex / .near.tex  the textures those files use, in one pack each (one request instead of hundreds)
-//   tex/<hash>.bc1              128 px textures, BC1 (with 1-bit alpha), decoded by the browser
+//   t_<x>_<y>.far.tex           the far and tree files' textures at up to 128 px, in one pack (one request, not hundreds)
+//   t_<x>_<y>.near.tex          the near file's own textures (the ones the far pack lacks), at up to 128 px
+//   t_<x>_<y>.big.tex           for a close look at the tile: every texture any of its files uses at up to 512 px (when
+//                               the game's is larger than 128); only fetched by a GPU that keeps them compressed
+//   tex/<hash>.bc1, .n.bc1      the textures (far size, near size): BC1 with 1-bit alpha and the whole mip chain,
+//                               handed to the GPU as they are where it takes S3TC, decoded by the browser otherwise
 //   *.br                        every tile file and pack again, Brotli-compressed, for the public address
 // A tile file: "GEM1", u32 json length, json {origin, scale, batches[]}, vertices (u16 x3 position, f16 x2 uv,
 // i8 x4 normal: 14 bytes), u16 indices per batch (each batch is at most 65535 vertices). origin and scale span the
@@ -23,7 +27,9 @@ using SharpDX;
 static partial class Map3D
 {
     const float Tile = 1024;
-    const int TexMax = 128;
+    // the largest side of a texture: in a tile's far pack (the overview), and in its near pack (within 1.5 km)
+    static readonly int TexFar = int.TryParse(Environment.GetEnvironmentVariable("MAP3D_TEX_FAR"), out int tf) ? tf : 128;
+    static readonly int TexNear = int.TryParse(Environment.GetEnvironmentVariable("MAP3D_TEX_NEAR"), out int tn) ? tn : 512;
 
     sealed class Batch
     {
@@ -52,6 +58,7 @@ static partial class Map3D
 
         // ---- all ymaps, linked to their parent ymaps (LOD models live in *_lod ymaps, SLODs above them)
         var ymaps = new Dictionary<uint, (string name, YmapFile y)>();
+        int nScripted = 0;
         foreach (var (name, fe) in ix.Ymaps)
             try
             {
@@ -60,19 +67,66 @@ static partial class Map3D
                 YmapFile y;
                 if (ix.Loose.TryGetValue(name, out var loose)) { y = new YmapFile(); y.Load(File.ReadAllBytes(loose)); }
                 else y = RpfFile.GetFile<YmapFile>(fe);
-                if (y?.AllEntities != null) ymaps[JenkHash.GenHash(Path.GetFileNameWithoutExtension(name))] = (name, y);
+                if (y?.AllEntities == null) continue;
+                if (!DrawYmap(y, name, ix.Ours.Contains(name))) { nScripted++; continue; }   // a mission's state of the world
+                ymaps[JenkHash.GenHash(Path.GetFileNameWithoutExtension(name))] = (name, y);
             }
             catch { }
         foreach (var (_, (_, y)) in ymaps)
             if (y._CMapData.parent != 0 && ymaps.TryGetValue(y._CMapData.parent, out var p)) y.ConnectToParent(p.y);
-        Console.WriteLine($"{ymaps.Count} ymaps loaded");
+        Console.WriteLine($"{ymaps.Count} ymaps loaded, {nScripted} left out (states only a script loads)");
 
         // ---- what goes where
         var tiles = new Dictionary<(int, int), TileData>();
         var meshes = new Dictionary<uint, List<Mesh>>();
         var textures = new Dictionary<string, (uint tex, uint txd, DrawableBase d)>();   // tex key -> where to find it
-        int nFar = 0, nSlod = 0, nNear = 0, nUnder = 0, nOurs = 0, noModel = 0;
+        int nFar = 0, nSlod = 0, nNear = 0, nUnder = 0, nOurs = 0, noModel = 0, nSunk = 0, nHidden = 0, nOrphan = 0; long nClipped = 0;
+        var clearing = LoadClearing(ix, ymaps, meshes, textures);   // our rebuilt sites: what the game still draws over them goes
         (int, int) TileOf(Vector3 p) => ((int)MathF.Floor(p.X / Tile), (int)MathF.Floor(p.Y / Tile));
+        // A model that stands for others from further away (a LOD, a merged SLOD) goes when all of them are gone: the
+        // Mile High Club's SLOD2 is the building frame and its crane, in a map file our patch does not touch.
+        var gone = new HashSet<YmapEntityDef>();
+        var orphaned = new HashSet<YmapEntityDef>();
+        var childrenOf = new Dictionary<YmapEntityDef, List<YmapEntityDef>>();
+        foreach (var (_, (name, y)) in ymaps)
+        {
+            if (ix.Ours.Contains(name)) continue;
+            foreach (var en in y.AllEntities)
+            {
+                if (en.Position.Z < Clearing.Sunk || clearing.Hidden(en._CEntityDef.archetypeName, en.Position)) gone.Add(en);
+                if (en.Parent != null) (childrenOf.TryGetValue(en.Parent, out var l) ? l : childrenOf[en.Parent] = new()).Add(en);
+            }
+        }
+        for (bool more = true; more;)
+        {
+            more = false;
+            foreach (var (p, l) in childrenOf)
+                if (!gone.Contains(p) && l.All(gone.Contains))
+                {
+                    gone.Add(p); orphaned.Add(p); more = true;
+                    Console.WriteLine($"left out with its {l.Count} children: {p._CEntityDef.lodLevel.ToString().Replace("LODTYPES_DEPTH_", "")} {JenkIndex.GetString(p._CEntityDef.archetypeName)} at {p.Position.X:0.0} {p.Position.Y:0.0} {p.Position.Z:0.0}");
+                }
+        }
+        // One that stands for living models too (the block's SLOD2: the frame, its crane and the buildings next door) is
+        // drawn without its triangles where the gone ones stood.
+        var cut = new HashSet<YmapEntityDef>();
+        var goneMeshes = new Dictionary<uint, List<Mesh>>();
+        var noTex = new Dictionary<string, (uint tex, uint txd, DrawableBase d)>();
+        foreach (var g in gone)
+        {
+            bool any = false;
+            for (var a = g.Parent; a != null; a = a.Parent) if (!gone.Contains(a)) { cut.Add(a); any = true; }
+            if (!any) continue;
+            uint ga = g._CEntityDef.archetypeName;
+            if (!goneMeshes.TryGetValue(ga, out var gm)) goneMeshes[ga] = gm = LoadMeshes(ix, ga, noTex);
+            if (gm == null) continue;
+            var gp = g.Position; if (gp.Z < Clearing.Sunk) gp.Z += Clearing.SunkBy;   // where it stood before the patch sank it
+            var gq = g.Orientation; var gs = g.Scale;
+            foreach (var m in gm)
+                for (int k = 0; k + 2 < m.I.Length; k += 3)
+                    clearing.Stood(gp + Vector3.Transform(m.P[m.I[k]] * gs, gq), gp + Vector3.Transform(m.P[m.I[k + 1]] * gs, gq), gp + Vector3.Transform(m.P[m.I[k + 2]] * gs, gq));
+        }
+        Console.WriteLine($"gone: {gone.Count} models ({orphaned.Count} of them far models of nothing else), {clearing.Gone.Count} columns of {Clearing.Col} m where they stood, {cut.Count} living far models drawn without them");
         foreach (var (_, (name, y)) in ymaps)
         {
             bool ours = ix.Ours.Contains(name);
@@ -91,6 +145,12 @@ static partial class Map3D
                 else if (ours && (lod == rage__eLodType.LODTYPES_DEPTH_ORPHANHD || lod == rage__eLodType.LODTYPES_DEPTH_HD) && en.Parent == null) layer = 0;   // our island has no LOD models
                 else continue;
                 uint arch = en._CEntityDef.archetypeName;
+                if (!ours)
+                {
+                    if (en.Position.Z < Clearing.Sunk) { nSunk++; continue; }                 // sunk by a patched ymap
+                    if (clearing.Hidden(arch, en.Position)) { nHidden++; continue; }          // hidden by our mods at run time
+                    if (orphaned.Contains(en)) { nOrphan++; continue; }                       // stood for models that are gone
+                }
                 if (!meshes.TryGetValue(arch, out var ms)) meshes[arch] = ms = LoadMeshes(ix, arch, textures);
                 if (ms == null || ms.Count == 0) { noModel++; continue; }
                 var key = TileOf(root.Position);
@@ -99,39 +159,68 @@ static partial class Map3D
                 if (layer == 1) nSlod++; else if (layer == 2) nNear++; else if (layer == 3) nUnder++; else nFar++;
                 if (ours) nOurs++;
                 var q = en.Orientation; var s = en.Scale; var pos = en.Position;
-                if (layer == 3) pos.Z -= lod == rage__eLodType.LODTYPES_DEPTH_SLOD2 ? 4 : lod == rage__eLodType.LODTYPES_DEPTH_SLOD3 ? 8 : 12;   // each coarser level a little lower
+                float lift = layer == 3 ? (lod == rage__eLodType.LODTYPES_DEPTH_SLOD2 ? 4 : lod == rage__eLodType.LODTYPES_DEPTH_SLOD3 ? 8 : 12) : 0;   // each coarser level a little lower
+                pos.Z -= lift;
                 foreach (var m in ms)
                 {
+                    var wv = new Vector3[m.P.Length];
+                    Vector3 mn = new(float.MaxValue), mx = new(float.MinValue);
+                    for (int i = 0; i < wv.Length; i++) { wv[i] = pos + Vector3.Transform(m.P[i] * s, q); mn = Vector3.Min(mn, wv[i]); mx = Vector3.Max(mx, wv[i]); }
+                    int[] tri = m.I;
+                    bool over = !ours && clearing.Any && clearing.Near(mn, mx), part = !ours && cut.Contains(en);
+                    if (over || part)
+                    {   // a game model reaching over one of our rebuilt sites: without the triangles standing on it; one
+                        // that stands for gone models too: without what it shows of them
+                        var keep = new List<int>(tri.Length);
+                        for (int k = 0; k + 2 < tri.Length; k += 3)
+                            if ((over && clearing.Drops(wv[tri[k]], wv[tri[k + 1]], wv[tri[k + 2]], lift)) || (part && clearing.WasThere(wv[tri[k]], wv[tri[k + 1]], wv[tri[k + 2]], lift))) nClipped++;
+                            else { keep.Add(tri[k]); keep.Add(tri[k + 1]); keep.Add(tri[k + 2]); }
+                        if (keep.Count == 0) continue;
+                        if (keep.Count != tri.Length) tri = keep.ToArray();
+                    }
                     var dict = layer == 2 ? t.Near : t.Far;
                     var bk = (m.Tex, m.Kind, layer);
                     if (!dict.TryGetValue(bk, out var list)) dict[bk] = list = new List<Batch> { new Batch { Tex = m.Tex, Kind = m.Kind, Layer = layer } };
                     var b = list[^1];
                     if (b.P.Count + m.P.Length > 65535) list.Add(b = new Batch { Tex = m.Tex, Kind = m.Kind, Layer = layer });
                     int baseV = b.P.Count;
-                    for (int i = 0; i < m.P.Length; i++)
+                    for (int i = 0; i < wv.Length; i++)
                     {
-                        var w = pos + Vector3.Transform(m.P[i] * s, q);
+                        var w = wv[i];
                         b.P.Add(w); b.U.Add(m.U[i]); b.N.Add(Vector3.Normalize(Vector3.Transform(m.N[i], q)));
                         t.Z0 = Math.Min(t.Z0, w.Z); t.Z1 = Math.Max(t.Z1, w.Z);
                     }
-                    foreach (int i in m.I) b.I.Add(baseV + i);
+                    foreach (int i in tri) b.I.Add(baseV + i);
                 }
             }
         }
         Console.WriteLine($"placed: {nSlod} SLOD1 + {nUnder} SLOD2-4 underlay + {nFar} always-drawn + {nNear} near LOD models ({nOurs} from our own packs), {noModel} without a model; {tiles.Count} tiles");
+        Console.WriteLine($"left out: {nSunk} sunk entities, {nHidden} hidden by our mods, {nOrphan} far models of nothing but those, {nClipped} triangles standing on our rebuilt sites or showing gone models");
 
         // ---- textures
-        int texOk = 0, texFail = 0;
+        int texOk = 0, texFail = 0, texBig = 0; long texBytes = 0, bigBytes = 0;
         var texNames = new HashSet<string>();
+        var bigNames = new HashSet<string>();   // the ones with a larger file for the near packs (<key>.n.bc1)
+        var srcSizes = new SortedDictionary<int, int>();
         foreach (var (key, (tex, txd, d)) in textures)
         {
             var path = Path.Combine(outDir, "tex", key + ".bc1");
             var t = FindTexture(ix, tex, txd, d);
             if (t == null) { texFail++; continue; }
-            try { File.WriteAllBytes(path, EncodeTexture(t)); texOk++; texNames.Add(key); }
+            int side = Math.Max(t.Width, t.Height);
+            srcSizes[side] = srcSizes.GetValueOrDefault(side) + 1;
+            try
+            {
+                var data = EncodeTexture(t, TexFar); File.WriteAllBytes(path, data); texOk++; texBytes += data.Length; texNames.Add(key);
+                if (side > TexFar && TexNear > TexFar)
+                {
+                    var big = EncodeTexture(t, TexNear); File.WriteAllBytes(Path.Combine(outDir, "tex", key + ".n.bc1"), big); texBig++; bigBytes += big.Length; bigNames.Add(key);
+                }
+            }
             catch { texFail++; }
         }
-        Console.WriteLine($"textures: {texOk} written, {texFail} not found or not decodable");
+        Console.WriteLine($"textures: {texOk} written at up to {TexFar} px ({texBytes / 1048576} MB), {texBig} of them also at up to {TexNear} px ({bigBytes / 1048576} MB); {texFail} not found or not decodable");
+        Console.WriteLine("  the game's own sizes: " + string.Join(", ", srcSizes.Select(kv => $"{kv.Key} px x{kv.Value}")));
 
         // ---- tiles: far (without its trees), trees, near; a texture pack for far+trees and one for near
         long bytesFar = 0, bytesNear = 0, bytesTree = 0, bytesPacks = 0, bytesBr = 0;
@@ -147,16 +236,20 @@ static partial class Map3D
             long tr = treeB.Count > 0 ? WriteTile(Path.Combine(outDir, bn + ".tree.bin"), tx, ty, t, treeB, texNames) : 0;
             long n = nearB.Count > 0 ? WriteTile(Path.Combine(outDir, bn + ".near.bin"), tx, ty, t, nearB, texNames) : 0;
             var farTex = farAll.Select(b => b.Tex).Where(texNames.Contains).ToHashSet();
+            // the near file's own textures (the ones the far pack lacks), and for a close look on a GPU that keeps them
+            // compressed the larger file of everything the tile draws
             var nearTex = nearB.Select(b => b.Tex).Where(k => texNames.Contains(k) && !farTex.Contains(k)).ToHashSet();
-            long pf = WritePack(Path.Combine(outDir, bn + ".far.tex"), outDir, farTex);
-            long pn = nearTex.Count > 0 ? WritePack(Path.Combine(outDir, bn + ".near.tex"), outDir, nearTex) : 0;
-            foreach (var ext in new[] { ".far.bin", ".tree.bin", ".near.bin", ".far.tex", ".near.tex" })
+            var bigTex = farAll.Concat(nearB).Select(b => b.Tex).Where(bigNames.Contains).ToHashSet();
+            long pf = WritePack(Path.Combine(outDir, bn + ".far.tex"), outDir, farTex.Select(k => (k, k + ".bc1")));
+            long pn = nearTex.Count > 0 ? WritePack(Path.Combine(outDir, bn + ".near.tex"), outDir, nearTex.Select(k => (k, k + ".bc1"))) : 0;
+            long pb = bigTex.Count > 0 ? WritePack(Path.Combine(outDir, bn + ".big.tex"), outDir, bigTex.Select(k => (k, k + ".n.bc1"))) : 0;
+            foreach (var ext in new[] { ".far.bin", ".tree.bin", ".near.bin", ".far.tex", ".near.tex", ".big.tex" })
             {
                 var file = Path.Combine(outDir, bn + ext);
                 if (File.Exists(file)) bytesBr += Brotli(file); else if (File.Exists(file + ".br")) File.Delete(file + ".br");
             }
-            bytesFar += f; bytesNear += n; bytesTree += tr; bytesPacks += pf + pn;
-            index.Add(new { x = tx, y = ty, far = f, tree = tr, near = n, ftex = pf, ntex = pn, z0 = Math.Round(t.Z0), z1 = Math.Round(t.Z1), ents = t.Ents });
+            bytesFar += f; bytesNear += n; bytesTree += tr; bytesPacks += pf + pn + pb;
+            index.Add(new { x = tx, y = ty, far = f, tree = tr, near = n, ftex = pf, ntex = pn, btex = pb, z0 = Math.Round(t.Z0), z1 = Math.Round(t.Z1), ents = t.Ents });
         }
 
         // ---- water: the sea is a plane at 0; lakes and Cayo's own water from the water files
@@ -176,7 +269,7 @@ static partial class Map3D
             catch (Exception ex) { Console.Error.WriteLine($"{inner}: {ex.Message}"); }
         }
         // `built` versions the tile and texture URLs, so browsers never mix a new index with cached old tiles
-        var idx = new { version = 2, built = DateTime.UtcNow.ToString("yyyyMMddHHmmss"), tile = Tile, tex = TexMax, packs = true, tiles = index, water };
+        var idx = new { version = 2, built = DateTime.UtcNow.ToString("yyyyMMddHHmmss"), tile = Tile, tex = TexNear, texFar = TexFar, mips = true, packs = true, tiles = index, water };
         File.WriteAllText(Path.Combine(outDir, "index.json"), JsonSerializer.Serialize(idx));
         Console.WriteLine($"wrote {index.Count} tiles: far {bytesFar / 1048576} MB, trees {bytesTree / 1048576} MB, near {bytesNear / 1048576} MB, texture packs {bytesPacks / 1048576} MB; Brotli copies {bytesBr / 1048576} MB; {water.Count} raised water quads");
         return 0;
@@ -332,18 +425,63 @@ static partial class Map3D
         return null;
     }
 
-    // the mip at most TexMax wide, as BGRA from CodeWalker, then BC1
-    static byte[] EncodeTexture(Texture t)
+    // The mip at most `max` wide, as BGRA from CodeWalker, then BC1 with every smaller level down to 1 px (a GPU wants the
+    // whole chain of a compressed texture; the levels are box-filtered here, cut-out pixels left out of the colour).
+    // A file: u16 width, u16 height, u8 has cut-out pixels, u8 levels, u16 0, then the levels' BC1 blocks, largest first.
+    static byte[] EncodeTexture(Texture t, int max)
     {
         int mip = 0;
-        while (mip + 1 < t.Levels && Math.Max(t.Width >> mip, t.Height >> mip) > TexMax) mip++;
+        while (mip + 1 < t.Levels && Math.Max(t.Width >> mip, t.Height >> mip) > max) mip++;
         int w = Math.Max(1, t.Width >> mip), h = Math.Max(1, t.Height >> mip);
         var px = DDSIO.GetPixels(t, mip) ?? throw new Exception("format");
         if (px.Length < w * h * 4) throw new Exception("size");
-        int bw = (w + 3) / 4, bh = (h + 3) / 4;
-        var outb = new byte[8 + bw * bh * 8];
-        BitConverter.GetBytes((ushort)w).CopyTo(outb, 0); BitConverter.GetBytes((ushort)h).CopyTo(outb, 2);
+        while (Math.Max(w, h) > max) px = HalfSize(px, ref w, ref h);   // (no smaller level in the file)
+        var levels = new List<byte[]>();
         bool anyAlpha = false;
+        int lw = w, lh = h; var cur = px;
+        while (true)
+        {
+            levels.Add(EncodeLevel(cur, lw, lh, ref anyAlpha));
+            if (lw == 1 && lh == 1 || levels.Count >= 12) break;
+            cur = HalfSize(cur, ref lw, ref lh);
+        }
+        var outb = new byte[8 + levels.Sum(l => l.Length)];
+        BitConverter.GetBytes((ushort)w).CopyTo(outb, 0); BitConverter.GetBytes((ushort)h).CopyTo(outb, 2);
+        outb[4] = (byte)(anyAlpha ? 1 : 0); outb[5] = (byte)levels.Count;
+        int at = 8;
+        foreach (var l in levels) { l.CopyTo(outb, at); at += l.Length; }
+        return outb;
+    }
+
+    // half the size (BGRA): the mean of each 2x2, of its opaque pixels only; see-through when most of them are
+    static byte[] HalfSize(byte[] px, ref int w, ref int h)
+    {
+        int nw = Math.Max(1, w / 2), nh = Math.Max(1, h / 2);
+        var o = new byte[nw * nh * 4];
+        for (int y = 0; y < nh; y++)
+            for (int x = 0; x < nw; x++)
+            {
+                int b = 0, g = 0, r = 0, solid = 0, n = 0;
+                for (int dy = 0; dy < 2; dy++)
+                    for (int dx = 0; dx < 2; dx++)
+                    {
+                        int sx = Math.Min(w - 1, x * 2 + dx), sy = Math.Min(h - 1, y * 2 + dy), si = (sy * w + sx) * 4;
+                        n++;
+                        if (px[si + 3] < 128) continue;
+                        b += px[si]; g += px[si + 1]; r += px[si + 2]; solid++;
+                    }
+                int di = (y * nw + x) * 4;
+                if (solid > 0) { o[di] = (byte)(b / solid); o[di + 1] = (byte)(g / solid); o[di + 2] = (byte)(r / solid); }
+                o[di + 3] = (byte)(solid * 2 >= n ? 255 : 0);
+            }
+        w = nw; h = nh;
+        return o;
+    }
+
+    static byte[] EncodeLevel(byte[] px, int w, int h, ref bool anyAlpha)
+    {
+        int bw = (w + 3) / 4, bh = (h + 3) / 4;
+        var outb = new byte[bw * bh * 8];
         var rgb = new (int r, int g, int b, bool a)[16];
         for (int by = 0; by < bh; by++)
             for (int bx = 0; bx < bw; bx++)
@@ -356,9 +494,8 @@ static partial class Map3D
                     if (!rgb[k].a) blockAlpha = true;
                 }
                 anyAlpha |= blockAlpha;
-                EncodeBlock(rgb, blockAlpha, outb, 8 + (by * bw + bx) * 8);
+                EncodeBlock(rgb, blockAlpha, outb, (by * bw + bx) * 8);
             }
-        outb[4] = (byte)(anyAlpha ? 1 : 0);
         return outb;
     }
 
@@ -411,9 +548,9 @@ static partial class Map3D
     }
 
     // ---- a texture pack: "GET1", u32 count, then per texture u32 key and u32 length, then the .bc1 files one after another
-    static long WritePack(string path, string outDir, IEnumerable<string> keys)
+    static long WritePack(string path, string outDir, IEnumerable<(string key, string file)> files)
     {
-        var list = keys.OrderBy(k => k).Select(k => (k, data: File.ReadAllBytes(Path.Combine(outDir, "tex", k + ".bc1")))).ToList();
+        var list = files.OrderBy(f => f.key).Select(f => (k: f.key, data: File.ReadAllBytes(Path.Combine(outDir, "tex", f.file)))).ToList();
         using var f = File.Create(path);
         using var w = new BinaryWriter(f);
         w.Write(Encoding.ASCII.GetBytes("GET1")); w.Write(list.Count);

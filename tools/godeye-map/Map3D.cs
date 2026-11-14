@@ -39,6 +39,7 @@ static partial class Map3D
         public Dictionary<uint, uint> TxdParents = new();   // gtxd.meta: a texture dictionary's parent
         public HashSet<string> Ours = new();                 // ymaps from the extra packs (our islands): drawn at full detail
         public Dictionary<string, string> Loose = new();     // loose .ymap files that replace the game's (patched copies)
+        public string ClearFile;                             // a .json naming our ground models and the game models hidden on them (Map3DClear.cs)
     }
 
     static Index Scan(string gta, IEnumerable<string> extraRpfs)
@@ -73,9 +74,11 @@ static partial class Map3D
         }
         foreach (var path in extraRpfs)
         {
+            if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) { ix.ClearFile = path; continue; }
             if (Directory.Exists(path))
             {   // patched copies of game ymaps (e.g. pulled from a PC whose mods/ edits them): they win by name
                 foreach (var f in Directory.GetFiles(path, "*.ymap")) ix.Loose[Path.GetFileName(f).ToLowerInvariant()] = f;
+                if (ix.ClearFile == null && File.Exists(Path.Combine(path, "clear.json"))) ix.ClearFile = Path.Combine(path, "clear.json");
                 Console.WriteLine($"loose ymaps {path}: {ix.Loose.Count}");
                 continue;
             }

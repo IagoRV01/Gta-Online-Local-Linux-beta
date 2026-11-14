@@ -148,7 +148,19 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   - `trees_lod2` billboards are only a centre point plus size and corner data, which the game's vertex shader turns
     to the camera. The exporter makes two crossed upright cards from them.
   - `GodEyeMap <gta> shaders3d <box>` lists shaders, vertex layouts and model reach for an area.
-- **Textures:** each one's mip of at most 128 px, BC1-encoded (1-bit alpha), decoded by the browser (about 70 MB).
+- **Textures** (since 2026-11-13: two sizes, kept compressed on the GPU):
+  - every texture at up to 128 px, and the ones the game has larger also at up to 512 px (`<key>.n.bc1`). Both are BC1
+    (1-bit alpha) with the whole mip chain, box-filtered by the exporter; cut-out pixels stay out of the colour.
+  - A tile's far pack holds the 128 px files of its far and tree models, its near pack those of its near models that
+    the far pack lacks: the overview and the phones load as before.
+  - Its big pack (`t_<x>_<y>.big.tex`) holds the 512 px file of everything the tile draws. It comes when the camera is
+    within 1.5 km, and its textures take the place of the small ones.
+  - Where the browser has S3TC and its sRGB form (every desktop GPU), a texture goes to the GPU as it is: no decoding,
+    a sixth of the memory of RGBA, real mip levels. Elsewhere (phones) the level of at most 256 px is decoded and the
+    big packs are never fetched.
+  - `MAP3D_TEX_FAR` / `MAP3D_TEX_NEAR` change the two sizes. Until 2026-11-13 there was one size, 128 px, decoded by
+    the browser (about 70 MB).
+  - The viewer filters with up to 16x anisotropy and draws at up to 2 device pixels per CSS pixel (1.5 before).
 - **Files per tile** (index.json version 2, `packs: true`):
   - `far.bin` without its trees;
   - `tree.bin`, only loaded when the camera is within ~2.5–5 km;
@@ -191,6 +203,33 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
     far models leave open show earth, not the sea, and it never rises above real ground.
   - Tile and texture URLs carry the export's `built` stamp, so a new export is never mixed with cached old tiles.
 - North Yankton (prologue ymaps) is left out: it sits where Cayo Perico is, and the game loads only one of them.
+- **The world as it is played, not every state in the files** (2026-11-13, `Map3DClear.cs`). The map showed a crane on
+  the finished Mile High Club and the Hawick construction site standing in Hawick Gardens. Three causes, three rules:
+  - **Map files only a script asks for** (`CMapData` flags bit 0) were all drawn at once: the construction site's
+    mission crane, a yacht at each of its 36 moorings, the aircraft carrier, train and tanker wrecks, the burnt farm
+    over the farm, both versions of each billboard, the FIB heist's reflection proxies. Now only the free-roam ones
+    are (a list of names in `ScriptedKeep`: Cayo Perico, the intact buildings, Online's shop fronts). 808 files out.
+    `GodEyeMap <gta> scripted3d` lists them.
+  - **The patched ymaps** (the folder given to `map3d`) are the ones the game runs: raw copies from the modded
+    archives, each from the archive the game takes it from (update.rpf's dlc_patch, the patchday packs, mpheist, then
+    the base archives). The copy in use dated from before several patches. Entities our patches sank (1000 m down) are
+    left out instead of drawn underground.
+  - **The game's merged far models** (SLOD1 to SLOD4) still carry a site whose own models are gone, and cannot be
+    patched per building. `clear.json` in that folder names our ground models
+    (`{"clear": ["islaneon_hg_ground", "islaneon_mhc_plaza"], "hide": [[model hash, x, y, z], ...]}`): every triangle
+    of a game model that rises more than 1 m over one of them is dropped. Holes the ground encloses (the cores of the
+    buildings standing on it) count as ground at the height next to them. `hide` is the list of models a mod hides at
+    run time (Gori's `mhc_hide.h`), each within 2.5 m of its place.
+  - **A far model of models that are gone** (sunk or hidden): a LOD or merged SLOD all of whose children are gone goes
+    with them. One that stands for living models too (the Mile High Club block's SLOD2 holds the frame, its tower
+    crane and the buildings next door, in a map file our patch does not touch) loses its triangles where the gone ones
+    stood: 4 m columns from each gone model's lowest to its highest point, the ground under it stays. A sunk model
+    stood 1000 m higher.
+  - `GodEyeMap <gta> at3d <x> <y> <radius> [packs...]` says which models have vertices at a point: how the leftovers
+    were traced (the SLOD2 of the district, the street props' LODs, the mission ymaps).
+  - Export of 2026-11-14: 90 sunk entities, 9 far models of nothing but gone ones and 14,082 triangles left out.
+  - `GodEyeMap <gta> strings <path part> <regex>` prints the text strings in the game files whose path contains that
+    part (unpacked first), e.g. the effect names in `ptfx.rpf\core.ypt`.
   - Players: a pin, a heading arrow and a name, interpolated like the 2D map. Picking a player follows them.
 - **Verified 2026-10-23:**
   - Downtown up close shows real facades, round tree canopies, and no floating black panels or flat dark squares.

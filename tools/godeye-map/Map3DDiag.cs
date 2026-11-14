@@ -110,6 +110,36 @@ static partial class Map3D
         Console.WriteLine($"{n} files");
         return 0;
     }
+
+    // GodEyeMap <gta> strings <path part> <regex>: the text strings matching the regex inside the files whose path contains
+    // that part (unpacked first): how the names of particle effects in a .ypt were found
+    public static int Strings(string gta, string part, string regex)
+    {
+        var re = new System.Text.RegularExpressions.Regex(regex);
+        foreach (var rel in GameRpfs(gta))
+        {
+            RpfFile rpf;
+            try { rpf = new RpfFile(Path.Combine(gta, rel), rel); rpf.ScanStructure(null, null); } catch { continue; }
+            foreach (var e in AllEntriesDeep(rpf).OfType<RpfFileEntry>())
+            {
+                if (e.Path.IndexOf(part, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                byte[] data;
+                try { data = e.File.ExtractFile(e); } catch { continue; }
+                if (data == null) continue;
+                var found = new SortedSet<string>();
+                for (int i = 0, start = 0; i <= data.Length; i++)
+                {
+                    bool text = i < data.Length && data[i] >= 0x20 && data[i] < 0x7f;
+                    if (text) continue;
+                    if (i - start >= 4) { var t = System.Text.Encoding.ASCII.GetString(data, start, i - start); if (re.IsMatch(t)) found.Add(t); }
+                    start = i + 1;
+                }
+                Console.WriteLine($"{e.Path}: {found.Count}");
+                foreach (var t in found) Console.WriteLine("  " + t);
+            }
+        }
+        return 0;
+    }
 }
 
 // GodEyeMap <gta> mlosets <ytyp name part> [entity name part]: the interiors (MLOs) defined in the .ytyp files whose path
@@ -143,6 +173,82 @@ static partial class Map3D
                     }
                 }
             }
+        }
+        return 0;
+    }
+}
+
+// GodEyeMap <gta> at3d <x> <y> <radius> [extra dlc.rpf or loose ymap dir...]: every model the 3D map would draw that has
+// vertices within that radius of the point (any height): its ymap, level, archetype, place and how many vertices fall
+// there. To find what a stray shape on the map is.
+static partial class Map3D
+{
+    public static int At(string gta, string[] args)
+    {
+        float px = float.Parse(args[0], System.Globalization.CultureInfo.InvariantCulture), py = float.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture), r = float.Parse(args[2], System.Globalization.CultureInfo.InvariantCulture);
+        var ix = Scan(gta, args.Skip(3));
+        var ymaps = new Dictionary<uint, (string name, YmapFile y)>();
+        foreach (var (name, fe) in ix.Ymaps)
+            try
+            {
+                if (name.StartsWith("prologue") || name.StartsWith("plg_") || name.StartsWith("des_protree")) continue;
+                YmapFile y = ix.Loose.TryGetValue(name, out var loose) ? Load(loose) : RpfFile.GetFile<YmapFile>(fe);
+                if (y?.AllEntities != null) ymaps[JenkHash.GenHash(Path.GetFileNameWithoutExtension(name))] = (name, y);
+            }
+            catch { }
+        foreach (var (_, (_, y)) in ymaps)
+            if (y._CMapData.parent != 0 && ymaps.TryGetValue(y._CMapData.parent, out var p)) y.ConnectToParent(p.y);
+        var meshes = new Dictionary<uint, List<Mesh>>();
+        var textures = new Dictionary<string, (uint, uint, DrawableBase)>();
+        foreach (var (_, (name, y)) in ymaps.OrderBy(k => k.Value.name))
+        {
+            bool ours = ix.Ours.Contains(name);
+            foreach (var en in y.AllEntities)
+            {
+                var lod = en._CEntityDef.lodLevel;
+                bool drawn = lod == rage__eLodType.LODTYPES_DEPTH_SLOD1 || lod == rage__eLodType.LODTYPES_DEPTH_SLOD2 || lod == rage__eLodType.LODTYPES_DEPTH_SLOD3 || lod == rage__eLodType.LODTYPES_DEPTH_SLOD4 ||
+                             lod == rage__eLodType.LODTYPES_DEPTH_LOD || (ours && (lod == rage__eLodType.LODTYPES_DEPTH_ORPHANHD || lod == rage__eLodType.LODTYPES_DEPTH_HD) && en.Parent == null);
+                if (!drawn) continue;
+                var pos = en.Position;
+                if (Math.Abs(pos.X - px) > 4000 || Math.Abs(pos.Y - py) > 4000) continue;
+                uint arch = en._CEntityDef.archetypeName;
+                if (!meshes.TryGetValue(arch, out var ms)) meshes[arch] = ms = LoadMeshes(ix, arch, textures);
+                if (ms == null) continue;
+                var q = en.Orientation; var sc = en.Scale;
+                int hit = 0, total = 0; float z0 = float.MaxValue, z1 = float.MinValue;
+                foreach (var m in ms)
+                    foreach (var v in m.P)
+                    {
+                        total++;
+                        var w = pos + Vector3.Transform(v * sc, q);
+                        if ((w.X - px) * (w.X - px) + (w.Y - py) * (w.Y - py) > r * r) continue;
+                        hit++; z0 = Math.Min(z0, w.Z); z1 = Math.Max(z1, w.Z);
+                    }
+                if (hit == 0) continue;
+                string an = ix.Ydrs.TryGetValue(arch, out var ydr) ? ydr.NameLower : ix.Archetypes.TryGetValue(arch, out var at) && at._BaseArchetypeDef.drawableDictionary != 0 && ix.Ydds.TryGetValue(at._BaseArchetypeDef.drawableDictionary, out var f1) ? arch + " ydd:" + f1.NameLower : arch.ToString();
+                Console.WriteLine($"#{Array.IndexOf(y.AllEntities, en),-4} {name,-34} {lod.ToString().Replace("LODTYPES_DEPTH_", ""),-9} {an,-52} at {pos.X,8:0.0} {pos.Y,8:0.0} {pos.Z,7:0.0}  {hit}/{total} vertices there, z {z0:0}..{z1:0}{(ix.Loose.ContainsKey(name) ? " (loose)" : "")}{(ours ? " (ours)" : "")}");
+            }
+        }
+        return 0;
+    }
+}
+
+// GodEyeMap <gta> scripted3d [extra...]: the ymaps a script has to ask for (CMapData flags bit 0: mission states, DLC
+// islands, interiors' shells) that hold models the 3D map draws, with how many
+static partial class Map3D
+{
+    public static int Scripted(string gta, string[] extra)
+    {
+        var ix = Scan(gta, extra);
+        foreach (var (name, fe) in ix.Ymaps.OrderBy(k => k.Key))
+        {
+            YmapFile y;
+            try { y = ix.Loose.TryGetValue(name, out var loose) ? Load(loose) : RpfFile.GetFile<YmapFile>(fe); } catch { continue; }
+            if (y?.AllEntities == null || (y._CMapData.flags & 1) == 0) continue;
+            int n = y.AllEntities.Count(en => en._CEntityDef.lodLevel is rage__eLodType.LODTYPES_DEPTH_LOD or rage__eLodType.LODTYPES_DEPTH_SLOD1 or rage__eLodType.LODTYPES_DEPTH_SLOD2 or rage__eLodType.LODTYPES_DEPTH_SLOD3 or rage__eLodType.LODTYPES_DEPTH_SLOD4);
+            if (n == 0 && !ix.Ours.Contains(name)) continue;
+            var e0 = y.AllEntities[0].Position;
+            Console.WriteLine($"{name,-44} {n,4} LOD/SLOD of {y.AllEntities.Length,5}  near {e0.X,7:0} {e0.Y,7:0}  {fe.Path}");
         }
         return 0;
     }
