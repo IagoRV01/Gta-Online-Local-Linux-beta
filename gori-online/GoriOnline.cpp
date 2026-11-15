@@ -5088,6 +5088,7 @@ static void CommandTick() {
         }
         else if (a[0] == "menuat" && a.size() > 1) OpenMenuAt((MenuId)std::atoi(a[1].c_str()));   // menuat <id>: that menu (test)
         else if (a[0] == "menuoff") { CloseMenu(); }
+        else if (a[0] == "menuwardrobe") { g_menuOpen = true; g_stack.clear(); Open((MenuId)AM_WARDROBE); }   // the wardrobe menu anywhere (test)
         else if (a[0] == "cminvite" && a.size() > 1) ContactRequestJob(std::atoi(a[1].c_str()) % NCONTACTS);   // cminvite <contact>: the job invite (test)
         else if (a[0] == "hbtest" && a.size() > 1) {   // hbtest <heist>: to the board's spot and on the board, inside an apartment (test)
             g_hb.heist = std::atoi(a[1].c_str()) % NHEISTS;
@@ -5427,7 +5428,15 @@ static void CommandTick() {
         }
         else if (a[0] == "arenastart") { Log("arenastart: members '%s'", g_coop.members.c_str()); AwHostStart(); }   // the lobby's start (test)
         else if (a[0] == "awtrapcam" && a.size() > 1) { AwTrapCamSet(std::atoi(a[1].c_str())); Log("awtrapcam: %d (in the box %d, camera %d, %d traps), you at %.1f %.1f %.1f health %d", g_aw.trapCam, (int)g_aw.inBox, (int)(g_aw.boxCam != 0), (int)g_aw.trapList.size(), Pos(Me()).x, Pos(Me()).y, Pos(Me()).z, N<int>(N_GET_ENTITY_HEALTH, Me())); }   // the box's Trap Cam on that trap (-1: the box's view) (test)
-        else if (a[0] == "awwheel") { AwWheelSpin(a.size() > 1 ? std::atoi(a[1].c_str()) : -1); Log("awwheel: prize %d until %d ms (in the box %d, spins %d)", g_aw.wheelPrize, std::max(0, g_aw.wheelUntil - Now()), (int)g_aw.inBox, g_aw.wheelSpins); }   // awwheel [0-5]: the box's wheel spun (a number: that prize, free) (test)
+        else if (a[0] == "awwheel") { AwWheelSpin(a.size() > 1 ? std::atoi(a[1].c_str()) : -1); Log("awwheel: prize %d until %d ms (in the box %d, spins %d)", g_aw.wheelPrize, std::max(0, g_aw.wheelUntil - Now()), (int)g_aw.inBox, g_aw.wheelSpins); }   // awwheel [0-6]: the box's wheel spun (a number: that prize, free; 6 a tee) (test)
+        else if (a[0] == "awtees") {   // awtees [reset | wear <k> | won <mask>]: the wheel's tees (test)
+            if (a.size() > 1 && a[1] == "reset") AcidSet("arena_tees", 0);
+            else if (a.size() > 2 && a[1] == "wear") { AwTeeWear(std::atoi(a[2].c_str())); Log("awtees wear: %s", AwTeeName(std::atoi(a[2].c_str())).c_str()); }
+            else if (a.size() > 2 && a[1] == "won") AcidSet("arena_tees", std::atoi(a[2].c_str()));
+            std::string names; for (int k = 0; k < AW_TEE_N; ++k) if (AwTeesWon() >> k & 1) names += AwTeeName(k) + "; ";
+            Log("awtees: top %d, won 0x%05X: %s| tops %d now %d.%d arms %d undershirt %d", AwTeeDrawable(), AwTeesWon(), names.c_str(), N<int>(N_GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS, Me(), 11),
+                N<int>(N_GET_PED_DRAWABLE_VARIATION, Me(), 11), N<int>(N_GET_PED_TEXTURE_VARIATION, Me(), 11), N<int>(N_GET_PED_DRAWABLE_VARIATION, Me(), 3), N<int>(N_GET_PED_DRAWABLE_VARIATION, Me(), 8));
+        }
         else if (a[0] == "awgadget" && a.size() > 1) { bool ok = AwGadgetStart(std::atoi(a[1].c_str())); Log("awgadget %s: %d", a[1].c_str(), (int)ok); }   // 1 RC Bandito, 2 Battle Drone, 3 turret (test)
         else if (a[0] == "awgadgetend") AwGadgetEnd();
         else if (a[0] == "awmine") AwRcMine();        // the RC Bandito drops a mine (test)

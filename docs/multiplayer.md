@@ -596,9 +596,10 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - Traps never sit within 12 m of the mode's own places (Flag War's bases, the tag zone, Bomb Ball's goals; 10 m of Wreck It's pit stop), whatever else has to give: with eleven traps the 12 m between traps often can't be had, and the last ones used to land anywhere (a mine on the tag zone).
   - Verified in game 2026-11-13: solo Tag Team from the box by keys (a flipper threw a bot, the fire pit burned, the mine went off, back to the box's view and tagged back in); between players the other game is told and its trap arrives here; wrecked and killed, then in the box with a mine set off: health unchanged.
 - **The box's Arena War Wheel and its gadgets (2026-11-13),** after Online's Spectator Box (a wheel spun for GTA$, RP, AP or a turn in the event with an RC Bandito, a drone or the turrets; the first spin free, then $5,000). From the box's own view SPACE spins it; the prizes go by for 3 s. The numbers are ours:
-  - **Prizes:** RC Bandito, Battle Drone and Turret 22 % each, cash 14 % ($2,500, or $10,000 two times in five), 1,000 RP 10 %, 25 Arena Points 10 %. The second spin on costs $5,000 (ledger "Gori Online: Arena War Wheel").
+  - **Prizes:** RC Bandito, Battle Drone and Turret 20 % each, cash 14 % ($2,500, or $10,000 two times in five), 1,000 RP 8 %, 25 Arena Points 8 %, an Arena War tee 10 % (since 2026-11-15; until then the gadgets were 22 % each and RP and AP 10 %). The second spin on costs $5,000 (ledger "Gori Online: Arena War Wheel").
   - **Online's own wheel (2026-11-15):** the spin is Arena War's `SPIN_THE_WHEEL` movie in its HUD form ("Spin to Win", its
-    own sounds and win flash): eight segments, four power-up stars, $2,500, $10,000, 1,000 RP, 25 AP. The prize is drawn as
+    own sounds and win flash): eight segments, three power-up stars, $2,500, $10,000, 1,000 RP, 25 AP and the movie's
+    "Random" segment (a "?") for the tee (until 2026-11-15 a fourth star). The prize is drawn as
     before and the wheel stops on a segment that shows it; a gadget's star only says "Power Up", so its name is written
     under the wheel. Paid when the wheel goes, 6.5 s after the spin. Until then the prizes went by as text.
   - The movie's methods, read from its code (`spin_the_wheel.gfx`, `scaleform_minigames.rpf`): `SET_WHEEL_STYLE(type 0 HUD /
@@ -634,13 +635,31 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
     1,000 RP and a Turret at the podium, seen frame by frame. The character goes up and spins, the wheel turns on the
     podium and flashes its prize, "$2,500" / "1,000 RP" are named, the character celebrates, and you are back in the
     box and paid. In one of 20 frames the screen was black for a frame.
+  - **The clothing prizes (2026-11-15): Arena War's own printed tees.** The DLC's tee (`mpchristmas2018` shop metas) has
+    18 designs (`DLC_MP_ARENA_M_JBIB_1_2`..`19`, female `DLC_MP_ARENA_F_JBIB_1_2`..`19`; names from the game's labels
+    `CLO_AWM_U_1_n` / `CLO_AWF_U_1_n`, e.g. "Black Space Rangers Tee", "Green Space Ranger Logo Tee", "Red Freedom
+    Isn't Free Tee"). Online gives Arena War clothing on the wheel; which pieces is ours.
+    - The wheel gives one you have not won yet, puts it on at once and makes it the character's outfit (LocalOnline's
+      `adoptOutfit`, so a respawn does not take it off). The tees won are kept per character (Gori's custom store
+      `arena_tees`, a bit per design). With all 18 won, the prize is 25 AP.
+    - The wardrobe has an **Arena Tees** entry (LEFT / RIGHT the tees won, SELECT wears it; "n of 18 won on the Arena
+      War Wheel").
+    - The tee's top is found among the ped's tops by its name hash (`GET_HASH_NAME_FOR_COMPONENT`): top 273 of 638
+      here; its index depends on the DLCs installed. The shop's forced arms (male 0, female 14) and undershirt (male 240,
+      female 32, else the plain "none") come with it.
+    - Test: `awwheel 6`, `awtees [reset | wear <k> | won <mask>]`, `menuwardrobe` (the wardrobe menu anywhere).
+    - **Verified in game 2026-11-15** (test server):
+      - Tee names read from the game.
+      - A spin at the podium landed on "Random", named "Green Space Ranger Logo Tee" under the wheel and put it on (still
+        on after leaving the arena).
+      - The wardrobe entry listed the tees won and put the white one on.
   - **RC Bandito** (60 s): you drive a real `rcbandito` in the arena, unseen and invincible inside it; E drops a mine behind it (three, 1.5 s apart). A dropped mine arms in 1.5 s, goes off under a car like the arena's own and does not come back. The turn ends when the time is up or the car is wrecked.
   - **Battle Drone** (45 s): a camera on a drone prop (`xs_prop_arena_drone_01`, else the Terrorbyte's), flown like the Terrorbyte's drone (move, SPACE / CTRL up and down, SHIFT boost) within 70 m of the arena's middle and 30 m of its floor. The mouse button is an EMP pulse (every 8 s): cars within 10 m have their engine off for 3 s.
   - **Turret** (30 s): a camera on one of the arena's own turret posts (LEFT / RIGHT change post; see below), the mouse button fires 7 shots a second. A hit takes 35 off a car's body and 30 off its engine (below zero it burns); a bot's car is hit here, a player's on that player's own game.
   - ESC ends the drone's or the turret's turn early. Tag Team's box prompts wait while the wheel spins or a gadget is on; being tagged in ends it.
   - **Between players:** the RC Bandito is simply the car LocalOnline shows for you. Its mines (`awe M|point|name`), the drone's place four times a second (`awe D`, drawn as an orange ball), its pulse (`awe E`) and the turret's hits on a player's car (`awe S|victim|name`, five a second at most; a wreck within 6 s is credited to the shooter) are told to every game. Mines and Trap Cam choices now name the trap by its place as well as its number, because dropped mines are not at the same number on every game. A gadget does nothing to its own side.
   - **Help texts** over 90 characters are no longer cut in the middle of a word ("Anothe r turret").
-  - Test: `awwheel [0-5]` (a number: that prize, free), `awgadget 1|2|3`, `awgadgetend`, `awmine`, `awemp`, `awaim peer <i> | <yaw> <pitch>`, `awshoot [n]`, `awdrone x y z | peer <i>`, `awgstate`.
+  - Test: `awwheel [0-6]` (a number: that prize, free; 6 a tee), `awgadget 1|2|3`, `awgadgetend`, `awmine`, `awemp`, `awaim peer <i> | <yaw> <pitch>`, `awshoot [n]`, `awdrone x y z | peer <i>`, `awgstate`.
   - **Verified in game 2026-11-13:** solo Tag Team from the box: a free spin by SPACE (Turret), the RC Bandito with two mines dropped, the drone flown by W and its pulse stalling a bot, the turret hitting a bot from two posts and running out of time back to the box, a second spin for $5,000. With gobot: the mine, the drone's place and pulse and the turret's hits reach the other game; its mine, hits (body 750 to 680, "hit by Bot"), pulse ("EMP!") and drone arrive here.
   - **Not covered:** driving the RC Bandito and flying the drone for real against another person, and how the RC Bandito's driver looks on the other players' games (the driver is hidden only on its own).
 - **Joining an event only to watch (2026-11-13),** like the spectators of Online's Arena War lobbies. Arena War menu →
@@ -693,7 +712,7 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - **Not covered:** the Sci-Fi and Wasteland posts (same places, other models), a goal scored with the new ball
     (0 - 0 in the half minute watched), and the turret between players from the new posts (the hits are told as
     before).
-- **Not done:** the wheel's clothing prizes, the wheel on the podium for the other players (only the spinner's game draws
+- **Not done:** the wheel on the podium for the other players (only the spinner's game draws
   it; what they see of you up there is not covered), the traps' own animations (the flippers have no
   animation clip in the game's files: their plate is a fragment the scripts move), Bomb Ball's goal props
   (`xs_prop_arena_goal`, 47 m wide: wider than the part of the floor the events use), Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).

@@ -348,7 +348,7 @@ static std::string ClothValue(const ClothSlot &c, bool texture) {
     if (texture) return std::to_string(N<int>(N_GET_PED_TEXTURE_VARIATION, me, c.id) + 1) + "/" + std::to_string(N<int>(N_GET_NUMBER_OF_PED_TEXTURE_VARIATIONS, me, c.id, cur));
     return std::to_string(cur + 1) + "/" + std::to_string(N<int>(N_GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS, me, c.id));
 }
-static int g_outfitSlot = 0;
+static int g_outfitSlot = 0, g_teeAt = 0;
 static bool AptMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     if ((int)f.id != AM_WARDROBE) return false;
     title = "Wardrobe"; sub = "WARDROBE";
@@ -360,6 +360,17 @@ static bool AptMenu(const Frame &f, std::string &title, std::string &sub, std::v
     items.push_back({"Save Outfit", "< Slot " + std::to_string(g_outfitSlot + 1) + " >", "Saves what you are wearing in the chosen slot.",
                      [] { g_outfit[g_outfitSlot] = OutfitNow(); Save(); Notify("Outfit saved in slot " + std::to_string(g_outfitSlot + 1) + "."); },
                      nullptr, [](int d) { g_outfitSlot = (g_outfitSlot + d + 6) % 6; }});
+    {   // the tees won on Arena War's wheel (ArenaWar.inc)
+        std::vector<int> won;
+        for (int k = 0; k < AW_TEE_N; ++k) if (AwTeesWon() >> k & 1) won.push_back(k);
+        if (!won.empty()) {
+            int n = (int)won.size(); g_teeAt = (g_teeAt % n + n) % n;
+            std::string nm = AwTeeName(won[(size_t)g_teeAt]);
+            if (nm.size() > 4 && nm.compare(nm.size() - 4, 4, " Tee") == 0) nm.resize(nm.size() - 4);   // (long names ran into the title)
+            items.push_back({"Arena Tees", "< " + nm + " >", std::to_string(n) + " of " + std::to_string(AW_TEE_N) + " won on the Arena War Wheel. Wear this one.",
+                             [won] { AwTeeWear(won[(size_t)g_teeAt % won.size()]); Sound("SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET"); }, nullptr, [n](int d) { g_teeAt = (g_teeAt + d + n) % n; }});
+        }
+    }
     for (const auto &c : CLOTH_SLOTS) {
         items.push_back({c.name, "< " + ClothValue(c, false) + " >", "", [] {}, nullptr, [&c](int d) { ClothCycle(c, false, d); }});
         items.push_back({std::string(c.name) + " Style", "< " + ClothValue(c, true) + " >", "", [] {}, nullptr, [&c](int d) { ClothCycle(c, true, d); }});

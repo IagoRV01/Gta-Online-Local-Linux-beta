@@ -117,7 +117,7 @@ struct AwRun {
     int gadget = 0, gadgetVeh = 0, gadgetObj = 0, gadgetCam = 0, gadgetUntil = 0, gadgetMines = 0, gadgetNext = 0, gadgetSendAt = 0, turretAt = 0;
     float gadYaw = 0.f, gadPitch = 0.f; Vec3 gadPos{};
     int wheelSpins = 0, wheelUntil = 0, wheelPrize = -1, wheelValue = 0;
-    int wheelMovie = 0, wheelSeg = 0, wheelLabelAt = 0;   // Arena War's own wheel (SPIN_THE_WHEEL), its target segment, when the prize is named
+    int wheelMovie = 0, wheelSeg = 0, wheelLabelAt = 0, wheelTee = -1;   // (a tee won: its design)   // Arena War's own wheel (SPIN_THE_WHEEL), its target segment, when the prize is named
     int empUntil = 0, empFxAt = 0; Vec3 empFxPt{};   // a drone's pulse: my engine is out until then; its flash
     std::string hitBy; int hitAt = 0;                 // the player whose turret last hit my car
     bool noPay = false;   // the job was closed, not passed (its host left): nobody is paid
@@ -941,14 +941,56 @@ static void AwTrapCamTick() {
 // the turret's hits on a player's car ("awe S": that player's own game takes the damage) are told to everyone.
 enum { AWG_NONE, AWG_RC, AWG_DRONE, AWG_TURRET };
 static const char *const AW_GADGET_NAMES[] = {"", "RC Bandito", "Battle Drone", "Turret"};
-static const char *const AW_WHEEL_NAMES[] = {"GTA$", "RP", "Arena Points", "RC Bandito", "Battle Drone", "Turret"};
+static const char *const AW_WHEEL_NAMES[] = {"GTA$", "RP", "Arena Points", "RC Bandito", "Battle Drone", "Turret", "Arena War Tee"};
 // Online's own wheel, the HUD form of its SPIN_THE_WHEEL movie (2026-11-15; Arena War's spectator wheel). Methods, from
 // the movie's code: SET_WHEEL_STYLE(type: 0 HUD / 1 tabletop, segments, spectator), SET_SEGMENT(index, type, value) with
 // types 0 blank, 1 power-up, 2 cash, 3 RP, 4 AP, 5 free spin, 6 random, SPIN_WHEEL(target, full turns, seconds, win pause
 // in seconds), SET_LABEL_TEXT(text, red). Eight segments clockwise from the top; the prize is drawn by the old weights and
 // lands on a segment that shows it. The power-ups all show a star: the gadget is named under the wheel.
-struct AwSeg { int type, value, prize; };   // prize: 0 cash, 1 RP, 2 AP, 3 RC Bandito, 4 drone, 5 turret, -1 any gadget
-static const AwSeg AW_SEGS[8] = {{1, 0, 3}, {2, 2500, 0}, {1, 0, 4}, {3, 1000, 1}, {1, 0, 5}, {4, 25, 2}, {1, 0, -1}, {2, 10000, 0}};
+struct AwSeg { int type, value, prize; };   // prize: 0 cash, 1 RP, 2 AP, 3 RC Bandito, 4 drone, 5 turret, 6 a tee
+// (segment 6, the movie's "random" type, is the clothing prize since 2026-11-15: until then a spare power-up star)
+static const AwSeg AW_SEGS[8] = {{1, 0, 3}, {2, 2500, 0}, {1, 0, 4}, {3, 1000, 1}, {1, 0, 5}, {4, 25, 2}, {6, 0, 6}, {2, 10000, 0}};
+// ---- the wheel's clothing prizes (2026-11-15): Arena War's own printed tees, the 18 designs of its DLC tee
+// (mpchristmas2018 shop metas: DLC_MP_ARENA_M_JBIB_1_2..19 / DLC_MP_ARENA_F_JBIB_1_2..19, labels CLO_AWM_U_1_n /
+// CLO_AWF_U_1_n, all CU_ARENA_CLOTHES). One you have not won yet, put on at once and kept per character (custom store
+// "arena_tees", a bit per design); the wardrobe wears them again ("Arena Tees"). The tee's top is found by its name
+// hash among the ped's tops (its index depends on the DLCs installed); the shop's forced arms / undershirt come with it.
+static const int AW_TEE_FIRST = 2, AW_TEE_N = 18;
+static int AwTeesWon() { return AcidGet("arena_tees"); }
+static bool AwTeeFemale() { return !NB(N<int>(N_IS_PED_MALE, Me())); }
+static int AwTeeDrawable() {   // the tee's top among the player's tops (-1: not in this game)
+    static int cache[2] = {-2, -2};
+    int me = Me(), g = AwTeeFemale() ? 1 : 0;
+    if (cache[g] != -2) return cache[g];
+    uint32_t want = Joaat(g ? "DLC_MP_ARENA_F_JBIB_1_2" : "DLC_MP_ARENA_M_JBIB_1_2");
+    int n = N<int>(N_GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS, me, 11);
+    cache[g] = -1;
+    for (int d = n - 1; d >= 0; --d) if ((uint32_t)N<int>(N_GET_HASH_NAME_FOR_COMPONENT, me, 11, d, AW_TEE_FIRST) == want) { cache[g] = d; break; }
+    Log("arena tees: the tee is top %d of %d (%s)", cache[g], n, g ? "female" : "male");
+    return cache[g];
+}
+static std::string AwTeeName(int k) {
+    char l[24]; std::snprintf(l, sizeof l, "CLO_AW%c_U_1_%d", AwTeeFemale() ? 'F' : 'M', AW_TEE_FIRST + k);
+    std::string t = Label(l);
+    return t.empty() ? "Arena War Tee " + std::to_string(k + 1) : t;
+}
+static bool AwTeeWear(int k) {
+    int d = AwTeeDrawable(), me = Me();
+    if (d < 0 || k < 0 || k >= AW_TEE_N) return false;
+    bool f = AwTeeFemale();
+    N(N_SET_PED_COMPONENT_VARIATION, me, 11, d, AW_TEE_FIRST + k, 0);
+    N(N_SET_PED_COMPONENT_VARIATION, me, 3, f ? 14 : 0, 0, 0);    // the shop's forced arms
+    int u = f ? 32 : 240;                                          // and undershirt (none)
+    if (u >= N<int>(N_GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS, me, 8)) u = f ? 14 : 15;
+    N(N_SET_PED_COMPONENT_VARIATION, me, 8, u, 0, 0);
+    return true;
+}
+static int AwTeeDraw() {   // a design not won yet (-1: all of them, or no tee in this game)
+    if (AwTeeDrawable() < 0) return -1;
+    int won = AwTeesWon(), left[AW_TEE_N], n = 0;
+    for (int k = 0; k < AW_TEE_N; ++k) if (!(won >> k & 1)) left[n++] = k;
+    return n ? left[Rand(n)] : -1;
+}
 static void AwWheelCall(const char *m) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_aw.wheelMovie, m); }
 // ---- the wheel on the VIP box's podium (2026-11-15), as Online's Spectator Box has it: you are up at the podium, its
 // screen shows the movie's tabletop form and you play anim@arena@prize_wheel@ male / female (enter, spin, spinning_idle while
@@ -1227,11 +1269,14 @@ static void AwWheelSpin(int forced) {
         if (g_aw.wheelSpins > 0) { PayWhat why("Arena War Wheel"); if (!Pay(5000)) return; }
         ++g_aw.wheelSpins;
     }
-    int r = Rand(100), p = forced >= 0 ? forced % 6 : r < 22 ? 3 : r < 44 ? 4 : r < 66 ? 5 : r < 80 ? 0 : r < 90 ? 1 : 2;
+    int r = Rand(100), p = forced >= 0 ? forced % 7 : r < 20 ? 3 : r < 40 ? 4 : r < 60 ? 5 : r < 74 ? 0 : r < 82 ? 1 : r < 90 ? 2 : 6;
+    int tee = p == 6 ? AwTeeDraw() : -1;
+    if (p == 6 && tee < 0) p = 2;   // every tee won already (or none in this game): Arena Points
     // the segment: cash $2,500 (60 %) or $10,000; a gadget on its own star or on the spare one (one time in four)
-    int seg = p == 0 ? (Rand(100) < 60 ? 1 : 7) : p == 1 ? 3 : p == 2 ? 5 : Rand(4) == 0 ? 6 : p == 3 ? 0 : p == 4 ? 2 : 4;
+    int seg = p == 0 ? (Rand(100) < 60 ? 1 : 7) : p == 1 ? 3 : p == 2 ? 5 : p == 6 ? 6 : p == 3 ? 0 : p == 4 ? 2 : 4;
+    g_aw.wheelTee = tee;
     g_aw.wheelPrize = p; g_aw.wheelSeg = seg; g_aw.wheelValue = AW_SEGS[seg].value;
-    g_vip.win = p == 0 && g_aw.wheelValue >= 10000 ? "win_big_a" : p >= 3 ? "win_med_a" : "win_small_a";
+    g_vip.win = (p == 0 && g_aw.wheelValue >= 10000) || p == 6 ? "win_big_a" : p >= 3 ? "win_med_a" : "win_small_a";
     bool vip = AwVipLoad() && AwVipStart();   // up at the VIP box's podium, or the HUD wheel
     if (!g_aw.wheelMovie) {
         g_aw.wheelMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "SPIN_THE_WHEEL");
@@ -1290,7 +1335,7 @@ static void AwWheelTick() {
     if (left > 0) {   // the wheel spins, flashes its prize, names it
         if (g_aw.wheelLabelAt && Now() >= g_aw.wheelLabelAt) {   // every half second until paid: the movie writes its own label as its win flash ends
             int p = g_aw.wheelPrize;
-            std::string t = p == 0 ? Money(g_aw.wheelValue) : p == 1 ? std::to_string(g_aw.wheelValue) + " RP" : p == 2 ? std::to_string(g_aw.wheelValue) + " Arena Points" : AW_WHEEL_NAMES[p];
+            std::string t = p == 0 ? Money(g_aw.wheelValue) : p == 1 ? std::to_string(g_aw.wheelValue) + " RP" : p == 2 ? std::to_string(g_aw.wheelValue) + " Arena Points" : p == 6 ? AwTeeName(g_aw.wheelTee) : AW_WHEEL_NAMES[p];
             AwWheelCall("SET_LABEL_TEXT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_TEXTURE_NAME_STRING, t.c_str()); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 0); N(N_END_SCALEFORM_MOVIE_METHOD);
             g_aw.wheelLabelAt = Now() + 500;
         }
@@ -1301,10 +1346,16 @@ static void AwWheelTick() {
     g_aw.wheelUntil = 0; g_aw.wheelLabelAt = 0;
     AwVipEnd();
     int p = g_aw.wheelPrize, v = g_aw.wheelValue;
-    if (p >= 3 && !AwGadgetStart(p - 2)) { p = 2; v = 25; }   // no such gadget in this game: Arena Points
+    if (p >= 3 && p <= 5 && !AwGadgetStart(p - 2)) { p = 2; v = 25; }   // no such gadget in this game: Arena Points
     if (p == 0) { AddCash(v); Notify("~o~Arena War Wheel:~s~ " + Money(v)); }
     else if (p == 1) { GiveRP(v, nullptr); Notify("~o~Arena War Wheel:~s~ " + std::to_string(v) + " RP"); }
     else if (p == 2) { AcidSet("arena_ap", AwApGet() + v); Notify("~o~Arena War Wheel:~s~ " + std::to_string(v) + " Arena Points"); }
+    else if (p == 6) {   // the tee: yours from now on, and on you (the wardrobe keeps it)
+        AcidSet("arena_tees", AwTeesWon() | 1 << g_aw.wheelTee);
+        if (AwTeeWear(g_aw.wheelTee) && LO().adoptOutfit) LO().adoptOutfit();   // (the character's outfit with LocalOnline)
+        Notify("~o~Arena War Wheel:~s~ " + AwTeeName(g_aw.wheelTee) + ". It is in your wardrobe (Arena Tees).");
+        v = g_aw.wheelTee;
+    }
     Log("arena wheel: %s %d (segment %d, spin %d)", AW_WHEEL_NAMES[p], v, g_aw.wheelSeg, g_aw.wheelSpins);
 }
 static void AwPartnerRemove() {
