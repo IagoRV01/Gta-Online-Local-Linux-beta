@@ -6365,6 +6365,7 @@ static void ScriptMain() {
         BuzzTick();
         if (fm) { DcDoorTick(); PlazaTick(); GardensTick(); GardensValetTick(); }
         NaptHideTick();
+        NightModelsTick();
         BusinessTick();
         if (fm) { IslandLifeTick(); GarageTick(); }
         PersonalSyncTick();

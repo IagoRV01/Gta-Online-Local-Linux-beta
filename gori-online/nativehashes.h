@@ -122,6 +122,7 @@ constexpr uint64_t N_GET_BLIP_INFO_ID_COORD = 0xFA7C7F0AADF25D09; // Vector3 GET
 constexpr uint64_t N_GET_BLIP_INFO_ID_DISPLAY = 0x1E314167F701DC3B; // int GET_BLIP_INFO_ID_DISPLAY(Blip blip)
 constexpr uint64_t N_GET_BLIP_INFO_ID_TYPE = 0xBE9B0959FFD0779B; // int GET_BLIP_INFO_ID_TYPE(Blip blip)
 constexpr uint64_t N_GET_CLOCK_DAY_OF_WEEK = 0xD972E4BD7AEB235F; // int GET_CLOCK_DAY_OF_WEEK()
+constexpr uint64_t N_GET_CLOCK_HOURS = 0x25223CA6B4D20B7F; // int GET_CLOCK_HOURS()
 constexpr uint64_t N_GET_CLOSEST_OBJECT_OF_TYPE = 0xE143FA2249364369; // Object GET_CLOSEST_OBJECT_OF_TYPE(float x, float y, float z, float radius, Hash modelHash, BOOL isMission, BOOL p6, BOOL p7)
 constexpr uint64_t N_GET_CLOSEST_VEHICLE_NODE = 0x240A18690AE96513; // BOOL GET_CLOSEST_VEHICLE_NODE(float x, float y, float z, Vector3* outPosition, int nodeFlags, float p5, float p6)
 constexpr uint64_t N_GET_CLOSEST_VEHICLE_NODE_WITH_HEADING = 0xFF071FB798B803B0; // BOOL GET_CLOSEST_VEHICLE_NODE_WITH_HEADING(float x, float y, float z, Vector3* outPosition, float* outHeading, int nodeType, float p6, float p7)

@@ -216,6 +216,26 @@ static void NaptHideApply(const NaptHide *h, bool on) {
         }
     Log("napt %s: facade panels %s", h->id, on ? "hidden" : "back");
 }
+// our towers' night models (IslandBuilder NightLights.cs: lit windows, LED lines), hidden from 07:00 to 18:59. They were
+// time archetypes, but the game only switches those when the hour changes while they are streamed in: a tower you reached
+// later stayed dark all night (2026-11-15). Model hides apply to the entities as they stream, wherever you are
+struct NightModel { const char *model; float x, y, z; };
+static const NightModel NIGHT_MODELS[] = {
+    {"islaneon_hg_towera_night", 73.1f, -400.3f, 0.f}, {"islaneon_hg_towerb_night", 73.1f, -400.3f, 0.f}, {"islaneon_mhc_night", -158.5f, -982.f, 0.01f},
+};
+static void NightModelsTick() {
+    static int next = 0, shown = -1;
+    if (Now() < next) return;
+    next = Now() + 2000;
+    int h = N<int>(N_GET_CLOCK_HOURS), night = h >= 19 || h < 7;
+    if (night == shown) return;
+    for (const NightModel &m : NIGHT_MODELS) {
+        if (night) { if (shown >= 0) N(N_REMOVE_MODEL_HIDE, m.x, m.y, m.z, 250.f, Joaat(m.model), 0); }
+        else N(N_CREATE_MODEL_HIDE, m.x, m.y, m.z, 250.f, Joaat(m.model), 1);   // (250 m: the match is by the model's centre, 150 m up on the Mile High Club)
+    }
+    shown = night;
+    Log("night models %s (%02d:00)", night ? "on" : "off", h);
+}
 static void NaptHideTick() {
     static int next = 0;
     if (Now() < next) return;
