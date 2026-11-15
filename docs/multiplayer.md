@@ -634,7 +634,13 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - **Verified in game 2026-11-15** (solo Tag Team, from the box, Apocalypse map): spins for a Battle Drone, $2,500,
     1,000 RP and a Turret at the podium, seen frame by frame. The character goes up and spins, the wheel turns on the
     podium and flashes its prize, "$2,500" / "1,000 RP" are named, the character celebrates, and you are back in the
-    box and paid. In one of 20 frames the screen was black for a frame.
+    box and paid. In one of 20 frames the screen was black for a frame (fixed below).
+  - **The black frame on the podium's screen (fixed 2026-11-15).** A script render target is drawn again every frame, and
+    a frame without the draw is black. The movie was drawn in the wheel's tick, so any `Wait` inside the main loop
+    (a model load, a fade) cost the screen a frame. Now `Wait()` runs `g_everyFrame` right after every yield, and the
+    podium sets it to `AwVipDraw`: exactly one draw at the start of every frame the script gets.
+    - Verified 2026-11-15 (test server, three spins, 1 fps bursts): before, 2 of about 40 frames had the disc black
+      (`vh1`, `vt1`); after, none of the 57 frames taken while the wheel was up.
   - **The clothing prizes (2026-11-15): Arena War's own printed tees.** The DLC's tee (`mpchristmas2018` shop metas) has
     18 designs (`DLC_MP_ARENA_M_JBIB_1_2`..`19`, female `DLC_MP_ARENA_F_JBIB_1_2`..`19`; names from the game's labels
     `CLO_AWM_U_1_n` / `CLO_AWF_U_1_n`, e.g. "Black Space Rangers Tee", "Green Space Ranger Logo Tee", "Red Freedom

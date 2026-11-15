@@ -85,7 +85,11 @@ template <typename R = void, typename... A> static inline R N(uint64_t hash, A..
     if constexpr (!std::is_void_v<R>) { R out; std::memcpy(&out, r, sizeof(R)); return out; }
 }
 static inline bool NB(int v) { return v != 0; }
-static void Wait(DWORD ms) { shv_scriptWait(ms); }
+// g_everyFrame: run once at the start of every frame the script gets (right after each yield, wherever it is). A render
+// target's drawing has to be there every frame: a frame without it is black, and any Wait inside the main loop's
+// functions (a model load, a fade) used to cost one (Arena War's podium wheel, 2026-11-15)
+static void (*g_everyFrame)() = nullptr;
+static void Wait(DWORD ms) { shv_scriptWait(ms); if (g_everyFrame) g_everyFrame(); }
 
 static uint32_t Joaat(const char *s) {
     uint32_t h = 0;

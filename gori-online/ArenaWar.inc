@@ -1130,7 +1130,16 @@ static bool AwVipLoad() {
     g_vip.rt = N<int>(N_GET_NAMED_RENDERTARGET_RENDER_ID, "arena_roulette"); g_vip.rtOn = true;   // (any int, negative ones too)
     return true;
 }
+static void AwVipDraw() {   // the movie on the podium's screen: g_everyFrame, so once at the start of every frame (until
+    // 2026-11-15 drawn in the wheel's tick: one frame in about twenty was black, those where the loop had waited inside)
+    if (!g_vip.active || !g_vip.rtOn || !g_aw.wheelMovie || !g_aw.wheelUntil) return;
+    N(N_SET_TEXT_RENDER_ID, g_vip.rt); N(N_SET_SCRIPT_GFX_DRAW_ORDER, 4); N(N_SET_SCRIPT_GFX_DRAW_BEHIND_PAUSEMENU, 1);
+    if (g_vip.full) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_aw.wheelMovie, 255, 255, 255, 255, 0);
+    else N(N_DRAW_SCALEFORM_MOVIE, g_aw.wheelMovie, 0.5f, 0.5f, 1.f, 1.f, 255, 255, 255, 255, 0);
+    N(N_SET_TEXT_RENDER_ID, N<int>(N_GET_DEFAULT_SCRIPT_RENDERTARGET_RENDER_ID));
+}
 static void AwVipEnd() {   // off the podium, back to the box's view (AwBoxHold hides you again)
+    if (g_everyFrame == AwVipDraw) g_everyFrame = nullptr;
     if (!g_vip.active) return;
     g_vip.active = false;
     int me = Me();
@@ -1160,6 +1169,7 @@ static bool AwVipStart() {   // up to the podium; the times of the clips and of 
     N(N_FREEZE_ENTITY_POSITION, me, 0); N(N_SET_ENTITY_COLLISION, me, 1, 1); N(N_SET_ENTITY_VISIBLE, me, 1, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
     N(N_SET_ENTITY_COORDS, me, g_vip.at.x, g_vip.at.y - 2.f, g_vip.at.z + 0.1f, 0, 0, 0, 0);
     g_vip.active = true; g_vip.camSet = false; g_vip.stage = 0;
+    g_everyFrame = AwVipDraw;
     N(N_FORCE_ROOM_FOR_ENTITY, me, g_vip.interior, AW_VIP_ROOM);
     AwVipClip("enter", 2);
     int t = Now();
@@ -1431,12 +1441,7 @@ static void AwVipTick() {   // the clips one after another, the camera, the spin
     if (g_vip.stage == 3 && t >= g_vip.stopAt) { AwVipClip(g_vip.win, 2); g_vip.stage = 4; }
     if (g_vip.stage == 4 && t >= g_vip.winEnd) { AwVipClip("exit_win", 2); g_vip.stage = 5; }
     N(N_SET_ENTITY_INVINCIBLE, me, 1);
-    if (g_aw.wheelMovie && g_vip.rtOn) {
-        N(N_SET_TEXT_RENDER_ID, g_vip.rt); N(N_SET_SCRIPT_GFX_DRAW_ORDER, 4); N(N_SET_SCRIPT_GFX_DRAW_BEHIND_PAUSEMENU, 1);
-        if (g_vip.full) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_aw.wheelMovie, 255, 255, 255, 255, 0);
-        else N(N_DRAW_SCALEFORM_MOVIE, g_aw.wheelMovie, 0.5f, 0.5f, 1.f, 1.f, 255, 255, 255, 255, 0);
-        N(N_SET_TEXT_RENDER_ID, N<int>(N_GET_DEFAULT_SCRIPT_RENDERTARGET_RENDER_ID));
-    }
+    // (the movie on the podium's screen: AwVipDraw, every frame)
 }
 static void AwWheelTick() {
     if (!g_aw.wheelUntil) return;
