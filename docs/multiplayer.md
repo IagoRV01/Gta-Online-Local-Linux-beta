@@ -604,8 +604,36 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - The movie's methods, read from its code (`spin_the_wheel.gfx`, `scaleform_minigames.rpf`): `SET_WHEEL_STYLE(type 0 HUD /
     1 tabletop, segments, spectator)`, `SET_SEGMENT(index, type, value)` (types 0 blank, 1 power-up, 2 cash, 3 RP, 4 AP,
     5 free spin, 6 random), `SPIN_WHEEL(target, full turns, seconds, win pause in seconds)`, `SET_LABEL_TEXT(text, red)`.
-    The tabletop form is for the screen prop in the VIP lounge (`xs_prop_arena_roulette`, render target
-    `script_rt_arena_roulette`). Gori's `stw style|seg|spin|label|call|off` drives the movie on its own.
+    Gori's `stw style|seg|spin|label|call|off` drives the movie on its own; `stw rt <name>`, `stw rtmode 0|1|2|3` and
+    `stw large 0|1|2` put it (or a test rectangle) on a named render target.
+  - **At the VIP box's podium (2026-11-15),** as in Online's Spectator Box. SPACE in the box takes you up to the VIP box
+    over the arena, onto the round podium in the middle of its lounge, and the wheel turns on the podium's own screen
+    (the movie's tabletop form). You play the game's prize wheel clips (`anim@arena@prize_wheel@male` / `@female`:
+    `enter`, `spin`, `spinning_idle` while it turns, `win_small_a` / `win_med_a` for a gadget / `win_big_a` for $10,000,
+    `exit_win`), seen from high behind you; then you are back in the box's view and paid. About 18 to 20 s in all
+    (the clips' own lengths: `enter` alone is 4.3 s). Without the VIP box (no interior, podium or screen) the wheel is
+    the HUD form above.
+  - Where it is: its own MLO `xs_arena_vip` (IPL `xs_arena_interior_vip`, placed at 2799.5 -3930.5 182.2), room
+    0x0449B1EC. The podium is `xs_prop_arena_roulette`, a flat disc 4.3 m across at MLO point (-3.54, 0.19, 1.24) (world
+    2795.98 -3930.35 183.48, heading 0); its screen texture is `script_rt_arena_roulette`, so the render target is
+    `arena_roulette`.
+  - What it took:
+    - The screen only links when its model is in memory (`REQUEST_MODEL` first). From the arena, 130 m away, it is not
+      streamed in and the link failed.
+    - Render ids are any int, negative ones too (-1463616043 here). A test that read `< 0` as "none" drew on the main
+      screen instead.
+    - The movie fills the disc with `SET_SCALEFORM_MOVIE_TO_USE_SUPER_LARGE_RT` and `DRAW_SCALEFORM_MOVIE(0.5, 0.5, 1,
+      1)`. Without it the wheel was a small patch in one corner.
+    - The clips played at the podium's origin and heading stand you in the middle of the podium, facing the wheel's
+      top.
+    - Tag Team's box camera follows your partner's car every frame. That is held off while you are at the podium (it
+      had the camera looking out of the windows at the arena).
+  - Test: Gori's `awvip [go]` (the VIP box: interior, room, podium; `go` stands you there), `awvipfit <fit 0|1|2>
+    <fullscreen 0|1>`, `anim <dict> <clip> [flags] [x y z heading]`.
+  - **Verified in game 2026-11-15** (solo Tag Team, from the box, Apocalypse map): spins for a Battle Drone, $2,500,
+    1,000 RP and a Turret at the podium, seen frame by frame. The character goes up and spins, the wheel turns on the
+    podium and flashes its prize, "$2,500" / "1,000 RP" are named, the character celebrates, and you are back in the
+    box and paid. In one of 20 frames the screen was black for a frame.
   - **RC Bandito** (60 s): you drive a real `rcbandito` in the arena, unseen and invincible inside it; E drops a mine behind it (three, 1.5 s apart). A dropped mine arms in 1.5 s, goes off under a car like the arena's own and does not come back. The turn ends when the time is up or the car is wrecked.
   - **Battle Drone** (45 s): a camera on a drone prop (`xs_prop_arena_drone_01`, else the Terrorbyte's), flown like the Terrorbyte's drone (move, SPACE / CTRL up and down, SHIFT boost) within 70 m of the arena's middle and 30 m of its floor. The mouse button is an EMP pulse (every 8 s): cars within 10 m have their engine off for 3 s.
   - **Turret** (30 s): a camera on one of the arena's own turret posts (LEFT / RIGHT change post; see below), the mouse button fires 7 shots a second. A hit takes 35 off a car's body and 30 off its engine (below zero it burns); a bot's car is hit here, a player's on that player's own game.
@@ -665,7 +693,8 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - **Not covered:** the Sci-Fi and Wasteland posts (same places, other models), a goal scored with the new ball
     (0 - 0 in the half minute watched), and the turret between players from the new posts (the hits are told as
     before).
-- **Not done:** the wheel's clothing prizes, the lounge's tabletop wheel on its screen, the traps' own animations (the flippers have no
+- **Not done:** the wheel's clothing prizes, the wheel on the podium for the other players (only the spinner's game draws
+  it; what they see of you up there is not covered), the traps' own animations (the flippers have no
   animation clip in the game's files: their plate is a fragment the scripts move), Bomb Ball's goal props
   (`xs_prop_arena_goal`, 47 m wide: wider than the part of the floor the events use), Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 

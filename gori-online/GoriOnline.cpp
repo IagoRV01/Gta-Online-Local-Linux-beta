@@ -274,7 +274,17 @@ static void Shard(const std::string &title, const std::string &sub) {
 static void DrawShard() { if (g_shard && Now() < g_shardUntil) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_shard, 255, 255, 255, 255, 0); }
 // the SPIN_THE_WHEEL test movie (stw command), drawn full screen while it is on
 static int g_stw = 0, g_stwUntil = 0;
-static void DrawStw() { if (g_stw && Now() < g_stwUntil) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_stw, 255, 255, 255, 255, 0); }
+static int g_stwRt = 0, g_stwRtFull = 1; static bool g_stwRtOn = false;   // stw rt <name>: drawn on that named render target instead (the VIP box's roulette screen); stw rtmode 0|1
+static void DrawStw() {
+    if (!g_stw || Now() >= g_stwUntil) return;
+    if (!g_stwRtOn) { N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_stw, 255, 255, 255, 255, 0); return; }
+    N(N_SET_TEXT_RENDER_ID, g_stwRt); N(N_SET_SCRIPT_GFX_DRAW_ORDER, 4); N(N_SET_SCRIPT_GFX_DRAW_BEHIND_PAUSEMENU, 1);
+    if (g_stwRtFull == 2) N(N_DRAW_RECT, 0.5f, 0.5f, 1.f, 1.f, 255, 0, 0, 255, 0);   // (is the render target there at all)
+    else if (g_stwRtFull == 3) N(N_DRAW_RECT, 0.25f, 0.25f, 0.5f, 0.5f, 0, 255, 0, 255, 0);
+    else if (g_stwRtFull) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_stw, 255, 255, 255, 255, 0);
+    else N(N_DRAW_SCALEFORM_MOVIE, g_stw, 0.5f, 0.5f, 1.0f, 1.0f, 255, 255, 255, 255, 0);
+    N(N_SET_TEXT_RENDER_ID, N<int>(N_GET_DEFAULT_SCRIPT_RENDERTARGET_RENDER_ID));
+}
 
 // ---------------------------------------------------------------- Interiors (from bob74_ipl's data)
 // sets: "entity_set;entity_set:tint;..."
@@ -5688,6 +5698,39 @@ static void CommandTick() {
                 id ? (int)NB(N<int>(N_IS_VALID_INTERIOR, id)) : 0, id ? (int)NB(N<int>(N_IS_INTERIOR_READY, id)) : 0, id ? (int)NB(N<int>(N_IS_INTERIOR_DISABLED, id)) : 0,
                 at.x, at.y, at.z, nh, Joaat(a[4].c_str()));
         }
+        else if (a[0] == "anim" && a.size() > 2) {   // anim <dict> <clip> [flags] [x y z heading]: the player plays it (there, if given); anim stop
+            int me = Me();
+            if (LoadAnimDict(a[1].c_str())) {
+                if (a.size() > 7) N(N_TASK_PLAY_ANIM_ADVANCED, me, a[1].c_str(), a[2].c_str(), F(4), F(5), F(6), 0.f, 0.f, F(7), 8.f, -8.f, -1, a.size() > 3 ? (int)F(3) : 0, 0.f, 2, 0);
+                else N(N_TASK_PLAY_ANIM, me, a[1].c_str(), a[2].c_str(), 8.f, -8.f, -1, a.size() > 3 ? (int)F(3) : 0, 0.f, 0, 0, 0);
+            }
+            Wait(300);
+            Log("anim %s %s: loaded %d playing %d", a[1].c_str(), a[2].c_str(), NB(N<int>(N_HAS_ANIM_DICT_LOADED, a[1].c_str())) ? 1 : 0, NB(N<int>(N_IS_ENTITY_PLAYING_ANIM, me, a[1].c_str(), a[2].c_str(), 3)) ? 1 : 0);
+        }
+        else if (a[0] == "awvipfit" && a.size() > 2) { g_vip.fit = (int)F(1); g_vip.full = (int)F(2); Log("awvipfit %d %d", g_vip.fit, g_vip.full); }   // the wheel on the VIP box's screen: fit 0|1 LARGE_RT|2 SUPER_LARGE_RT, full 0|1
+        else if (a[0] == "awvip") {   // awvip [go]: Arena War's VIP box (MLO xs_arena_vip, IPL xs_arena_interior_vip), its room and its roulette screen
+            if (!NB(N<int>(N_IS_IPL_ACTIVE, "xs_arena_interior_vip"))) N(N_REQUEST_IPL, "xs_arena_interior_vip");
+            Wait(500);
+            int id = N<int>(N_GET_INTERIOR_AT_COORDS_WITH_TYPE, 2799.5f, -3930.5f, 182.2f, "xs_arena_vip");
+            if (id) { N(N_PIN_INTERIOR_IN_MEMORY, id); for (int k = 0; k < 100 && !NB(N<int>(N_IS_INTERIOR_READY, id)); ++k) Wait(50); }
+            Vec3 w = id ? N<Vec3>(N_GET_OFFSET_FROM_INTERIOR_IN_WORLD_COORDS, id, -3.54f, 0.19f, 1.24f) : V3(0, 0, 0);
+            Vec3 o0 = id ? N<Vec3>(N_GET_OFFSET_FROM_INTERIOR_IN_WORLD_COORDS, id, 0.f, 0.f, 0.f) : V3(0, 0, 0), ox = id ? N<Vec3>(N_GET_OFFSET_FROM_INTERIOR_IN_WORLD_COORDS, id, 1.f, 0.f, 0.f) : V3(0, 0, 0);
+            Log("awvip: ipl %d interior %d ready %d, origin %.2f %.2f %.2f, local x axis %.2f %.2f, roulette point %.2f %.2f %.2f", NB(N<int>(N_IS_IPL_ACTIVE, "xs_arena_interior_vip")) ? 1 : 0, id,
+                id ? (int)NB(N<int>(N_IS_INTERIOR_READY, id)) : 0, o0.x, o0.y, o0.z, ox.x - o0.x, ox.y - o0.y, w.x, w.y, w.z);
+            if (a.size() > 1 && a[1] == "go" && id) {
+                int me = Me();
+                N(N_SET_ENTITY_COORDS, me, w.x + (ox.x - o0.x) * 1.5f, w.y + (ox.y - o0.y) * 1.5f, w.z - 1.f, 0, 0, 0, 0);
+                for (int k = 0; k < 60; ++k) Wait(50);
+                Log("awvip go: player interior %d room 0x%08X at %.2f %.2f %.2f", N<int>(N_GET_INTERIOR_FROM_ENTITY, me), (unsigned)N<int>(N_GET_ROOM_KEY_FROM_ENTITY, me), Pos(me).x, Pos(me).y, Pos(me).z);
+            }
+            int ob = id ? N<int>(N_GET_CLOSEST_OBJECT_OF_TYPE, w.x, w.y, w.z, 6.f, Joaat("xs_prop_arena_roulette"), 0, 0, 0) : 0;
+            if (Exists(ob)) {
+                Vec3 p = Pos(ob), f = N<Vec3>(N_GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS, ob, 0.f, 1.f, 0.f), mn{}, mx{};
+                N(N_GET_MODEL_DIMENSIONS, Joaat("xs_prop_arena_roulette"), &mn, &mx);
+                Log("awvip: roulette object %d at %.2f %.2f %.2f heading %.1f forward %.2f %.2f %.2f, size %.2f %.2f %.2f to %.2f %.2f %.2f", ob, p.x, p.y, p.z,
+                    N<float>(N_GET_ENTITY_HEADING, ob), f.x - p.x, f.y - p.y, f.z - p.z, mn.x, mn.y, mn.z, mx.x, mx.y, mx.z);
+            } else Log("awvip: no roulette object near the point");
+        }
         else if (a[0] == "app" && a.size() > 1) {   // app securo|datanet: open the business computer (test)
             if (a[1] == "securo") BizOpenSecuroServ(FindProp("Mile High Club Office"));
             else BizOpenDataNet(FindProp("Mile High Data Center"));
@@ -5895,7 +5938,20 @@ static void CommandTick() {
             }
         }
         else if (a[0] == "stw" && a.size() > 1) {   // stw style <type> <segments> <spectator 0|1> | seg <i> <type> <value> | spin <target> <fullSpins> <duration> <pause> | label <text> | call <method> [int...] | off: Arena War's wheel movie (finding its arguments)
-            if (a[1] == "off") { if (g_stw) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_stw); g_stw = 0; g_stwUntil = 0; }
+            if (a[1] == "off") { if (g_stw) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_stw); g_stw = 0; g_stwUntil = 0; g_stwRtOn = false; }
+            else if (a[1] == "rtmode" && a.size() > 2) g_stwRtFull = (int)F(2);
+            else if (a[1] == "large" && a.size() > 2 && g_stw) { int k = (int)F(2); N(N_SET_SCALEFORM_MOVIE_TO_USE_LARGE_RT, g_stw, k == 1 ? 1 : 0); N(N_SET_SCALEFORM_MOVIE_TO_USE_SUPER_LARGE_RT, g_stw, k == 2 ? 1 : 0); }
+            else if (a[1] == "rtrel" && a.size() > 2) { if (NB(N<int>(N_IS_NAMED_RENDERTARGET_REGISTERED, a[2].c_str()))) N(N_RELEASE_NAMED_RENDERTARGET, a[2].c_str()); }
+            else if (a[1] == "rt" && a.size() > 2) {   // stw rt <name> [model] | stw rt off
+                if (a[2] == "off") g_stwRtOn = false;   // (render ids are any int, negative ones too)
+                else {
+                    uint32_t m = Joaat(a.size() > 3 ? a[3].c_str() : "xs_prop_arena_roulette");
+                    if (!NB(N<int>(N_IS_NAMED_RENDERTARGET_REGISTERED, a[2].c_str()))) N(N_REGISTER_NAMED_RENDERTARGET, a[2].c_str(), 0);
+                    if (!NB(N<int>(N_IS_NAMED_RENDERTARGET_LINKED, m))) N(N_LINK_NAMED_RENDERTARGET, m);
+                    g_stwRt = N<int>(N_GET_NAMED_RENDERTARGET_RENDER_ID, a[2].c_str()); g_stwRtOn = true;
+                    Log("stw rt %s: registered %d linked %d id %d", a[2].c_str(), NB(N<int>(N_IS_NAMED_RENDERTARGET_REGISTERED, a[2].c_str())) ? 1 : 0, NB(N<int>(N_IS_NAMED_RENDERTARGET_LINKED, m)) ? 1 : 0, g_stwRt);
+                }
+            }
             else {
                 if (!g_stw) { g_stw = N<int>(N_REQUEST_SCALEFORM_MOVIE, "SPIN_THE_WHEEL"); for (int k = 0; k < 200 && !NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_stw)); ++k) Wait(20); }
                 g_stwUntil = Now() + 120000;

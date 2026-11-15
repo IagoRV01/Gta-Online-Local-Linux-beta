@@ -64,6 +64,19 @@ struct AwTrap { int kind = 0, obj = 0, nextAt = 0, until = 0, fire = 0, launched
                 bool once = false; };     // a mine dropped by an RC Bandito: it does not come back
 static const uint32_t AW_ROOM = 0x113B4A40;   // the arena's room (GET_ROOM_KEY_FROM_ENTITY once inside)
 static const Vec3 AW_CENTRE = V3(2800.f, -3800.f, 100.f);
+// The VIP box over the arena (2026-11-15), where Online's Spectator Box has its wheel: its own MLO (xs_arena_vip, IPL
+// xs_arena_interior_vip, placed at 2799.5 -3930.5 182.2) with a round podium in the middle of the lounge whose top is a
+// screen (xs_prop_arena_roulette, 4.3 m across, its texture script_rt_arena_roulette: render target "arena_roulette").
+static const uint32_t AW_VIP_ROOM = 0x0449B1EC;   // the lounge's room (GET_ROOM_KEY_FROM_ENTITY there)
+struct AwVip {
+    int interior = 0, obj = 0, rt = 0; bool rtOn = false, iplMine = false;
+    bool active = false, camSet = false; Vec3 at{}; float h = 0.f;   // the podium; you are at it now
+    const char *dict = nullptr; int stage = 0;                          // the prize wheel's clips: the one playing
+    int t0 = 0, enterEnd = 0, spinAt = 0, spinEnd = 0, stopAt = 0, winEnd = 0, exitEnd = 0;
+    const char *win = "win_small_a";
+    int fit = 2, full = 0;   // the movie on the screen: 0 as it is, 1 LARGE_RT, 2 SUPER_LARGE_RT; drawn by DRAW_SCALEFORM_MOVIE or its FULLSCREEN form (awvipfit)
+};
+static AwVip g_vip;
 
 enum AwPhase { AWP_NONE, AWP_LOBBY, AWP_COUNTDOWN, AWP_PLAYING, AWP_RESULTS };
 struct AwBot { int veh = 0, ped = 0, blip = 0, respawnAt = 0, retaskAt = 0, idleSince = 0;
@@ -155,13 +168,15 @@ static int AwLoadArena(int theme, int map, int light) {
 }
 static void AwForceRoom() {   // every frame in the arena: player, car and camera in its room
     if (!g_aw.interior) return;
-    N(N_FORCE_ROOM_FOR_ENTITY, Me(), g_aw.interior, AW_ROOM);
+    if (g_vip.active && g_vip.interior) N(N_FORCE_ROOM_FOR_ENTITY, Me(), g_vip.interior, AW_VIP_ROOM);   // up at the VIP box's wheel
+    else N(N_FORCE_ROOM_FOR_ENTITY, Me(), g_aw.interior, AW_ROOM);
     if (Exists(g_aw.myVeh)) N(N_FORCE_ROOM_FOR_ENTITY, g_aw.myVeh, g_aw.interior, AW_ROOM);
     for (auto &b : g_aw.botList) if (Exists(b.veh)) N(N_FORCE_ROOM_FOR_ENTITY, b.veh, g_aw.interior, AW_ROOM);
     for (auto &t : g_aw.trapList) if (Exists(t.obj)) N(N_FORCE_ROOM_FOR_ENTITY, t.obj, g_aw.interior, AW_ROOM);
     if (Exists(g_aw.gadgetVeh)) N(N_FORCE_ROOM_FOR_ENTITY, g_aw.gadgetVeh, g_aw.interior, AW_ROOM);
     if (Exists(g_aw.gadgetObj)) N(N_FORCE_ROOM_FOR_ENTITY, g_aw.gadgetObj, g_aw.interior, AW_ROOM);
-    N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, g_aw.interior, AW_ROOM);
+    if (g_vip.active && g_vip.interior) N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, g_vip.interior, AW_VIP_ROOM);
+    else N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, g_aw.interior, AW_ROOM);
     N(N_SET_RADAR_AS_INTERIOR_THIS_FRAME, Joaat("xs_x18_int_01"), AW_CENTRE.x, AW_CENTRE.y, 0, 0);
     N(N_HIDE_MINIMAP_EXTERIOR_MAP_THIS_FRAME);
 }
@@ -934,8 +949,85 @@ static const char *const AW_WHEEL_NAMES[] = {"GTA$", "RP", "Arena Points", "RC B
 // lands on a segment that shows it. The power-ups all show a star: the gadget is named under the wheel.
 struct AwSeg { int type, value, prize; };   // prize: 0 cash, 1 RP, 2 AP, 3 RC Bandito, 4 drone, 5 turret, -1 any gadget
 static const AwSeg AW_SEGS[8] = {{1, 0, 3}, {2, 2500, 0}, {1, 0, 4}, {3, 1000, 1}, {1, 0, 5}, {4, 25, 2}, {1, 0, -1}, {2, 10000, 0}};
-static void AwWheelRelease() { if (g_aw.wheelMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_aw.wheelMovie); g_aw.wheelMovie = 0; g_aw.wheelUntil = 0; }
 static void AwWheelCall(const char *m) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_aw.wheelMovie, m); }
+// ---- the wheel on the VIP box's podium (2026-11-15), as Online's Spectator Box has it: you are up at the podium, its
+// screen shows the movie's tabletop form and you play anim@arena@prize_wheel@ male / female (enter, spin, spinning_idle while
+// it turns, a win, exit_win) at the podium, the box's camera on you and the wheel; then back to the box's view. Without
+// the VIP box (no interior, podium or screen) the wheel is the HUD form as before.
+static bool LoadAnimDict(const char *d);
+static void AwTrapCamSet(int i);
+static bool AwVipLoad() {
+    if (!NB(N<int>(N_IS_IPL_ACTIVE, "xs_arena_interior_vip"))) { N(N_REQUEST_IPL, "xs_arena_interior_vip"); g_vip.iplMine = true; }
+    for (int k = 0; k < 40 && !g_vip.interior; ++k) {
+        g_vip.interior = N<int>(N_GET_INTERIOR_AT_COORDS_WITH_TYPE, 2799.5f, -3930.5f, 182.2f, "xs_arena_vip");
+        if (g_vip.interior) N(N_PIN_INTERIOR_IN_MEMORY, g_vip.interior); else Wait(50);
+    }
+    if (!g_vip.interior) { Log("arena vip: no interior"); return false; }
+    for (int k = 0; k < 60 && !NB(N<int>(N_IS_INTERIOR_READY, g_vip.interior)); ++k) Wait(50);
+    uint32_t m = Joaat("xs_prop_arena_roulette");
+    if (!Exists(g_vip.obj)) {
+        Vec3 w = N<Vec3>(N_GET_OFFSET_FROM_INTERIOR_IN_WORLD_COORDS, g_vip.interior, -3.54f, 0.19f, 1.24f);   // its place in the MLO
+        for (int k = 0; k < 40 && !Exists(g_vip.obj); ++k) { g_vip.obj = N<int>(N_GET_CLOSEST_OBJECT_OF_TYPE, w.x, w.y, w.z, 6.f, m, 0, 0, 0); if (!Exists(g_vip.obj)) Wait(50); }
+        if (!Exists(g_vip.obj)) { Log("arena vip: no podium"); return false; }
+        g_vip.at = Pos(g_vip.obj); g_vip.h = N<float>(N_GET_ENTITY_HEADING, g_vip.obj);
+    }
+    if (!NB(N<int>(N_IS_NAMED_RENDERTARGET_REGISTERED, "arena_roulette"))) N(N_REGISTER_NAMED_RENDERTARGET, "arena_roulette", 0);
+    // (the link needs the screen's model in memory: from the arena, 130 m away, it is not streamed in and the link failed)
+    LoadModel(m);
+    for (int k = 0; k < 40 && !NB(N<int>(N_IS_NAMED_RENDERTARGET_LINKED, m)); ++k) { N(N_LINK_NAMED_RENDERTARGET, m); if (!NB(N<int>(N_IS_NAMED_RENDERTARGET_LINKED, m))) Wait(50); }
+    if (!NB(N<int>(N_IS_NAMED_RENDERTARGET_LINKED, m))) { Log("arena vip: the podium's screen is not linked"); return false; }
+    g_vip.rt = N<int>(N_GET_NAMED_RENDERTARGET_RENDER_ID, "arena_roulette"); g_vip.rtOn = true;   // (any int, negative ones too)
+    return true;
+}
+static void AwVipEnd() {   // off the podium, back to the box's view (AwBoxHold hides you again)
+    if (!g_vip.active) return;
+    g_vip.active = false;
+    int me = Me();
+    N(N_CLEAR_PED_TASKS_IMMEDIATELY, me);
+    N(N_SET_ENTITY_COORDS, me, AW_CENTRE.x, AW_CENTRE.y - 55.f, g_aw.floorZ + 44.f, 0, 0, 0, 0);
+    if (g_aw.boxCam) { N(N_SET_CAM_FOV, g_aw.boxCam, 55.f); AwTrapCamSet(-1); }
+}
+static void AwVipRelease() {   // the event is over
+    AwVipEnd();
+    if (g_vip.rtOn && NB(N<int>(N_IS_NAMED_RENDERTARGET_REGISTERED, "arena_roulette"))) N(N_RELEASE_NAMED_RENDERTARGET, "arena_roulette");
+    if (g_vip.interior) N(N_UNPIN_INTERIOR, g_vip.interior);
+    if (g_vip.iplMine && NB(N<int>(N_IS_IPL_ACTIVE, "xs_arena_interior_vip"))) N(N_REMOVE_IPL, "xs_arena_interior_vip");
+    int fit = g_vip.fit, full = g_vip.full;
+    g_vip = AwVip(); g_vip.fit = fit; g_vip.full = full;
+}
+static void AwVipClip(const char *clip, int flags) {
+    N(N_TASK_PLAY_ANIM_ADVANCED, Me(), g_vip.dict, clip, g_vip.at.x, g_vip.at.y, g_vip.at.z, 0.f, 0.f, g_vip.h, 4.f, -4.f, -1, flags, 0.f, 2, 0);
+}
+static int AwVipMs(const char *clip, int fallback) {
+    float d = N<float>(N_GET_ANIM_DURATION, g_vip.dict, clip);
+    return d > 0.1f && d < 20.f ? (int)(d * 1000.f) : fallback;
+}
+static bool AwVipStart() {   // up to the podium; the times of the clips and of the spin
+    int me = Me();
+    g_vip.dict = NB(N<int>(N_IS_PED_MALE, me)) ? "anim@arena@prize_wheel@male" : "anim@arena@prize_wheel@female";
+    if (!LoadAnimDict(g_vip.dict)) { Log("arena vip: no %s", g_vip.dict); return false; }
+    N(N_FREEZE_ENTITY_POSITION, me, 0); N(N_SET_ENTITY_COLLISION, me, 1, 1); N(N_SET_ENTITY_VISIBLE, me, 1, 0); N(N_SET_ENTITY_INVINCIBLE, me, 1);
+    N(N_SET_ENTITY_COORDS, me, g_vip.at.x, g_vip.at.y - 2.f, g_vip.at.z + 0.1f, 0, 0, 0, 0);
+    g_vip.active = true; g_vip.camSet = false; g_vip.stage = 0;
+    N(N_FORCE_ROOM_FOR_ENTITY, me, g_vip.interior, AW_VIP_ROOM);
+    AwVipClip("enter", 2);
+    int t = Now();
+    g_vip.t0 = t;
+    g_vip.enterEnd = t + AwVipMs("enter", 1500);
+    int spin = AwVipMs("spin", 1500);
+    g_vip.spinAt = g_vip.enterEnd + spin * 2 / 5;   // the wheel goes as the arm comes down
+    g_vip.spinEnd = g_vip.enterEnd + spin;
+    g_vip.stopAt = g_vip.spinAt + 5000;            // SPIN_WHEEL's 5 s
+    g_vip.winEnd = std::max(g_vip.stopAt, g_vip.spinEnd) + AwVipMs(g_vip.win, 2500);
+    g_vip.exitEnd = g_vip.winEnd + std::min(AwVipMs("exit_win", 1500), 3000);
+    Log("arena vip: at the podium (%s), spin at +%d, stop +%d, back +%d", g_vip.dict, g_vip.spinAt - t, g_vip.stopAt - t, g_vip.exitEnd - t);
+    return true;
+}
+static void AwWheelRelease() {
+    AwVipEnd();
+    if (g_aw.wheelMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_aw.wheelMovie);
+    g_aw.wheelMovie = 0; g_aw.wheelUntil = 0;
+}
 static int AwApGet();
 static void AwMineDrop(const Vec3 &p) {   // a mine left by an RC Bandito: armed in 1.5 s, goes off once
     AwTrap t; t.kind = AWT_MINE; t.p = p; t.once = true;
@@ -1139,19 +1231,58 @@ static void AwWheelSpin(int forced) {
     // the segment: cash $2,500 (60 %) or $10,000; a gadget on its own star or on the spare one (one time in four)
     int seg = p == 0 ? (Rand(100) < 60 ? 1 : 7) : p == 1 ? 3 : p == 2 ? 5 : Rand(4) == 0 ? 6 : p == 3 ? 0 : p == 4 ? 2 : 4;
     g_aw.wheelPrize = p; g_aw.wheelSeg = seg; g_aw.wheelValue = AW_SEGS[seg].value;
+    g_vip.win = p == 0 && g_aw.wheelValue >= 10000 ? "win_big_a" : p >= 3 ? "win_med_a" : "win_small_a";
+    bool vip = AwVipLoad() && AwVipStart();   // up at the VIP box's podium, or the HUD wheel
     if (!g_aw.wheelMovie) {
         g_aw.wheelMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "SPIN_THE_WHEEL");
         for (int k = 0; k < 100 && !NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_aw.wheelMovie)); ++k) Wait(20);
     }
-    AwWheelCall("SET_WHEEL_STYLE"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 0); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 8); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 1); N(N_END_SCALEFORM_MOVIE_METHOD);
+    if (vip && g_vip.fit == 1) N(N_SET_SCALEFORM_MOVIE_TO_USE_LARGE_RT, g_aw.wheelMovie, 1);
+    if (vip && g_vip.fit == 2) N(N_SET_SCALEFORM_MOVIE_TO_USE_SUPER_LARGE_RT, g_aw.wheelMovie, 1);
+    AwWheelCall("SET_WHEEL_STYLE"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, vip ? 1 : 0); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 8); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, vip ? 0 : 1); N(N_END_SCALEFORM_MOVIE_METHOD);
     for (int k = 0; k < 8; ++k) {
         AwWheelCall("SET_SEGMENT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, k); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, AW_SEGS[k].type);
         N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, AW_SEGS[k].value); N(N_END_SCALEFORM_MOVIE_METHOD);
+    }
+    if (vip) {   // the spin itself when the arm comes down (AwVipTick)
+        g_aw.wheelLabelAt = g_vip.spinAt + 4700;
+        g_aw.wheelUntil = g_vip.exitEnd;
+        return;
     }
     AwWheelCall("SPIN_WHEEL"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, seg); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 3);
     N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 5.f); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 2.f); N(N_END_SCALEFORM_MOVIE_METHOD);
     g_aw.wheelLabelAt = Now() + 4700;   // the spin and its win flash (the movie plays its own sounds and names the segment)
     g_aw.wheelUntil = Now() + 6500;     // then our name of the prize under the wheel (a gadget's star says only "Power Up"), then paid
+}
+static void AwVipTick() {   // the clips one after another, the camera, the spin, the movie on the podium's screen
+    int t = Now(), me = Me();
+    if (!g_vip.camSet && g_aw.boxCam) {   // high behind you: the clips stand you in the middle of the podium, facing the
+        // wheel's top (the podium's heading), so from there the whole wheel reads the right way up around you
+        Vec3 c = g_vip.at;
+        float r = g_vip.h * 3.14159265f / 180.f, fx = -std::sin(r), fy = std::cos(r);   // the podium's forward
+        // (aimed by its angles: pointed at the podium the box's camera still looked over it, the podium low in the picture)
+        N(N_STOP_CAM_POINTING, g_aw.boxCam);
+        N(N_SET_CAM_COORD, g_aw.boxCam, c.x - fx * 4.0f, c.y - fy * 4.0f, c.z + 6.3f);
+        N(N_SET_CAM_ROT, g_aw.boxCam, -54.f, 0.f, g_vip.h, 2);
+        N(N_SET_CAM_FOV, g_aw.boxCam, 58.f);
+        g_vip.camSet = true;
+    }
+    if (g_vip.stage == 0 && t >= g_vip.enterEnd) { AwVipClip("spin", 2); g_vip.stage = 1; }
+    if (g_vip.stage == 1 && t >= g_vip.spinAt) {
+        AwWheelCall("SPIN_WHEEL"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, g_aw.wheelSeg); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 3);
+        N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 5.f); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 2.f); N(N_END_SCALEFORM_MOVIE_METHOD);
+        g_vip.stage = 2;
+    }
+    if (g_vip.stage == 2 && t >= g_vip.spinEnd) { AwVipClip("spinning_idle", 1); g_vip.stage = 3; }
+    if (g_vip.stage == 3 && t >= g_vip.stopAt) { AwVipClip(g_vip.win, 2); g_vip.stage = 4; }
+    if (g_vip.stage == 4 && t >= g_vip.winEnd) { AwVipClip("exit_win", 2); g_vip.stage = 5; }
+    N(N_SET_ENTITY_INVINCIBLE, me, 1);
+    if (g_aw.wheelMovie && g_vip.rtOn) {
+        N(N_SET_TEXT_RENDER_ID, g_vip.rt); N(N_SET_SCRIPT_GFX_DRAW_ORDER, 4); N(N_SET_SCRIPT_GFX_DRAW_BEHIND_PAUSEMENU, 1);
+        if (g_vip.full) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_aw.wheelMovie, 255, 255, 255, 255, 0);
+        else N(N_DRAW_SCALEFORM_MOVIE, g_aw.wheelMovie, 0.5f, 0.5f, 1.f, 1.f, 255, 255, 255, 255, 0);
+        N(N_SET_TEXT_RENDER_ID, N<int>(N_GET_DEFAULT_SCRIPT_RENDERTARGET_RENDER_ID));
+    }
 }
 static void AwWheelTick() {
     if (!g_aw.wheelUntil) return;
@@ -1163,10 +1294,12 @@ static void AwWheelTick() {
             AwWheelCall("SET_LABEL_TEXT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_TEXTURE_NAME_STRING, t.c_str()); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 0); N(N_END_SCALEFORM_MOVIE_METHOD);
             g_aw.wheelLabelAt = Now() + 500;
         }
-        if (g_aw.wheelMovie) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_aw.wheelMovie, 255, 255, 255, 255, 0);
+        if (g_vip.active) AwVipTick();
+        else if (g_aw.wheelMovie) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_aw.wheelMovie, 255, 255, 255, 255, 0);
         return;
     }
     g_aw.wheelUntil = 0; g_aw.wheelLabelAt = 0;
+    AwVipEnd();
     int p = g_aw.wheelPrize, v = g_aw.wheelValue;
     if (p >= 3 && !AwGadgetStart(p - 2)) { p = 2; v = 25; }   // no such gadget in this game: Arena Points
     if (p == 0) { AddCash(v); Notify("~o~Arena War Wheel:~s~ " + Money(v)); }
@@ -1230,7 +1363,7 @@ static int AwTeamsAlive() {   // the other teams still in: a bot is a team; onli
 // killed you (2026-11-13)
 static void AwBoxHold() {
     int me = Me();
-    if (Dead(me)) return;
+    if (Dead(me) || g_vip.active) return;   // (at the VIP box's wheel you are seen)
     // (unseen and untouchable wherever you are in the arena: the view is the box's camera. Moving you back up every frame
     // fought LocalOnline, which undoes any jump of over 40 m for a few seconds after a respawn. Only from outside the arena.)
     Vec3 mp = Pos(me);
@@ -1262,7 +1395,7 @@ static void AwTagTeamOnline() {
     if (g_aw.inBox) {
         if (g_aw.gadget || g_aw.wheelUntil) return;   // (the wheel, a gadget's turn: their own keys)
         if (pb && !pb->out) {
-            if (g_aw.boxCam && g_aw.trapCam < 0 && Exists(pb->veh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, pb->veh, 0.f, 0.f, 0.f, 1);
+            if (g_aw.boxCam && g_aw.trapCam < 0 && !g_vip.active && Exists(pb->veh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, pb->veh, 0.f, 0.f, 0.f, 1);
             Help("In the box: ~b~" + pb->name + "~s~ is in the arena and tags you in at the tag zone.");
         } else {
             int left = 10 - (Now() - g_aw.boxSince) / 1000;
@@ -1289,7 +1422,7 @@ static void AwTagTeamTick() {
     N(N_DRAW_MARKER, 1, t.x, t.y, t.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 8.f, 8.f, 1.f, 60, 140, 255, 120, 0, 0, 2, 0, 0, 0, 0);
     if (!AwTeamsLeft()) { Shard("~g~LAST TEAM STANDING", "Every other team is out."); g_aw.endAt = std::min(g_aw.endAt, Now() + 3000); return; }
     if (g_aw.inBox) {
-        if (g_aw.boxCam && g_aw.trapCam < 0 && Exists(g_aw.partnerVeh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, g_aw.partnerVeh, 0.f, 0.f, 0.f, 1);
+        if (g_aw.boxCam && g_aw.trapCam < 0 && !g_vip.active && Exists(g_aw.partnerVeh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, g_aw.partnerVeh, 0.f, 0.f, 0.f, 1);
         static int partnerTaskAt = 0;   // your partner goes for the nearest of the other teams
         if (Exists(g_aw.partnerPed) && Exists(g_aw.partnerVeh) && Now() >= partnerTaskAt) {
             int target = 0; float best = 1e9f;
@@ -1633,7 +1766,7 @@ static void AwModesClear() {   // the new modes' things: the ball, the partner, 
 }
 static void AwCleanup() {
     if (LO().setRespawnPoint) LO().setRespawnPoint(0, 0, 0, 0, 0);
-    AwCpClear(); AwFlagClear(); AwTrapsClear(); AwModesClear();
+    AwCpClear(); AwFlagClear(); AwTrapsClear(); AwModesClear(); AwVipRelease();
     for (auto &b : g_aw.botList) AwRemoveBot(b);
     if (g_aw.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_aw.countdownMovie);
     JobSkyUp();
