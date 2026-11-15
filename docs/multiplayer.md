@@ -988,7 +988,7 @@ Any Gori Online mission started by the YOU character becomes a server job that o
 - **Status.** Deployed 2026-10-12 (server v9, LocalOnline API v5, Gori with `Coop.inc`).
   - netprobe host→joiner on an isolated server: every step was relayed and the joiner was paid $25,000.
   - In game, as host: `testjob` opens the job, reports each step, and passes it ("passed too quickly: no payout" with no members). Quitting reports failed. Interaction Menu → Jobs lists the jobs.
-  - Not tested yet: the member side in game (needs a second player). Running netprobe against the live server is refused by Claude Code's permission check, because it would create a test account in the real DB.
+  - The member side in game: tested later with gobot as the second player (races, deathmatches, survival 2026-11-06/07; a heist's crew and leader 2026-11-07; Arena War 2026-11-11 to 15), see "Roadmap: GTA Online content" and "Arena War". Two real GTAs: not yet. Running netprobe against the live server is refused by Claude Code's permission check, because it would create a test account in the real DB.
 
 ## Time
 
