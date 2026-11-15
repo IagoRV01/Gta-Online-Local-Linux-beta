@@ -653,6 +653,47 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
       - A spin at the podium landed on "Random", named "Green Space Ranger Logo Tee" under the wheel and put it on (still
         on after leaving the arena).
       - The wardrobe entry listed the tees won and put the white one on.
+- **The Arena career (2026-11-15): a level and Arena War's own outfits.** Online's career levels and what each gives
+  live in its scripts, not in the game's data, so the levels here are ours; the rewards are the game's own.
+  - **Level:** 1 + Arena Points / 100 (the AP total every event and the wheel already kept). The Arena War menu's
+    **Arena Career** row shows the level; its text has the points, how many to the next level, the next reward and how
+    many outfits you have.
+  - **Rewards:** the 88 outfits of the DLC's shop metas with the lock `CU_ARENA_CLOTHES` (`pedOutfits`, male and
+    female), by suit, every colour of a suit at once:
+    - level 2: Robot Bodysuit (16)
+    - level 3: Space Creature (12)
+    - level 5: Retro Spacesuit (14)
+    - level 7: Space Cyclops (12)
+    - level 9: Astronaut (8)
+    - level 12: Space Horror (12)
+    - level 15: Space Traveler (10)
+    - level 20: The Rookie and the other two characters (3)
+    - level 25: Epsilon Robes (1)
+
+    The names are the game's labels (`CLO_AWM_O_*` / `CLO_AWF_O_*`), without the first outfit's colour.
+  - **Level up:** the level reached is told once ("Arena Career: level 5. New outfits in your wardrobe: …", with the
+    rank-up sound) after an event's points or the wheel's. It is kept as `arena_lvl` in Gori's custom store. A character
+    who already had points is told everything at the first event.
+  - **Wardrobe:** an **Arena Outfits** entry (LEFT / RIGHT the outfits unlocked, SELECT wears it; "n of 88 from your
+    Arena Career").
+  - **How an outfit is put on:** as the shop does, component by component and prop by prop. A named item is found
+    among the ped's drawables by its name hash: the drawable whose texture 0 is `…_<n>_0`, then the texture, or else
+    every drawable and texture is searched; the results are cached.
+    - A plain value past this game's undershirts is the plain "none".
+    - A hat or glasses, mask, chain or decal that the outfit does not bring is taken off (else the last outfit's
+      monkey mask stayed on with the Epsilon Robes).
+  - **Data:** `arena_outfits.h`, made by `tools/gen_arena_outfits.py` from the two shop metas. They are extracted with
+    IslandBuilder from `update/update.rpf`, `mpchristmas2018\common\data\mp_m_freemode_01_mpchristmas2018_shop.meta`
+    and its `mp_f` twin.
+  - **Test:** `awcareer [ap <n> | lvl <n> | wear <i> | all]`; `all` checks that every part of every outfit is found.
+  - **Verified in game 2026-11-15** (test server, male character):
+    - `awcareer all`: 88 outfits, no part missing.
+    - 450 AP from level 1 gave "level 5" with the three suits.
+    - Nine outfits across every suit worn and seen on the character (the helmets are props).
+    - The Arena Career row at level 26.
+    - The wardrobe's Arena Outfits entry wore the Red Hero Bodysuit.
+  - **Not covered:** a female character's outfits (same code, the `F` table), and other players seeing an outfit
+    (LocalOnline sends the adopted outfit as for any other).
   - **RC Bandito** (60 s): you drive a real `rcbandito` in the arena, unseen and invincible inside it; E drops a mine behind it (three, 1.5 s apart). A dropped mine arms in 1.5 s, goes off under a car like the arena's own and does not come back. The turn ends when the time is up or the car is wrecked.
   - **Battle Drone** (45 s): a camera on a drone prop (`xs_prop_arena_drone_01`, else the Terrorbyte's), flown like the Terrorbyte's drone (move, SPACE / CTRL up and down, SHIFT boost) within 70 m of the arena's middle and 30 m of its floor. The mouse button is an EMP pulse (every 8 s): cars within 10 m have their engine off for 3 s.
   - **Turret** (30 s): a camera on one of the arena's own turret posts (LEFT / RIGHT change post; see below), the mouse button fires 7 shots a second. A hit takes 35 off a car's body and 30 off its engine (below zero it burns); a bot's car is hit here, a player's on that player's own game.
@@ -715,7 +756,7 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
 - **Not done:** the wheel on the podium for the other players (only the spinner's game draws
   it; what they see of you up there is not covered), the traps' own animations (the flippers have no
   animation clip in the game's files: their plate is a fragment the scripts move), Bomb Ball's goal props
-  (`xs_prop_arena_goal`, 47 m wide: wider than the part of the floor the events use), Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
+  (`xs_prop_arena_goal`, 47 m wide: wider than the part of the floor the events use), Online's own career levels and its other career rewards (vehicle trade prices, liveries, trophies), and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 
 ## Vehicle damage between players (client only, 2026-11-13)
 

@@ -348,7 +348,7 @@ static std::string ClothValue(const ClothSlot &c, bool texture) {
     if (texture) return std::to_string(N<int>(N_GET_PED_TEXTURE_VARIATION, me, c.id) + 1) + "/" + std::to_string(N<int>(N_GET_NUMBER_OF_PED_TEXTURE_VARIATIONS, me, c.id, cur));
     return std::to_string(cur + 1) + "/" + std::to_string(N<int>(N_GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS, me, c.id));
 }
-static int g_outfitSlot = 0, g_teeAt = 0;
+static int g_outfitSlot = 0, g_teeAt = 0, g_awOutfitAt = 0;
 static bool AptMenu(const Frame &f, std::string &title, std::string &sub, std::vector<Item> &items) {
     if ((int)f.id != AM_WARDROBE) return false;
     title = "Wardrobe"; sub = "WARDROBE";
@@ -369,6 +369,15 @@ static bool AptMenu(const Frame &f, std::string &title, std::string &sub, std::v
             if (nm.size() > 4 && nm.compare(nm.size() - 4, 4, " Tee") == 0) nm.resize(nm.size() - 4);   // (long names ran into the title)
             items.push_back({"Arena Tees", "< " + nm + " >", std::to_string(n) + " of " + std::to_string(AW_TEE_N) + " won on the Arena War Wheel. Wear this one.",
                              [won] { AwTeeWear(won[(size_t)g_teeAt % won.size()]); Sound("SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET"); }, nullptr, [n](int d) { g_teeAt = (g_teeAt + d + n) % n; }});
+        }
+    }
+    {   // the Arena career's outfits (ArenaWar.inc)
+        std::vector<int> got = AwOutfitsUnlocked();
+        if (!got.empty()) {
+            int n = (int)got.size(); g_awOutfitAt = (g_awOutfitAt % n + n) % n;
+            int all; AwOutfits(all);
+            items.push_back({"Arena Outfits", "< " + AwOutfitName(got[(size_t)g_awOutfitAt]) + " >", std::to_string(n) + " of " + std::to_string(all) + " from your Arena Career (Arena War). Wear this one.",
+                             [got] { AwOutfitWear(got[(size_t)g_awOutfitAt % got.size()]); Sound("SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET"); }, nullptr, [n](int d) { g_awOutfitAt = (g_awOutfitAt + d + n) % n; }});
         }
     }
     for (const auto &c : CLOTH_SLOTS) {

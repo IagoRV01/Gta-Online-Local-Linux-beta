@@ -5429,6 +5429,19 @@ static void CommandTick() {
         else if (a[0] == "arenastart") { Log("arenastart: members '%s'", g_coop.members.c_str()); AwHostStart(); }   // the lobby's start (test)
         else if (a[0] == "awtrapcam" && a.size() > 1) { AwTrapCamSet(std::atoi(a[1].c_str())); Log("awtrapcam: %d (in the box %d, camera %d, %d traps), you at %.1f %.1f %.1f health %d", g_aw.trapCam, (int)g_aw.inBox, (int)(g_aw.boxCam != 0), (int)g_aw.trapList.size(), Pos(Me()).x, Pos(Me()).y, Pos(Me()).z, N<int>(N_GET_ENTITY_HEALTH, Me())); }   // the box's Trap Cam on that trap (-1: the box's view) (test)
         else if (a[0] == "awwheel") { AwWheelSpin(a.size() > 1 ? std::atoi(a[1].c_str()) : -1); Log("awwheel: prize %d until %d ms (in the box %d, spins %d)", g_aw.wheelPrize, std::max(0, g_aw.wheelUntil - Now()), (int)g_aw.inBox, g_aw.wheelSpins); }   // awwheel [0-6]: the box's wheel spun (a number: that prize, free; 6 a tee) (test)
+        else if (a[0] == "awcareer") {   // awcareer [ap <n> | wear <i> | lvl <n>]: the Arena career (test)
+            if (a.size() > 2 && a[1] == "ap") { AcidSet("arena_ap", std::atoi(a[2].c_str())); AwCareerCheck(); }
+            else if (a.size() > 2 && a[1] == "lvl") AcidSet("arena_lvl", std::atoi(a[2].c_str()));
+            else if (a.size() > 2 && a[1] == "wear") { bool ok = AwOutfitWear(std::atoi(a[2].c_str())); Log("awcareer wear %s: %s", a[2].c_str(), ok ? "ok" : "missing parts"); }
+            else if (a.size() > 1 && a[1] == "all") {   // every outfit's parts found?
+                int n, bad = 0; const AwOutfitDef *o = AwOutfits(n);
+                for (int i = 0; i < n; ++i) for (int k = 0; k < o[i].nParts; ++k) { int d, t; if (o[i].parts[k].name && !AwItemFind(o[i].parts[k].kind, o[i].parts[k].slot, o[i].parts[k].name, d, t)) ++bad; }
+                Log("awcareer all: %d outfits, %d parts missing", n, bad);
+            }
+            std::vector<int> u = AwOutfitsUnlocked(); std::string names;
+            for (const auto &r : AW_REWARDS) names += std::to_string(r.level) + " " + AwFamilyName(r.family) + "; ";
+            Log("awcareer: level %d (stored %d), %d unlocked | %s| %s", AwLevel(AwApGet()), AcidGet("arena_lvl"), (int)u.size(), names.c_str(), AwCareerLine().c_str());
+        }
         else if (a[0] == "awtees") {   // awtees [reset | wear <k> | won <mask>]: the wheel's tees (test)
             if (a.size() > 1 && a[1] == "reset") AcidSet("arena_tees", 0);
             else if (a.size() > 2 && a[1] == "wear") { AwTeeWear(std::atoi(a[2].c_str())); Log("awtees wear: %s", AwTeeName(std::atoi(a[2].c_str())).c_str()); }

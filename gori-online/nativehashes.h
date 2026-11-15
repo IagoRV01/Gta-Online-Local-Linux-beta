@@ -157,6 +157,7 @@ constexpr uint64_t N_GET_GAME_TIMER = 0x9CD27B0045628463; // int GET_GAME_TIMER(
 constexpr uint64_t N_GET_GLOBAL_ACTIONSCRIPT_FLAG = 0xE3B05614DCE1D014; // int GET_GLOBAL_ACTIONSCRIPT_FLAG(int flagIndex)
 constexpr uint64_t N_GET_GROUND_Z_FOR_3D_COORD = 0xC906A7DAB05C8D2B; // BOOL GET_GROUND_Z_FOR_3D_COORD(float x, float y, float z, float* groundZ, BOOL ignoreWater, BOOL p5)
 constexpr uint64_t N_GET_HASH_NAME_FOR_COMPONENT = 0x0368B3A838070348; // Hash GET_HASH_NAME_FOR_COMPONENT(Entity entity, int componentId, int drawableVariant, int textureVariant)
+constexpr uint64_t N_GET_HASH_NAME_FOR_PROP = 0x5D6160275CAEC8DD; // Hash GET_HASH_NAME_FOR_PROP(Entity entity, int componentId, int propIndex, int propTextureIndex)
 constexpr uint64_t N_GET_INTERIOR_AT_COORDS = 0xB0F7F8663821D9C3; // Interior GET_INTERIOR_AT_COORDS(float x, float y, float z)
 constexpr uint64_t N_GET_INTERIOR_AT_COORDS_WITH_TYPE = 0x05B7A89BD78797FC; // Interior GET_INTERIOR_AT_COORDS_WITH_TYPE(float x, float y, float z, const char* interiorType)
 constexpr uint64_t N_GET_INTERIOR_FROM_ENTITY = 0x2107BA504071A6BB; // Interior GET_INTERIOR_FROM_ENTITY(Entity entity)

@@ -991,6 +991,115 @@ static int AwTeeDraw() {   // a design not won yet (-1: all of them, or no tee i
     for (int k = 0; k < AW_TEE_N; ++k) if (!(won >> k & 1)) left[n++] = k;
     return n ? left[Rand(n)] : -1;
 }
+// ---- the Arena career (2026-11-15): a level from the Arena Points total, and Arena War's own outfits as its rewards
+// (the mpchristmas2018 shop metas' outfits, lock CU_ARENA_CLOTHES: arena_outfits.h, tools/gen_arena_outfits.py). Online's
+// own career levels and what they give are in its scripts, not in the game's data: these levels are ours. A set of
+// outfits (all the colours of one suit) comes with each reward level; the wardrobe wears them ("Arena Outfits").
+#include "arena_outfits.h"
+static int AwApGet();
+static const int AW_AP_PER_LEVEL = 100;
+struct AwReward { int level; const char *family; };
+static const AwReward AW_REWARDS[] = {{2, "MORPH_B"}, {3, "ALIEN_A"}, {5, "SPACE_A"}, {7, "ALIEN_B"}, {9, "SPACE_B"},
+                                      {12, "ALIEN_C"}, {15, "SPACE_C"}, {20, "CHARACTERS_A"}, {25, "EPSILON"}};
+static int AwLevel(int ap) { return 1 + std::max(0, ap) / AW_AP_PER_LEVEL; }
+static const AwOutfitDef *AwOutfits(int &n) {
+    bool f = AwTeeFemale();
+    n = f ? (int)(sizeof AW_OUTFITS_F / sizeof *AW_OUTFITS_F) : (int)(sizeof AW_OUTFITS_M / sizeof *AW_OUTFITS_M);
+    return f ? AW_OUTFITS_F : AW_OUTFITS_M;
+}
+static int AwFamilyLevel(const char *fam) {   // the level that gives this suit (0: none)
+    for (const auto &r : AW_REWARDS) if (!std::strcmp(r.family, fam)) return r.level;
+    return 0;
+}
+static std::vector<int> AwOutfitsUnlocked() {   // the outfits of the reward levels reached, in the shop's order
+    std::vector<int> v; int n; const AwOutfitDef *o = AwOutfits(n);
+    int level = AwLevel(AwApGet());
+    for (int i = 0; i < n; ++i) { int l = AwFamilyLevel(o[i].family); if (l && l <= level) v.push_back(i); }
+    return v;
+}
+static std::string AwOutfitName(int i) {
+    int n; const AwOutfitDef *o = AwOutfits(n);
+    if (i < 0 || i >= n) return "";
+    std::string t = Label(o[i].label);
+    return t.empty() ? std::string(o[i].family) + " " + std::to_string(i) : t;
+}
+static std::string AwFamilyName(const char *fam) {   // a suit's name: its first outfit's, without the colour
+    static const char *const COLOURS[] = {"&", "Black", "Blue", "Brown", "Gold", "Gray", "Green", "Grey", "Orange", "Pink", "Purple", "Red", "Silver", "White", "Yellow"};
+    int n; const AwOutfitDef *o = AwOutfits(n);
+    for (int i = 0; i < n; ++i) if (!std::strcmp(o[i].family, fam)) {
+        std::string t = AwOutfitName(i);
+        for (bool cut = true; cut;) {
+            cut = false; size_t sp = t.find(' ');
+            if (sp == std::string::npos) break;
+            for (const char *c : COLOURS) if (t.compare(0, sp, c) == 0) { t.erase(0, sp + 1); cut = true; break; }
+        }
+        return t;
+    }
+    return fam;
+}
+static int AwFamilyCount(const char *fam) { int n, c = 0; const AwOutfitDef *o = AwOutfits(n); for (int i = 0; i < n; ++i) c += !std::strcmp(o[i].family, fam); return c; }
+// an item's place among the player's drawables: "DLC_MP_ARENA_M_JBIB_5_3" is texture 3 of the drawable whose texture 0
+// is "..._5_0" (cached); else every drawable and texture is searched
+static bool AwItemFind(int kind, int slot, const char *name, int &d, int &t) {
+    static std::map<std::string, std::pair<int, int>> cache;
+    std::string key = std::to_string(kind) + ":" + std::to_string(slot) + ":" + name + (AwTeeFemale() ? "F" : "M");
+    auto it = cache.find(key);
+    if (it != cache.end()) { d = it->second.first; t = it->second.second; return d >= 0; }
+    int me = Me(); uint32_t want = Joaat(name);
+    auto nameOf = [&](int dd, int tt) -> uint32_t { return (uint32_t)(kind ? N<int>(N_GET_HASH_NAME_FOR_PROP, me, slot, dd, tt) : N<int>(N_GET_HASH_NAME_FOR_COMPONENT, me, slot, dd, tt)); };
+    int nd = kind ? N<int>(N_GET_NUMBER_OF_PED_PROP_DRAWABLE_VARIATIONS, me, slot) : N<int>(N_GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS, me, slot);
+    d = t = -1;
+    std::string s = name; size_t u = s.rfind('_');
+    if (u != std::string::npos) {
+        int tex = std::atoi(s.c_str() + u + 1);
+        uint32_t base0 = Joaat((s.substr(0, u) + "_0").c_str());
+        for (int dd = nd - 1; dd >= 0 && d < 0; --dd) if (nameOf(dd, 0) == base0 && nameOf(dd, tex) == want) { d = dd; t = tex; }
+    }
+    for (int dd = nd - 1; dd >= 0 && d < 0; --dd) {
+        int nt = kind ? N<int>(N_GET_NUMBER_OF_PED_PROP_TEXTURE_VARIATIONS, me, slot, dd) : N<int>(N_GET_NUMBER_OF_PED_TEXTURE_VARIATIONS, me, slot, dd);
+        for (int tt = 0; tt < nt; ++tt) if (nameOf(dd, tt) == want) { d = dd; t = tt; break; }
+    }
+    if (d < 0) Log("arena outfits: %s not found (%s %d)", name, kind ? "prop" : "component", slot);
+    cache[key] = {d, t};
+    return d >= 0;
+}
+static bool AwOutfitWear(int i) {   // as the shop puts it on: its components and props; no hat or glasses of yours left
+    int n; const AwOutfitDef *o = AwOutfits(n);
+    if (i < 0 || i >= n) return false;
+    int me = Me(); bool f = AwTeeFemale(), prop[9] = {}, ok = true;
+    for (int k = 0; k < o[i].nParts; ++k) {
+        const AwOutfitPart &q = o[i].parts[k];
+        int d = q.value, t = 0;
+        if (q.name && !AwItemFind(q.kind, q.slot, q.name, d, t)) { ok = false; continue; }
+        if (q.kind) { N(N_SET_PED_PROP_INDEX, me, q.slot, d, t, 1, 0); prop[q.slot] = true; continue; }
+        if (!q.name && d >= N<int>(N_GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS, me, q.slot)) d = q.slot == 8 ? (f ? 14 : 15) : 0;   // (an undershirt past this game's: none)
+        N(N_SET_PED_COMPONENT_VARIATION, me, q.slot, d, t, 0);
+    }
+    for (int a : {0, 1}) if (!prop[a]) N(N_CLEAR_PED_PROP, me, a, 0);
+    for (int c : {1, 7, 10}) {   // a mask, a chain or a decal it does not bring: none (else the last outfit's mask stayed on)
+        bool set = false; for (int k = 0; k < o[i].nParts; ++k) set |= !o[i].parts[k].kind && o[i].parts[k].slot == c;
+        if (!set) N(N_SET_PED_COMPONENT_VARIATION, me, c, 0, 0, 0);
+    }
+    return ok;
+}
+// after Arena Points were added: the level reached, told once (with the outfits it gives)
+static void AwCareerCheck() {
+    int lv = AwLevel(AwApGet()), was = AcidGet("arena_lvl");
+    if (was <= 0) was = 1;
+    if (lv <= was) { if (!AcidGet("arena_lvl")) AcidSet("arena_lvl", lv); return; }
+    AcidSet("arena_lvl", lv);
+    std::string got;
+    for (const auto &r : AW_REWARDS) if (r.level > was && r.level <= lv) got += (got.empty() ? "" : ", ") + AwFamilyName(r.family) + " (" + std::to_string(AwFamilyCount(r.family)) + ")";
+    Notify("~o~Arena Career:~s~ level " + std::to_string(lv) + (got.empty() ? "." : ". New outfits in your wardrobe: " + got + "."));
+    Sound("RANK_UP", "HUD_AWARDS");
+}
+static std::string AwCareerLine() {   // the menu's line: the level, the points to the next one and the next reward
+    int ap = AwApGet(), lv = AwLevel(ap);
+    std::string s = std::to_string(ap) + " Arena Points, " + std::to_string(lv * AW_AP_PER_LEVEL - ap) + " to level " + std::to_string(lv + 1) + ".";
+    for (const auto &r : AW_REWARDS) if (r.level > lv) { s += " Level " + std::to_string(r.level) + ": " + AwFamilyName(r.family) + " (" + std::to_string(AwFamilyCount(r.family)) + " colours)."; break; }
+    int u = (int)AwOutfitsUnlocked().size(), n; AwOutfits(n);
+    return s + " Outfits: " + std::to_string(u) + " of " + std::to_string(n) + ".";
+}
 static void AwWheelCall(const char *m) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_aw.wheelMovie, m); }
 // ---- the wheel on the VIP box's podium (2026-11-15), as Online's Spectator Box has it: you are up at the podium, its
 // screen shows the movie's tabletop form and you play anim@arena@prize_wheel@ male / female (enter, spin, spinning_idle while
@@ -1349,7 +1458,7 @@ static void AwWheelTick() {
     if (p >= 3 && p <= 5 && !AwGadgetStart(p - 2)) { p = 2; v = 25; }   // no such gadget in this game: Arena Points
     if (p == 0) { AddCash(v); Notify("~o~Arena War Wheel:~s~ " + Money(v)); }
     else if (p == 1) { GiveRP(v, nullptr); Notify("~o~Arena War Wheel:~s~ " + std::to_string(v) + " RP"); }
-    else if (p == 2) { AcidSet("arena_ap", AwApGet() + v); Notify("~o~Arena War Wheel:~s~ " + std::to_string(v) + " Arena Points"); }
+    else if (p == 2) { AcidSet("arena_ap", AwApGet() + v); Notify("~o~Arena War Wheel:~s~ " + std::to_string(v) + " Arena Points"); AwCareerCheck(); }
     else if (p == 6) {   // the tee: yours from now on, and on you (the wardrobe keeps it)
         AcidSet("arena_tees", AwTeesWon() | 1 << g_aw.wheelTee);
         if (AwTeeWear(g_aw.wheelTee) && LO().adoptOutfit) LO().adoptOutfit();   // (the character's outfit with LocalOnline)
@@ -1879,6 +1988,7 @@ static void AwFinish() {
         line = std::string(won ? "You won " : g_aw.score == g_aw.botScore ? "A draw, " : g_aw.solo ? "The bots won " : "They won ") + std::to_string(g_aw.score) + " - " + std::to_string(g_aw.botScore);
     }
     AcidSet("arena_ap", AwApGet() + ap);
+    AwCareerCheck();
     if (g_aw.solo) AddCash(cash);
     long long shown = cash;
     int pos = 0;
@@ -2485,7 +2595,7 @@ static bool ArenaWarMenu(const Frame &f, std::string &title, std::string &sub, s
     if (AwCanWatch()) items.push_back({"Join events as", g_awWatch ? "< Spectator >" : "< Contender >",
                      "Another player's event: play it, or only watch it from the spectator box with its Trap Cam, wheel and gadgets. Spectators earn nothing.", [] { g_awWatch = !g_awWatch; }});
     items.push_back({"Play", "", "The event's lobby: mode, arena, vehicle and the rest, alone or online.", [] { CloseMenu(); OpenAwCorona(); }});
-    items.push_back({"Arena Points", std::to_string(AwApGet()), "Earned in every Arena War event.", nullptr});
+    items.push_back({"Arena Career", "Level " + std::to_string(AwLevel(AwApGet())), "Arena Points are earned in every Arena War event. " + AwCareerLine(), nullptr});
     items.push_back({"Set GPS to the Maze Bank Arena", "", "", [] { N(N_SET_NEW_WAYPOINT, -376.f, -1862.f); CloseMenu(); }});
     return true;
 }
