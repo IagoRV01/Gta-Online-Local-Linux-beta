@@ -955,6 +955,13 @@ bool HandleCommand(const std::string &line) {
     else if (v == "try.playing") LOGI("status", Who(), "player playing %d, control %d, being arrested %d, wasted text %d", N<int>(N_IS_PLAYER_PLAYING, gta::PlayerId()),
                                     N<int>(N_IS_PLAYER_CONTROL_ON, gta::PlayerId()), N<int>(N_IS_PLAYER_BEING_ARRESTED, gta::PlayerId(), 0), N<int>(N_IS_PED_INJURED, gta::PlayerPed()));
     else if (v == "hudfix") { RestoreAfterDeath(); LOGI("status", Who(), "HUD restored"); }
+    else if (v == "pupveh") {   // pupveh <name>: the puppet vehicle of that player as the game sees it (damage sync tests)
+        std::string who; in >> who;
+        int ped = remote::PedOf(who), veh = ped && gta::InVehicle(ped) ? N<int>(N_GET_VEHICLE_PED_IS_IN, ped, 0) : 0;
+        if (veh) LOGI("status", Who(), "pupveh %s: engine %.0f body %.0f running %d speed %.1f", who.c_str(), N<float>(N_GET_VEHICLE_ENGINE_HEALTH, veh),
+                      N<float>(N_GET_VEHICLE_BODY_HEALTH, veh), N<int>(N_GET_IS_VEHICLE_ENGINE_RUNNING, veh) ? 1 : 0, N<float>(N_GET_ENTITY_SPEED, veh));
+        else LOGI("status", Who(), "pupveh %s: no vehicle", who.c_str());
+    }
     else if (v == "netstatus") LOGI("status", Who(), "server: %s, char rev %u, remote players %d, wallet %lld, bank %lld (%d pending)", sync::StatusLine().c_str(), g_char.revision, remote::Count(), (long long)g_char.money, (long long)g_char.bank, economy::PendingCount());
     else if (online_ui::HandleCommand(v, in)) {}
     else if (v.rfind("bank.", 0) == 0) { if (g_mode != Mode::You || !bank::HandleCommand(v, in)) LOGW("devcmd", Who(), "bank command needs YOU / unknown"); }

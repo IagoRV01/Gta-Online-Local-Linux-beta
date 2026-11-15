@@ -694,13 +694,27 @@ it rides on player messages and three spare bits of the vehicle flags.
   - Looked at from a fixed camera (Gori's `camat x y z tx ty tz [fov]`) the same evening: 64 shows flames at the
     engine, 128 the burning wreck, 0 a fresh car. **32 (smoking) shows nothing**: the puppet's engine health is set
     (300 at first, then 100) and its engine runs, but the game draws no engine smoke on it. Known gap.
+  - **Smoke on a smoking puppet, tried 2026-11-15 and not solved:**
+    - The puppet's car really is at engine 100 with its engine running (client `pupveh Bot`: "engine 100 body 1000
+      running 1"). Seen from in front of its bonnet: no smoke. A car you sit in shows the game's own thin grey smoke
+      at the grille at 250 or 50 (Gori `vehdmg 250`). The puppet's settings (collision proof, petrol tank damage and
+      fires off, no explosion on high damage), put one by one on such a car (Gori `vehset`), did not take its smoke
+      away. Setting the puppet's engine health only when it drifted 60 under (instead of every frame) did not help
+      either. What stops it is still unknown (left to check: an AI driver, a car moved by velocity every frame).
+    - A particle effect of our own does not work either. The game's own `core` engine smoke (`veh_overheat_car_engine`,
+      `_vent`, `fpt_car_smoke`) does not start from a script, looped or one-shot (handle 0), nor do the missions'
+      `scr_recrash_engine_smoke`, `scr_ex3_engine_smoke` and `scr_ex2_jeep_engine_smoke`. `scr_fam1_veh_smoke` and
+      `scr_hr_rob_tula_engine_smoke` start on the engine bone (a handle) but nothing shows at the bonnet.
+    - Test commands for whoever picks it up: client `pupveh <name>`; Gori `vehdmg <engine> [body]`, `vehset
+      proofs|tank|fires|explode`, `vehfx <asset> <effect> [bone]` (looped, on a bone of your car; `vehfx off off`),
+      `vehpuff <asset> <effect> <seconds> [bone]` (one-shot every 250 ms), `camveh` (camera on your bonnet).
   - Its `lo.vd 150|200|0|0` on the car I drove: body 1000 to 850, engine 1000 to 800. Its `lo.vd 0|500|0|0`: engine
     300, and my own flags went to "smoking". Its `lo.vd 1000|1000|0|1`: my car blown up, I died, "Bot killed You" in
     my kill feed and "Alex killed by the bot" on the bot, respawn at the hospital.
   - One star in a stopped car: the police pulled me out, "arrest undone" twice in the log, and the game went on
     (they shot me later and I respawned as usual). Before the fix I stood there hands up until GTA was closed.
 - **Not covered:** two real GTAs shooting each other's cars (gobot does not simulate a car's health), smoke on a
-  smoking puppet (see above: it would need a particle effect of our own), tyres and windows (not synced), and the officer still opening the door before the arrest
+  smoking puppet (see above), tyres and windows (not synced), and the officer still opening the door before the arrest
   is undone. After an explosion of yours the fire you left keeps taking about 60 body a second off the puppet for some
   20 s, and that is reported too.
 

@@ -5884,6 +5884,61 @@ static void CommandTick() {
         else if (a[0] == "chips") { g_chips = (int)F(1); Save(); }
         else if (a[0] == "wheelreset") { g_wheelNext = 0; Save(); }
         else if (a[0] == "water") { float h = 0.f; int r = N<int>(N_GET_WATER_HEIGHT, F(1), F(2), F(3), &h); Log("water at %.1f %.1f: %d height %.2f", F(1), F(2), r, h); }
+        else if (a[0] == "vehdmg" && a.size() > 1) {   // vehdmg <engine> [body]: the healths of the car you are in (does the game draw its smoke?)
+            int v = InAnyVehicle() ? MyVehicle() : 0;
+            if (v) {
+                N(N_SET_VEHICLE_ENGINE_HEALTH, v, F(1)); if (a.size() > 2) N(N_SET_VEHICLE_BODY_HEALTH, v, F(2));
+                Log("vehdmg: engine %.0f body %.0f running %d", N<float>(N_GET_VEHICLE_ENGINE_HEALTH, v), N<float>(N_GET_VEHICLE_BODY_HEALTH, v), NB(N<int>(N_GET_IS_VEHICLE_ENGINE_RUNNING, v)) ? 1 : 0);
+            }
+        }
+        else if (a[0] == "vehset" && a.size() > 1) {   // vehset proofs|tank|fires|explode|steer|vel: one of LocalOnline's puppet settings on the car you are in
+            int v = InAnyVehicle() ? MyVehicle() : 0;
+            if (v) {
+                if (a[1] == "proofs") N(N_SET_ENTITY_PROOFS, v, 0, 0, 0, 1, 0, 0, 0, 0);
+                else if (a[1] == "tank") N(N_SET_DISABLE_VEHICLE_PETROL_TANK_DAMAGE, v, 1);
+                else if (a[1] == "fires") N(N_SET_DISABLE_VEHICLE_PETROL_TANK_FIRES, v, 1);
+                else if (a[1] == "explode") N(N_SET_VEHICLE_EXPLODES_ON_HIGH_EXPLOSION_DAMAGE, v, 0);
+                Log("vehset %s: engine %.0f", a[1].c_str(), N<float>(N_GET_VEHICLE_ENGINE_HEALTH, v));
+            }
+        }
+        else if (a[0] == "camveh") {   // camveh: the test camera 6 m in front of the car you are in, a little to its left, on its bonnet
+            int v = InAnyVehicle() ? MyVehicle() : 0;
+            if (v) {
+                Vec3 c = N<Vec3>(N_GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS, v, -2.5f, 6.5f, 1.4f), t = N<Vec3>(N_GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS, v, 0.f, 1.4f, 0.6f);
+                if (!g_testCam) g_testCam = N<int>(N_CREATE_CAM, "DEFAULT_SCRIPTED_CAMERA", 1);
+                N(N_SET_CAM_COORD, g_testCam, c.x, c.y, c.z); N(N_POINT_CAM_AT_COORD, g_testCam, t.x, t.y, t.z); N(N_SET_CAM_FOV, g_testCam, 45.f);
+                N(N_SET_CAM_ACTIVE, g_testCam, 1); N(N_RENDER_SCRIPT_CAMS, 1, 0, 0, 1, 0, 0);
+            }
+        }
+        else if (a[0] == "vehpuff" && a.size() > 3) {   // vehpuff <asset> <effect> <seconds> [bone]: a one-shot effect at a bone of your car every 250 ms (engine smoke tests)
+            int v = InAnyVehicle() ? MyVehicle() : 0;
+            if (v) {
+                N(N_REQUEST_NAMED_PTFX_ASSET, a[1].c_str());
+                for (int k = 0; k < 250 && !NB(N<int>(N_HAS_NAMED_PTFX_ASSET_LOADED, a[1].c_str())); ++k) Wait(20);
+                int bone = N<int>(N_GET_ENTITY_BONE_INDEX_BY_NAME, v, a.size() > 4 ? a[4].c_str() : "engine");
+                int n = (int)(F(3) * 4), ok = 0;
+                for (int k = 0; k < n; ++k) {
+                    Vec3 b = bone >= 0 ? N<Vec3>(N_GET_WORLD_POSITION_OF_ENTITY_BONE, v, bone) : N<Vec3>(N_GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS, v, 0.f, 1.6f, 0.5f);
+                    N(N_USE_PARTICLE_FX_ASSET, a[1].c_str());
+                    ok += NB(N<int>(N_START_PARTICLE_FX_NON_LOOPED_AT_COORD, a[2].c_str(), b.x, b.y, b.z, 0.f, 0.f, 0.f, 1.f, 0, 0, 0)) ? 1 : 0;
+                    Wait(250);
+                }
+                Log("vehpuff %s/%s: loaded %d bone %d, %d of %d started", a[1].c_str(), a[2].c_str(), NB(N<int>(N_HAS_NAMED_PTFX_ASSET_LOADED, a[1].c_str())) ? 1 : 0, bone, ok, n);
+            }
+        }
+        else if (a[0] == "vehfx" && a.size() > 2) {   // vehfx <asset> <effect> [bone]: a looped effect on a bone of the car you are in (default "engine"); vehfx off
+            static int vfx = 0;
+            if (vfx) { N(N_STOP_PARTICLE_FX_LOOPED, vfx, 0); vfx = 0; }
+            int v = InAnyVehicle() ? MyVehicle() : 0;
+            if (v && a[1] != "off") {
+                N(N_REQUEST_NAMED_PTFX_ASSET, a[1].c_str());
+                for (int k = 0; k < 250 && !NB(N<int>(N_HAS_NAMED_PTFX_ASSET_LOADED, a[1].c_str())); ++k) Wait(20);
+                int bone = N<int>(N_GET_ENTITY_BONE_INDEX_BY_NAME, v, a.size() > 3 ? a[3].c_str() : "engine");
+                N(N_USE_PARTICLE_FX_ASSET, a[1].c_str());
+                vfx = N<int>(N_START_PARTICLE_FX_LOOPED_ON_ENTITY_BONE, a[2].c_str(), v, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, bone < 0 ? 0 : bone, 1.f, 0, 0, 0);
+                Log("vehfx %s/%s: loaded %d bone %d handle %d", a[1].c_str(), a[2].c_str(), NB(N<int>(N_HAS_NAMED_PTFX_ASSET_LOADED, a[1].c_str())) ? 1 : 0, bone, vfx);
+            }
+        }
         else if (a[0] == "fx" && a.size() > 2) {   // fx <asset> <effect>: a looped particle effect 2 m ahead (finding effects); fx off
             static int fxh = 0;
             if (fxh) { N(N_STOP_PARTICLE_FX_LOOPED, fxh, 0); fxh = 0; }
