@@ -200,6 +200,10 @@ static const NaptHide NAPT_HIDE[] = {
     {"sm18", {"kt1_05_kt1_emissive_kt1_05", nullptr}},
     {"sm01", {"sm_15_emissive", nullptr}},
     {"mw34", {"kt1_02_kt1_emissive_kt1_02", nullptr}},
+    // Hawick Gardens (2026-11-15): the apartment storey's outside skin (IslandBuilder Hawick.cs), reflective glass in front
+    // of the flat's clear glass so the tower is whole from the street
+    {"hg_sky", {"islaneon_hg_towera_skin", nullptr}},
+    {"hg_garden", {"islaneon_hg_towerb_skin", nullptr}},
 };
 static const NaptHide *g_naptHid = nullptr;
 static void NaptHideApply(const NaptHide *h, bool on) {
