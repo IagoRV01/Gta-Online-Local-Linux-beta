@@ -759,8 +759,19 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - **Not covered:** the Sci-Fi and Wasteland posts (same places, other models), a goal scored with the new ball
     (0 - 0 in the half minute watched), and the turret between players from the new posts (the hits are told as
     before).
-- **Not done:** the wheel on the podium for the other players (only the spinner's game draws
-  it; what they see of you up there is not covered), the traps' own animations (the flippers have no
+- **Another player's spin on your podium (2026-11-15).** The spinner's game tells the others the segment and the prize
+  as the wheel starts turning (`awe V|segment|prize|name`, at the podium and with the HUD wheel). A game in the box
+  plays the same spin on its own copy of the movie, drawn on its podium's screen once a frame (`g_everyFrame`), and
+  names the prize under it, with "Bot spins the Arena War Wheel" and "Bot won $10,000 on the Arena War Wheel".
+  - The box's camera turns to the podium for the spin (off the Trap Cam), then goes back to the box's view. A
+    spectator's box view can be the game's own camera (the box's scripted one not rendering): the script cameras are
+    turned on for the spin and off again. The viewport is put in the VIP room meanwhile.
+  - One spin at a time: yours waits ("Bot is spinning the wheel.") while another's is on.
+  - **Verified in game 2026-11-15** (test server, gobot hosting Tag Team, the BC-250 watching from the box): the bot's
+    `say awe V|7|$10,000|Bot` turned the box's camera to the podium. The wheel spun on its screen and landed on
+    $10,000, then the box's view came back. A spin of mine reached the bot as `awe V|1|$2,500|Alex`.
+  - **Not covered:** two real games (the spinner's clips on its puppet are LocalOnline's, not synced).
+- **Not done:** what the others see of the spinner up there (the clips on its puppet), the traps' own animations (the flippers have no
   animation clip in the game's files: their plate is a fragment the scripts move), Bomb Ball's goal props
   (`xs_prop_arena_goal`, 47 m wide: wider than the part of the floor the events use), Online's own career levels and its other career rewards (vehicle trade prices, liveries, trophies), and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 

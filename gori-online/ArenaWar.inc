@@ -77,6 +77,7 @@ struct AwVip {
     int fit = 2, full = 0;   // the movie on the screen: 0 as it is, 1 LARGE_RT, 2 SUPER_LARGE_RT; drawn by DRAW_SCALEFORM_MOVIE or its FULLSCREEN form (awvipfit)
 };
 static AwVip g_vip;
+static bool g_awRwCam = false, g_awRwRender = false;   // (render: we turned the script cameras on for it)   // the box's camera on the podium for another player's spin (AwRemoteWheelStart)
 
 enum AwPhase { AWP_NONE, AWP_LOBBY, AWP_COUNTDOWN, AWP_PLAYING, AWP_RESULTS };
 struct AwBot { int veh = 0, ped = 0, blip = 0, respawnAt = 0, retaskAt = 0, idleSince = 0;
@@ -175,7 +176,7 @@ static void AwForceRoom() {   // every frame in the arena: player, car and camer
     for (auto &t : g_aw.trapList) if (Exists(t.obj)) N(N_FORCE_ROOM_FOR_ENTITY, t.obj, g_aw.interior, AW_ROOM);
     if (Exists(g_aw.gadgetVeh)) N(N_FORCE_ROOM_FOR_ENTITY, g_aw.gadgetVeh, g_aw.interior, AW_ROOM);
     if (Exists(g_aw.gadgetObj)) N(N_FORCE_ROOM_FOR_ENTITY, g_aw.gadgetObj, g_aw.interior, AW_ROOM);
-    if (g_vip.active && g_vip.interior) N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, g_vip.interior, AW_VIP_ROOM);
+    if ((g_vip.active || g_awRwCam) && g_vip.interior) N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, g_vip.interior, AW_VIP_ROOM);
     else N(N_FORCE_ROOM_FOR_GAME_VIEWPORT, g_aw.interior, AW_ROOM);
     N(N_SET_RADAR_AS_INTERIOR_THIS_FRAME, Joaat("xs_x18_int_01"), AW_CENTRE.x, AW_CENTRE.y, 0, 0);
     N(N_HIDE_MINIMAP_EXTERIOR_MAP_THIS_FRAME);
@@ -1382,8 +1383,78 @@ static void AwGadgetTick() {
     Crosshair();
 }
 // the wheel: forced >= 0 is a test's prize, free
+static std::string AwWheelLabel() {   // the prize's name under the wheel
+    int p = g_aw.wheelPrize;
+    return p == 0 ? Money(g_aw.wheelValue) : p == 1 ? std::to_string(g_aw.wheelValue) + " RP" : p == 2 ? std::to_string(g_aw.wheelValue) + " Arena Points" : p == 6 ? AwTeeName(g_aw.wheelTee) : AW_WHEEL_NAMES[p];
+}
+// ---- another player's spin on the podium's screen (2026-11-15): the spinner's game tells the others the segment and the
+// prize as the wheel starts turning ("awe V|segment|prize|name"); a game in the box plays the same spin on its own copy of
+// the movie, drawn on its podium's screen (the VIP box, AwVipLoad), and names the prize under it. One spin at a time: yours
+// waits while another's is on. What they see of the spinner up there (the clips) is LocalOnline's puppet, not this.
+struct AwRemoteWheel { int movie = 0, labelAt = 0, until = 0, nextLabel = 0; std::string label, who; };
+static AwRemoteWheel g_awRw;
+static void AwRemoteDraw() {   // g_everyFrame while another's spin is on (as AwVipDraw for yours)
+    if (!g_awRw.until || !g_awRw.movie || !g_vip.rtOn) return;
+    N(N_SET_TEXT_RENDER_ID, g_vip.rt); N(N_SET_SCRIPT_GFX_DRAW_ORDER, 4); N(N_SET_SCRIPT_GFX_DRAW_BEHIND_PAUSEMENU, 1);
+    N(N_DRAW_SCALEFORM_MOVIE, g_awRw.movie, 0.5f, 0.5f, 1.f, 1.f, 255, 255, 255, 255, 0);
+    N(N_SET_TEXT_RENDER_ID, N<int>(N_GET_DEFAULT_SCRIPT_RENDERTARGET_RENDER_ID));
+}
+static void AwRemoteWheelEnd() {
+    if (g_everyFrame == AwRemoteDraw) g_everyFrame = nullptr;
+    if (g_awRwCam && g_aw.boxCam) { N(N_SET_CAM_FOV, g_aw.boxCam, 55.f); AwTrapCamSet(-1); }   // back to the box's view
+    if (g_awRwRender) N(N_RENDER_SCRIPT_CAMS, 0, 1, 500, 1, 0, 0);
+    g_awRwCam = g_awRwRender = false;
+    if (g_awRw.movie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_awRw.movie);
+    g_awRw = AwRemoteWheel();
+}
+static void AwRemoteWheelStart(int seg, const std::string &label, const std::string &who) {
+    if (!g_aw.inBox || g_aw.wheelUntil || g_awRw.until || seg < 0 || seg > 7) { Log("arena wheel: %s's spin not shown (in the box %d, wheel %d)", who.c_str(), (int)g_aw.inBox, (int)(g_aw.wheelUntil || g_awRw.until)); return; }
+    if (!AwVipLoad()) { Log("arena wheel: %s's spin: no podium screen", who.c_str()); return; }
+    int mv = N<int>(N_REQUEST_SCALEFORM_MOVIE, "SPIN_THE_WHEEL");
+    for (int k = 0; k < 100 && !NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, mv)); ++k) Wait(20);
+    if (!NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, mv))) { N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &mv); return; }
+    if (g_vip.fit == 2) N(N_SET_SCALEFORM_MOVIE_TO_USE_SUPER_LARGE_RT, mv, 1);
+    auto call = [mv](const char *m) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, mv, m); };
+    call("SET_WHEEL_STYLE"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 1); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 8); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 0); N(N_END_SCALEFORM_MOVIE_METHOD);
+    for (int k = 0; k < 8; ++k) {
+        call("SET_SEGMENT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, k); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, AW_SEGS[k].type);
+        N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, AW_SEGS[k].value); N(N_END_SCALEFORM_MOVIE_METHOD);
+    }
+    call("SPIN_WHEEL"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, seg); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 3);
+    N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 5.f); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 2.f); N(N_END_SCALEFORM_MOVIE_METHOD);
+    g_awRw.movie = mv; g_awRw.label = label; g_awRw.who = who;
+    g_awRw.labelAt = Now() + 4700; g_awRw.until = Now() + 11000;
+    g_everyFrame = AwRemoteDraw;
+    if (g_aw.boxCam && g_aw.gadget == AWG_NONE) {   // the box's camera turns to the podium, as for your own spin (off the Trap
+        if (g_aw.trapCam >= 0) AwTrapCamSet(-1);    // Cam); held there every frame by AwRemoteWheelTick
+        g_awRwCam = true;
+        // (a spectator's box view can be the game's own camera, the box's scripted one not rendering: on for the spin)
+        if (N<int>(N_GET_RENDERING_CAM) != g_aw.boxCam) { N(N_SET_CAM_ACTIVE, g_aw.boxCam, 1); N(N_RENDER_SCRIPT_CAMS, 1, 1, 500, 1, 0, 0); g_awRwRender = true; }
+    }
+    Notify("~o~" + who + "~s~ spins the Arena War Wheel.");
+    Log("arena wheel: %s's spin on the podium: segment %d, %s", who.c_str(), seg, label.c_str());
+}
+static void AwRemoteWheelTick() {
+    if (!g_awRw.until) return;
+    int t = Now();
+    if (t >= g_awRw.until || !g_aw.inBox) { AwRemoteWheelEnd(); return; }
+    if (g_awRwCam && g_aw.boxCam) {   // high behind the podium, as the spinner's own view (the box's view pointed at the arena
+        Vec3 c = g_vip.at;            // until the next frame when set only once)
+        float r = g_vip.h * 3.14159265f / 180.f, fx = -std::sin(r), fy = std::cos(r);
+        N(N_STOP_CAM_POINTING, g_aw.boxCam);
+        N(N_SET_CAM_COORD, g_aw.boxCam, c.x - fx * 4.0f, c.y - fy * 4.0f, c.z + 6.3f);
+        N(N_SET_CAM_ROT, g_aw.boxCam, -54.f, 0.f, g_vip.h, 2);
+        N(N_SET_CAM_FOV, g_aw.boxCam, 58.f);
+    }
+    if (t >= g_awRw.labelAt && t >= g_awRw.nextLabel) {   // the prize under the wheel once its win flash ends, as on the spinner's game
+        N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_awRw.movie, "SET_LABEL_TEXT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_TEXTURE_NAME_STRING, g_awRw.label.c_str()); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 0); N(N_END_SCALEFORM_MOVIE_METHOD);
+        if (!g_awRw.nextLabel) Notify("~o~" + g_awRw.who + "~s~ won " + g_awRw.label + " on the Arena War Wheel.");
+        g_awRw.nextLabel = t + 500;
+    }
+}
 static void AwWheelSpin(int forced) {
     if (!g_aw.inBox || g_aw.gadget != AWG_NONE || g_aw.wheelUntil || g_aw.phase != AWP_PLAYING) return;
+    if (g_awRw.until) { Notify("~o~" + g_awRw.who + "~s~ is spinning the wheel."); return; }   // one spin at a time, as at the podium
     if (forced < 0) {
         if (g_aw.wheelSpins > 0) { PayWhat why("Arena War Wheel"); if (!Pay(5000)) return; }
         ++g_aw.wheelSpins;
@@ -1415,6 +1486,7 @@ static void AwWheelSpin(int forced) {
     }
     AwWheelCall("SPIN_WHEEL"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, seg); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 3);
     N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 5.f); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 2.f); N(N_END_SCALEFORM_MOVIE_METHOD);
+    if (!g_aw.solo) AwSend("awe", "V|" + std::to_string(seg) + "|" + AwWheelLabel() + "|" + AwMyName());   // the others see it on their podium
     g_aw.wheelLabelAt = Now() + 4700;   // the spin and its win flash (the movie plays its own sounds and names the segment)
     g_aw.wheelUntil = Now() + 6500;     // then our name of the prize under the wheel (a gadget's star says only "Power Up"), then paid
 }
@@ -1435,6 +1507,7 @@ static void AwVipTick() {   // the clips one after another, the camera, the spin
     if (g_vip.stage == 1 && t >= g_vip.spinAt) {
         AwWheelCall("SPIN_WHEEL"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, g_aw.wheelSeg); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 3);
         N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 5.f); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 2.f); N(N_END_SCALEFORM_MOVIE_METHOD);
+        if (!g_aw.solo) AwSend("awe", "V|" + std::to_string(g_aw.wheelSeg) + "|" + AwWheelLabel() + "|" + AwMyName());   // the others see it on their podium
         g_vip.stage = 2;
     }
     if (g_vip.stage == 2 && t >= g_vip.spinEnd) { AwVipClip("spinning_idle", 1); g_vip.stage = 3; }
@@ -1448,8 +1521,7 @@ static void AwWheelTick() {
     int left = g_aw.wheelUntil - Now();
     if (left > 0) {   // the wheel spins, flashes its prize, names it
         if (g_aw.wheelLabelAt && Now() >= g_aw.wheelLabelAt) {   // every half second until paid: the movie writes its own label as its win flash ends
-            int p = g_aw.wheelPrize;
-            std::string t = p == 0 ? Money(g_aw.wheelValue) : p == 1 ? std::to_string(g_aw.wheelValue) + " RP" : p == 2 ? std::to_string(g_aw.wheelValue) + " Arena Points" : p == 6 ? AwTeeName(g_aw.wheelTee) : AW_WHEEL_NAMES[p];
+            std::string t = AwWheelLabel();
             AwWheelCall("SET_LABEL_TEXT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_TEXTURE_NAME_STRING, t.c_str()); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 0); N(N_END_SCALEFORM_MOVIE_METHOD);
             g_aw.wheelLabelAt = Now() + 500;
         }
@@ -1560,7 +1632,7 @@ static void AwTagTeamOnline() {
     if (g_aw.inBox) {
         if (g_aw.gadget || g_aw.wheelUntil) return;   // (the wheel, a gadget's turn: their own keys)
         if (pb && !pb->out) {
-            if (g_aw.boxCam && g_aw.trapCam < 0 && !g_vip.active && Exists(pb->veh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, pb->veh, 0.f, 0.f, 0.f, 1);
+            if (g_aw.boxCam && g_aw.trapCam < 0 && !g_vip.active && !g_awRwCam && Exists(pb->veh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, pb->veh, 0.f, 0.f, 0.f, 1);
             Help("In the box: ~b~" + pb->name + "~s~ is in the arena and tags you in at the tag zone.");
         } else {
             int left = 10 - (Now() - g_aw.boxSince) / 1000;
@@ -1587,7 +1659,7 @@ static void AwTagTeamTick() {
     N(N_DRAW_MARKER, 1, t.x, t.y, t.z - 1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 8.f, 8.f, 1.f, 60, 140, 255, 120, 0, 0, 2, 0, 0, 0, 0);
     if (!AwTeamsLeft()) { Shard("~g~LAST TEAM STANDING", "Every other team is out."); g_aw.endAt = std::min(g_aw.endAt, Now() + 3000); return; }
     if (g_aw.inBox) {
-        if (g_aw.boxCam && g_aw.trapCam < 0 && !g_vip.active && Exists(g_aw.partnerVeh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, g_aw.partnerVeh, 0.f, 0.f, 0.f, 1);
+        if (g_aw.boxCam && g_aw.trapCam < 0 && !g_vip.active && !g_awRwCam && Exists(g_aw.partnerVeh)) N(N_POINT_CAM_AT_ENTITY, g_aw.boxCam, g_aw.partnerVeh, 0.f, 0.f, 0.f, 1);
         static int partnerTaskAt = 0;   // your partner goes for the nearest of the other teams
         if (Exists(g_aw.partnerPed) && Exists(g_aw.partnerVeh) && Now() >= partnerTaskAt) {
             int target = 0; float best = 1e9f;
@@ -1931,7 +2003,7 @@ static void AwModesClear() {   // the new modes' things: the ball, the partner, 
 }
 static void AwCleanup() {
     if (LO().setRespawnPoint) LO().setRespawnPoint(0, 0, 0, 0, 0);
-    AwCpClear(); AwFlagClear(); AwTrapsClear(); AwModesClear(); AwVipRelease();
+    AwCpClear(); AwFlagClear(); AwTrapsClear(); AwModesClear(); AwRemoteWheelEnd(); AwVipRelease();
     for (auto &b : g_aw.botList) AwRemoveBot(b);
     if (g_aw.countdownMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_aw.countdownMovie);
     JobSkyUp();
@@ -2269,6 +2341,8 @@ static void AwMessage(unsigned from, const std::string &kind, const std::string 
         DeleteEntity(t.obj); t.obj = 0; t.nextAt = t.once ? 0 : Now() + 20000;
     } else if (e == "T" && a.size() >= 2) {   // someone in the box set a trap off (the Trap Cam)
         AwTrapSetOff(AwTrapAt(std::atoi(a[1].c_str()), a.size() >= 4 ? a[3] : std::string()));
+    } else if (e == "V" && a.size() >= 4) {   // another player's spin: on my podium's screen if I am in the box
+        if (a[3] != AwMyName()) AwRemoteWheelStart(std::atoi(a[1].c_str()), a[2], a[3]);
     } else if (e == "M" && a.size() >= 2) {   // an RC Bandito left a mine
         Vec3 p; if (AwPtOf(a[1], p)) AwMineDrop(p);
     } else if (e == "E" && a.size() >= 2) {   // a drone's EMP pulse
@@ -2546,7 +2620,8 @@ static void ArenaWarTick() {
         }
         if (g_aw.solo) AwBotsTick();
         AwTrapsTick();
-        if (g_aw.inBox) { if (g_aw.gadget != AWG_RC) AwBoxHold(); AwWheelTick(); AwGadgetTick(); AwTrapCamTick(); }
+        if (g_aw.inBox) { if (g_aw.gadget != AWG_RC) AwBoxHold(); AwWheelTick(); AwRemoteWheelTick(); AwGadgetTick(); AwTrapCamTick(); }
+        else if (g_awRw.until) AwRemoteWheelEnd();
         AwEmpTick();
         if (g_aw.mode == AWM_FLAGWAR) AwFlagTick();
         if (g_aw.mode == AWM_WRECKIT) AwWreckItTick();

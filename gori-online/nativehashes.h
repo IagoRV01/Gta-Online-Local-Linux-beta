@@ -207,6 +207,7 @@ constexpr uint64_t N_GET_PED_WEAPON_TINT_INDEX = 0x2B9EEDC07BD06B9F; // int GET_
 constexpr uint64_t N_GET_PLAYER_GROUP = 0x0D127585F77030AF; // int GET_PLAYER_GROUP(Player player)
 constexpr uint64_t N_GET_PLAYER_NAME = 0x6D0DE6A7B5DA71F8; // const char* GET_PLAYER_NAME(Player player)
 constexpr uint64_t N_GET_PLAYER_WANTED_LEVEL = 0xE28E54788CE8F12D; // int GET_PLAYER_WANTED_LEVEL(Player player)
+constexpr uint64_t N_GET_RENDERING_CAM = 0x5234F9F10919EABA; // Cam GET_RENDERING_CAM()
 constexpr uint64_t N_GET_ROOM_KEY_FROM_ENTITY = 0x47C2A06D4F5F424B; // Hash GET_ROOM_KEY_FROM_ENTITY(Entity entity)
 constexpr uint64_t N_GET_SAFE_COORD_FOR_PED = 0xB61C8E878A4199CA; // BOOL GET_SAFE_COORD_FOR_PED(float x, float y, float z, BOOL onGround, Vector3* outPosition, int flags)
 constexpr uint64_t N_GET_SAFE_ZONE_SIZE = 0xBAF107B6BB2C97F0; // float GET_SAFE_ZONE_SIZE()
