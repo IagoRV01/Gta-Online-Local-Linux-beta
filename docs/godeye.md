@@ -228,6 +228,9 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   - `GodEyeMap <gta> at3d <x> <y> <radius> [packs...]` says which models have vertices at a point: how the leftovers
     were traced (the SLOD2 of the district, the street props' LODs, the mission ymaps).
   - Export of 2026-11-14: 90 sunk entities, 9 far models of nothing but gone ones and 14,082 triangles left out.
+  - Export of 2026-11-15 (11 min, built 20261115195325): Hawick Gardens with its towers' outside skin and the site's
+    own edges, and the night lighting of Hawick and the Mile High Club. Their lit windows and LED lines are
+    `emissivenight` panels, so the viewer draws them as light panels (`emit`), shown at night only.
   - `GodEyeMap <gta> strings <path part> <regex>` prints the text strings in the game files whose path contains that
     part (unpacked first), e.g. the effect names in `ptfx.rpf\core.ypt`.
   - Players: a pin, a heading arrow and a name, interpolated like the 2D map. Picking a player follows them.
