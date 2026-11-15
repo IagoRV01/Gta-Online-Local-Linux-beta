@@ -596,7 +596,16 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - Traps never sit within 12 m of the mode's own places (Flag War's bases, the tag zone, Bomb Ball's goals; 10 m of Wreck It's pit stop), whatever else has to give: with eleven traps the 12 m between traps often can't be had, and the last ones used to land anywhere (a mine on the tag zone).
   - Verified in game 2026-11-13: solo Tag Team from the box by keys (a flipper threw a bot, the fire pit burned, the mine went off, back to the box's view and tagged back in); between players the other game is told and its trap arrives here; wrecked and killed, then in the box with a mine set off: health unchanged.
 - **The box's Arena War Wheel and its gadgets (2026-11-13),** after Online's Spectator Box (a wheel spun for GTA$, RP, AP or a turn in the event with an RC Bandito, a drone or the turrets; the first spin free, then $5,000). From the box's own view SPACE spins it; the prizes go by for 3 s. The numbers are ours:
-  - **Prizes:** RC Bandito, Battle Drone and Turret 22 % each, $2,000 to $10,000 14 %, 500 to 2,000 RP 10 %, 10 to 50 Arena Points 10 %. The second spin on costs $5,000 (ledger "Gori Online: Arena War Wheel").
+  - **Prizes:** RC Bandito, Battle Drone and Turret 22 % each, cash 14 % ($2,500, or $10,000 two times in five), 1,000 RP 10 %, 25 Arena Points 10 %. The second spin on costs $5,000 (ledger "Gori Online: Arena War Wheel").
+  - **Online's own wheel (2026-11-15):** the spin is Arena War's `SPIN_THE_WHEEL` movie in its HUD form ("Spin to Win", its
+    own sounds and win flash): eight segments, four power-up stars, $2,500, $10,000, 1,000 RP, 25 AP. The prize is drawn as
+    before and the wheel stops on a segment that shows it; a gadget's star only says "Power Up", so its name is written
+    under the wheel. Paid when the wheel goes, 6.5 s after the spin. Until then the prizes went by as text.
+  - The movie's methods, read from its code (`spin_the_wheel.gfx`, `scaleform_minigames.rpf`): `SET_WHEEL_STYLE(type 0 HUD /
+    1 tabletop, segments, spectator)`, `SET_SEGMENT(index, type, value)` (types 0 blank, 1 power-up, 2 cash, 3 RP, 4 AP,
+    5 free spin, 6 random), `SPIN_WHEEL(target, full turns, seconds, win pause in seconds)`, `SET_LABEL_TEXT(text, red)`.
+    The tabletop form is for the screen prop in the VIP lounge (`xs_prop_arena_roulette`, render target
+    `script_rt_arena_roulette`). Gori's `stw style|seg|spin|label|call|off` drives the movie on its own.
   - **RC Bandito** (60 s): you drive a real `rcbandito` in the arena, unseen and invincible inside it; E drops a mine behind it (three, 1.5 s apart). A dropped mine arms in 1.5 s, goes off under a car like the arena's own and does not come back. The turn ends when the time is up or the car is wrecked.
   - **Battle Drone** (45 s): a camera on a drone prop (`xs_prop_arena_drone_01`, else the Terrorbyte's), flown like the Terrorbyte's drone (move, SPACE / CTRL up and down, SHIFT boost) within 70 m of the arena's middle and 30 m of its floor. The mouse button is an EMP pulse (every 8 s): cars within 10 m have their engine off for 3 s.
   - **Turret** (30 s): a camera on one of the arena's own turret posts (LEFT / RIGHT change post; see below), the mouse button fires 7 shots a second. A hit takes 35 off a car's body and 30 off its engine (below zero it burns); a bot's car is hit here, a player's on that player's own game.
@@ -656,7 +665,7 @@ Replaces the earlier LSC menu (Shops.inc's "press E at the door").
   - **Not covered:** the Sci-Fi and Wasteland posts (same places, other models), a goal scored with the new ball
     (0 - 0 in the half minute watched), and the turret between players from the new posts (the hits are told as
     before).
-- **Not done:** Online's own look for the wheel, its clothing prizes, the traps' own animations (the flippers have no
+- **Not done:** the wheel's clothing prizes, the lounge's tabletop wheel on its screen, the traps' own animations (the flippers have no
   animation clip in the game's files: their plate is a fragment the scripts move), Bomb Ball's goal props
   (`xs_prop_arena_goal`, 47 m wide: wider than the part of the floor the events use), Arena career rewards beyond the AP total, and the prop layouts of Rockstar's own Arena War jobs (cloud UGC, which this project does not download).
 

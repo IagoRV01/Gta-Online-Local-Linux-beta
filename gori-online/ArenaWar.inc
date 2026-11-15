@@ -104,6 +104,7 @@ struct AwRun {
     int gadget = 0, gadgetVeh = 0, gadgetObj = 0, gadgetCam = 0, gadgetUntil = 0, gadgetMines = 0, gadgetNext = 0, gadgetSendAt = 0, turretAt = 0;
     float gadYaw = 0.f, gadPitch = 0.f; Vec3 gadPos{};
     int wheelSpins = 0, wheelUntil = 0, wheelPrize = -1, wheelValue = 0;
+    int wheelMovie = 0, wheelSeg = 0, wheelLabelAt = 0;   // Arena War's own wheel (SPIN_THE_WHEEL), its target segment, when the prize is named
     int empUntil = 0, empFxAt = 0; Vec3 empFxPt{};   // a drone's pulse: my engine is out until then; its flash
     std::string hitBy; int hitAt = 0;                 // the player whose turret last hit my car
     bool noPay = false;   // the job was closed, not passed (its host left): nobody is paid
@@ -926,6 +927,15 @@ static void AwTrapCamTick() {
 enum { AWG_NONE, AWG_RC, AWG_DRONE, AWG_TURRET };
 static const char *const AW_GADGET_NAMES[] = {"", "RC Bandito", "Battle Drone", "Turret"};
 static const char *const AW_WHEEL_NAMES[] = {"GTA$", "RP", "Arena Points", "RC Bandito", "Battle Drone", "Turret"};
+// Online's own wheel, the HUD form of its SPIN_THE_WHEEL movie (2026-11-15; Arena War's spectator wheel). Methods, from
+// the movie's code: SET_WHEEL_STYLE(type: 0 HUD / 1 tabletop, segments, spectator), SET_SEGMENT(index, type, value) with
+// types 0 blank, 1 power-up, 2 cash, 3 RP, 4 AP, 5 free spin, 6 random, SPIN_WHEEL(target, full turns, seconds, win pause
+// in seconds), SET_LABEL_TEXT(text, red). Eight segments clockwise from the top; the prize is drawn by the old weights and
+// lands on a segment that shows it. The power-ups all show a star: the gadget is named under the wheel.
+struct AwSeg { int type, value, prize; };   // prize: 0 cash, 1 RP, 2 AP, 3 RC Bandito, 4 drone, 5 turret, -1 any gadget
+static const AwSeg AW_SEGS[8] = {{1, 0, 3}, {2, 2500, 0}, {1, 0, 4}, {3, 1000, 1}, {1, 0, 5}, {4, 25, 2}, {1, 0, -1}, {2, 10000, 0}};
+static void AwWheelRelease() { if (g_aw.wheelMovie) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_aw.wheelMovie); g_aw.wheelMovie = 0; g_aw.wheelUntil = 0; }
+static void AwWheelCall(const char *m) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_aw.wheelMovie, m); }
 static int AwApGet();
 static void AwMineDrop(const Vec3 &p) {   // a mine left by an RC Bandito: armed in 1.5 s, goes off once
     AwTrap t; t.kind = AWT_MINE; t.p = p; t.once = true;
@@ -1126,29 +1136,43 @@ static void AwWheelSpin(int forced) {
         ++g_aw.wheelSpins;
     }
     int r = Rand(100), p = forced >= 0 ? forced % 6 : r < 22 ? 3 : r < 44 ? 4 : r < 66 ? 5 : r < 80 ? 0 : r < 90 ? 1 : 2;
-    g_aw.wheelPrize = p;
-    g_aw.wheelValue = p == 0 ? 1000 * (2 + Rand(9)) : p == 1 ? 250 * (2 + Rand(7)) : p == 2 ? 10 * (1 + Rand(5)) : 0;
-    g_aw.wheelUntil = Now() + 3000;
-    Sound("CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET");
+    // the segment: cash $2,500 (60 %) or $10,000; a gadget on its own star or on the spare one (one time in four)
+    int seg = p == 0 ? (Rand(100) < 60 ? 1 : 7) : p == 1 ? 3 : p == 2 ? 5 : Rand(4) == 0 ? 6 : p == 3 ? 0 : p == 4 ? 2 : 4;
+    g_aw.wheelPrize = p; g_aw.wheelSeg = seg; g_aw.wheelValue = AW_SEGS[seg].value;
+    if (!g_aw.wheelMovie) {
+        g_aw.wheelMovie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "SPIN_THE_WHEEL");
+        for (int k = 0; k < 100 && !NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_aw.wheelMovie)); ++k) Wait(20);
+    }
+    AwWheelCall("SET_WHEEL_STYLE"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 0); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 8); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 1); N(N_END_SCALEFORM_MOVIE_METHOD);
+    for (int k = 0; k < 8; ++k) {
+        AwWheelCall("SET_SEGMENT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, k); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, AW_SEGS[k].type);
+        N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, AW_SEGS[k].value); N(N_END_SCALEFORM_MOVIE_METHOD);
+    }
+    AwWheelCall("SPIN_WHEEL"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, seg); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, 3);
+    N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 5.f); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, 2.f); N(N_END_SCALEFORM_MOVIE_METHOD);
+    g_aw.wheelLabelAt = Now() + 4700;   // the spin and its win flash (the movie plays its own sounds and names the segment)
+    g_aw.wheelUntil = Now() + 6500;     // then our name of the prize under the wheel (a gadget's star says only "Power Up"), then paid
 }
 static void AwWheelTick() {
     if (!g_aw.wheelUntil) return;
     int left = g_aw.wheelUntil - Now();
-    if (left > 0) {   // spinning: the prizes go by, slower and slower
-        int k = (Now() / (left > 1500 ? 90 : left > 600 ? 180 : 320)) % 6;
-        Text("ARENA WAR WHEEL", 0.5f, 0.36f, 0.7f, 4, 255, 140, 0, 255, 0, 1.f, true);
-        Text(AW_WHEEL_NAMES[k], 0.5f, 0.42f, 1.1f, 4, 255, 255, 255, 255, 0, 1.f, true);
+    if (left > 0) {   // the wheel spins, flashes its prize, names it
+        if (g_aw.wheelLabelAt && Now() >= g_aw.wheelLabelAt) {   // every half second until paid: the movie writes its own label as its win flash ends
+            int p = g_aw.wheelPrize;
+            std::string t = p == 0 ? Money(g_aw.wheelValue) : p == 1 ? std::to_string(g_aw.wheelValue) + " RP" : p == 2 ? std::to_string(g_aw.wheelValue) + " Arena Points" : AW_WHEEL_NAMES[p];
+            AwWheelCall("SET_LABEL_TEXT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_TEXTURE_NAME_STRING, t.c_str()); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 0); N(N_END_SCALEFORM_MOVIE_METHOD);
+            g_aw.wheelLabelAt = Now() + 500;
+        }
+        if (g_aw.wheelMovie) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_aw.wheelMovie, 255, 255, 255, 255, 0);
         return;
     }
-    g_aw.wheelUntil = 0;
+    g_aw.wheelUntil = 0; g_aw.wheelLabelAt = 0;
     int p = g_aw.wheelPrize, v = g_aw.wheelValue;
-    if (p >= 3 && !AwGadgetStart(p - 2)) { p = 2; v = 20; }   // no such gadget in this game: Arena Points
-    if (p == 0) { AddCash(v); Shard("~o~ARENA WAR WHEEL", Money(v)); }
-    else if (p == 1) { GiveRP(v, nullptr); Shard("~o~ARENA WAR WHEEL", std::to_string(v) + " RP"); }
-    else if (p == 2) { AcidSet("arena_ap", AwApGet() + v); Shard("~o~ARENA WAR WHEEL", std::to_string(v) + " Arena Points"); }
-    else Shard("~o~ARENA WAR WHEEL", AW_WHEEL_NAMES[p]);
-    Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET");
-    Log("arena wheel: %s %d (spin %d)", AW_WHEEL_NAMES[p], v, g_aw.wheelSpins);
+    if (p >= 3 && !AwGadgetStart(p - 2)) { p = 2; v = 25; }   // no such gadget in this game: Arena Points
+    if (p == 0) { AddCash(v); Notify("~o~Arena War Wheel:~s~ " + Money(v)); }
+    else if (p == 1) { GiveRP(v, nullptr); Notify("~o~Arena War Wheel:~s~ " + std::to_string(v) + " RP"); }
+    else if (p == 2) { AcidSet("arena_ap", AwApGet() + v); Notify("~o~Arena War Wheel:~s~ " + std::to_string(v) + " Arena Points"); }
+    Log("arena wheel: %s %d (segment %d, spin %d)", AW_WHEEL_NAMES[p], v, g_aw.wheelSeg, g_aw.wheelSpins);
 }
 static void AwPartnerRemove() {
     RemoveBlip(g_aw.partnerBlip);
@@ -1178,7 +1202,7 @@ static void AwTagOut(bool wrecked) {   // you go up to the box, your partner com
     else Notify(wrecked ? "~r~Wrecked.~s~ Your partner is in; you're in the box." : "~b~Tagged out.~s~ Your partner is in the arena.");
 }
 static void AwTagIn() {   // back in at the tag zone, the car repaired as far as the box got it
-    AwGadgetEnd(); g_aw.wheelUntil = 0;
+    AwGadgetEnd(); AwWheelRelease();
     AwPartnerRemove();
     int me = Me();
     N(N_FREEZE_ENTITY_POSITION, me, 0); N(N_SET_ENTITY_VISIBLE, me, 1, 0); N(N_SET_ENTITY_COLLISION, me, 1, 1); N(N_SET_ENTITY_INVINCIBLE, me, 0);
@@ -1600,7 +1624,7 @@ static void AwBegin(int startsInMs) {
 }
 static void AwCpClear() { if (g_aw.cpHandle) { N(N_DELETE_CHECKPOINT, g_aw.cpHandle); g_aw.cpHandle = 0; } RemoveBlip(g_aw.cpBlip); }
 static void AwModesClear() {   // the new modes' things: the ball, the partner, the box camera
-    AwGadgetEnd(); g_aw.wheelUntil = 0;
+    AwGadgetEnd(); AwWheelRelease();
     if (Exists(g_aw.ball)) DeleteEntity(g_aw.ball);
     RemoveBlip(g_aw.ballBlip);
     AwPartnerRemove();

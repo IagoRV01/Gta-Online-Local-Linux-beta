@@ -272,6 +272,9 @@ static void Shard(const std::string &title, const std::string &sub) {
     g_shardUntil = Now() + 6000;
 }
 static void DrawShard() { if (g_shard && Now() < g_shardUntil) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_shard, 255, 255, 255, 255, 0); }
+// the SPIN_THE_WHEEL test movie (stw command), drawn full screen while it is on
+static int g_stw = 0, g_stwUntil = 0;
+static void DrawStw() { if (g_stw && Now() < g_stwUntil) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_stw, 255, 255, 255, 255, 0); }
 
 // ---------------------------------------------------------------- Interiors (from bob74_ipl's data)
 // sets: "entity_set;entity_set:tint;..."
@@ -5891,6 +5894,19 @@ static void CommandTick() {
                 Log("vehdmg: engine %.0f body %.0f running %d", N<float>(N_GET_VEHICLE_ENGINE_HEALTH, v), N<float>(N_GET_VEHICLE_BODY_HEALTH, v), NB(N<int>(N_GET_IS_VEHICLE_ENGINE_RUNNING, v)) ? 1 : 0);
             }
         }
+        else if (a[0] == "stw" && a.size() > 1) {   // stw style <type> <segments> <spectator 0|1> | seg <i> <type> <value> | spin <target> <fullSpins> <duration> <pause> | label <text> | call <method> [int...] | off: Arena War's wheel movie (finding its arguments)
+            if (a[1] == "off") { if (g_stw) N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_stw); g_stw = 0; g_stwUntil = 0; }
+            else {
+                if (!g_stw) { g_stw = N<int>(N_REQUEST_SCALEFORM_MOVIE, "SPIN_THE_WHEEL"); for (int k = 0; k < 200 && !NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_stw)); ++k) Wait(20); }
+                g_stwUntil = Now() + 120000;
+                if (a[1] == "style" && a.size() > 4) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_stw, "SET_WHEEL_STYLE"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, (int)F(2)); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, (int)F(3)); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, (int)F(4)); N(N_END_SCALEFORM_MOVIE_METHOD); }
+                else if (a[1] == "seg" && a.size() > 4) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_stw, "SET_SEGMENT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, (int)F(2)); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, (int)F(3)); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, (int)F(4)); N(N_END_SCALEFORM_MOVIE_METHOD); }
+                else if (a[1] == "spin" && a.size() > 5) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_stw, "SPIN_WHEEL"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, (int)F(2)); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, (int)F(3)); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, F(4)); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_FLOAT, F(5)); N(N_END_SCALEFORM_MOVIE_METHOD); }
+                else if (a[1] == "label" && a.size() > 2) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_stw, "SET_LABEL_TEXT"); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_TEXTURE_NAME_STRING, rest.substr(6).c_str()); N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, 0); N(N_END_SCALEFORM_MOVIE_METHOD); }
+                else if (a[1] == "call" && a.size() > 2) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_stw, a[2].c_str()); for (size_t k = 3; k < a.size(); ++k) N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_INT, (int)F((int)k)); N(N_END_SCALEFORM_MOVIE_METHOD); }
+                Log("stw %s: movie %d loaded %d", a[1].c_str(), g_stw, NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_stw)) ? 1 : 0);
+            }
+        }
         else if (a[0] == "vehset" && a.size() > 1) {   // vehset proofs|tank|fires|explode|steer|vel: one of LocalOnline's puppet settings on the car you are in
             int v = InAnyVehicle() ? MyVehicle() : 0;
             if (v) {
@@ -6249,7 +6265,7 @@ static void ScriptMain() {
         MenuTick();
         RankTick();
         if (!g_menuOpen) DrawRank(false);
-        DrawShard();
+        DrawShard(); DrawStw();
         JobCelebrationTick();
         if (g_hgTest == 1 && g_drill.on && DrillTick() > 0) { DrillEnd(); g_hgTest = 0; Log("hgame: drill done"); }
         if (g_hgTest == 2 && g_hack.on) { int hr = HackTick(); if (hr) { HackEnd(); g_hgTest = 0; Log("hgame: hack %s", hr > 0 ? "done" : "left"); } }
