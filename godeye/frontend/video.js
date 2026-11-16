@@ -8,7 +8,9 @@ let streams = [], current = null, pc = null, hls = null, whepSession = null, pla
 const onLan = () => /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$)/.test(location.hostname);
 
 async function loadStreams() {
-  try { streams = await (await fetch("api/video", { cache: "no-cache" })).json(); } catch { streams = []; }
+  // (only a list: an error object while GodEye or the camera restarted left "streams" an object, the LIVE button broken
+  // and an error every second, until the page was reloaded; 2026-11-16)
+  try { const r = await (await fetch("api/video", { cache: "no-cache" })).json(); streams = Array.isArray(r) ? r : []; } catch { streams = []; }
   $("liveBtn").hidden = !streams.length;
   const pick = $("vPick"), keep = pick.value;
   pick.innerHTML = streams.map((s) => `<option value="${esc(s.path)}">${esc(s.name)}${s.live ? "" : " (offline)"}</option>`).join("");
