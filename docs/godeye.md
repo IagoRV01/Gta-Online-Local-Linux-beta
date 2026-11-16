@@ -324,6 +324,14 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   `build/camera-client.log`) and shows on / off / starting.
   - A camera button (CCTV or a mode) now opens the LIVE panel when it is closed, so what the camera shows is on screen at
     once. Until then the video only showed after a separate click on LIVE.
+- **Normal GTA Online on the server PC (2026-11-17):** two desktop shortcuts run `D:\GTAEnhancedMods\GTA-Modo.ps1`
+  (PC-only, not in the repo).
+  - "GTA Online normal" (`Online`): takes ReShade out of GTA V Enhanced, stops the camera (which takes its mods out of
+    the Legacy GTA) and starts Enhanced as shipped, with BattlEye.
+  - "GTA Enhanced Gráficos (historia)" (`Graficos`): stops the camera (the same Steam account runs one GTA at a time),
+    puts in ReShade 6.8.0 with the `GoriCine` preset (deband, lift/gamma/gain, curves, vibrance, CAS, light vignette),
+    starts story mode with `-nobattleye`, and takes ReShade out again when the game closes.
+  - `Estado` says what is in; `Quitar` only takes ReShade out. The live server and GodEye keep running in both modes.
 
 ## Phase 13: live video
 
