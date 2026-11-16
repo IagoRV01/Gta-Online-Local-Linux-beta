@@ -341,6 +341,210 @@ void TrafficTick(int me) {
     g_restyled.swap(styledNow);
 }
 
+// ---------------------------------------------------------------- GodEye's hacks on a player (2026-11-16, paid in Hack
+// Credits on the web): a drone with a taser, an RC Bandito packed with C4, hacked self-driving taxis. All of it on this
+// player's own game, like the police units: theirs to escape, shoot down or outrun.
+struct Gadget {
+    int kind = 0;                 // kGeDrone | kGeRcBomb | kGeTaxis
+    int obj = 0;                  // the drone (an object we fly)
+    std::vector<int> vehs, peds;  // the RC car / the taxis and their hidden drivers
+    std::vector<int> blips;
+    int startMs = 0, untilMs = 0, nextMs = 0, retaskMs = 0, zaps = 0;
+    Vec3 at;                      // the drone's place
+};
+std::vector<Gadget> g_gadgets;
+
+void GadgetRelease(Gadget &g, bool remove) {
+    for (int &b : g.blips) if (b) N(N_REMOVE_BLIP, &b);
+    g.blips.clear();
+    if (gta::Exists(g.obj)) N(N_DELETE_ENTITY, &g.obj);
+    for (int &e : g.peds) if (gta::Exists(e)) N(N_DELETE_ENTITY, &e);   // the hidden drivers never linger
+    for (int &e : g.vehs) {
+        if (!gta::Exists(e)) continue;
+        if (remove) N(N_DELETE_ENTITY, &e); else N(N_SET_ENTITY_AS_NO_LONGER_NEEDED, &e);
+    }
+}
+
+int Blip(int e, int colour) {
+    int b = N<int>(N_ADD_BLIP_FOR_ENTITY, e);
+    if (b) { N(N_SET_BLIP_COLOUR, b, colour); N(N_SET_BLIP_AS_SHORT_RANGE, b, 1); }
+    return b;
+}
+
+// a hidden driver: the "self-driving" taxi and the RC car have nobody you can see at the wheel
+int HiddenDriver(int veh) {
+    uint32_t m = gta::Joaat("a_m_y_business_01");
+    if (!gta::LoadModel(m)) return 0;
+    int ped = N<int>(N_CREATE_PED_INSIDE_VEHICLE, veh, 26, m, -1, 0, 1);
+    gta::ReleaseModel(m);
+    if (!ped) return 0;
+    gta::MakeMission(ped);
+    gta::SetVisible(ped, false);
+    gta::SetInvincible(ped, true);
+    N(N_SET_BLOCKING_OF_NON_TEMPORARY_EVENTS, ped, 1);
+    N(N_SET_DRIVER_ABILITY, ped, 1.f);
+    N(N_SET_PED_KEEP_TASK, ped, 1);
+    return ped;
+}
+
+void Drone(int me) {
+    uint32_t m = 0;
+    for (const char *n : {"xs_prop_arena_drone_01", "xs_prop_arena_drone_02", "ba_prop_battle_drone_quad"})
+        if (NB(N<int>(N_IS_MODEL_VALID, gta::Joaat(n)))) { m = gta::Joaat(n); break; }
+    if (!m || !gta::LoadModel(m)) { LOGW("godeye", "-", "drone: no drone model in this game"); return; }
+    Vec3 p = gta::Pos(me);
+    float a = (float)(gta::GameTimeMs() % 6283) / 1000.f;
+    Gadget g;
+    g.kind = kGeDrone;
+    g.at = {p.x + std::cos(a) * 60.f, p.y + std::sin(a) * 60.f, p.z + 25.f};
+    g.obj = N<int>(N_CREATE_OBJECT, m, g.at.x, g.at.y, g.at.z, 0, 1, 0);
+    gta::ReleaseModel(m);
+    if (!g.obj) return;
+    gta::MakeMission(g.obj);
+    gta::Freeze(g.obj, true);
+    g.blips.push_back(Blip(g.obj, 1));
+    g.startMs = gta::GameTimeMs();
+    g.untilMs = g.startMs + 45000;
+    g.nextMs = g.startMs + 6000;
+    g_gadgets.push_back(g);
+    gta::Notify("~p~GodEye~s~  A ~r~taser drone~s~ has been hacked onto you. Shoot it down!");
+    LOGI("godeye", "-", "taser drone launched 60 m out");
+}
+
+void RcBomb(int me) {
+    Vec3 p = gta::Pos(me), node;
+    float h = 0;
+    if (!RoadNodeAround(p, 70.f, 140.f, node, h)) { LOGW("godeye", "-", "rc bomb: no road near the player"); return; }
+    uint32_t m = gta::Joaat("rcbandito");
+    if (!gta::LoadModel(m)) { LOGW("godeye", "-", "rc bomb: no rcbandito in this game"); return; }
+    Gadget g;
+    g.kind = kGeRcBomb;
+    int v = SpawnCar(m, node, h);
+    gta::ReleaseModel(m);
+    if (!v) return;
+    g.vehs.push_back(v);
+    int d = HiddenDriver(v);
+    if (d) g.peds.push_back(d);
+    N(N_SET_VEHICLE_ENGINE_ON, v, 1, 1, 0);
+    g.blips.push_back(Blip(v, 1));
+    g.startMs = gta::GameTimeMs();
+    g.untilMs = g.startMs + 75000;
+    g_gadgets.push_back(g);
+    gta::Notify("~p~GodEye~s~  An ~r~RC Bandito packed with C4~s~ is coming for you. Destroy it or run!");
+    LOGI("godeye", "-", "rc bomb sent from %.0f,%.0f (%.0f m)", node.x, node.y, std::sqrt(Dist2(node, p)));
+}
+
+void Taxis(int me) {
+    Vec3 p = gta::Pos(me);
+    uint32_t m = gta::Joaat("taxi");
+    if (!gta::LoadModel(m)) return;
+    Gadget g;
+    g.kind = kGeTaxis;
+    for (int k = 0; k < 2; ++k) {
+        Vec3 node;
+        float h = 0;
+        if (!RoadNodeAround(p, 80.f + 50.f * k, 180.f + 40.f * k, node, h)) continue;
+        int v = SpawnCar(m, node, h);
+        if (!v) continue;
+        g.vehs.push_back(v);
+        int d = HiddenDriver(v);
+        if (d) g.peds.push_back(d);
+        N(N_SET_VEHICLE_ENGINE_ON, v, 1, 1, 0);
+        N(N_SET_VEHICLE_DOORS_LOCKED, v, 2);
+        g.blips.push_back(Blip(v, 5));
+    }
+    gta::ReleaseModel(m);
+    if (g.vehs.empty()) { LOGW("godeye", "-", "taxis: no road near the player"); return; }
+    g.startMs = gta::GameTimeMs();
+    g.untilMs = g.startMs + 45000;
+    g_gadgets.push_back(g);
+    gta::Notify("~p~GodEye~s~  The city's ~y~self-driving taxis~s~ have been hacked. They are coming for you!");
+    LOGI("godeye", "-", "%d hacked taxis sent", (int)g.vehs.size());
+}
+
+// every frame: the drone flies and zaps, the RC car homes in and blows up, the taxis ram
+void GadgetsTick(int me) {
+    int now = gta::GameTimeMs();
+    Vec3 p = gta::Pos(me);
+    bool dead = gta::Dead(me);
+    for (size_t i = 0; i < g_gadgets.size();) {
+        Gadget &g = g_gadgets[i];
+        bool done = now > g.untilMs || dead;
+        if (g.kind == kGeDrone && !done) {
+            if (!gta::Exists(g.obj)) done = true;
+            else if (NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ANY_PED, g.obj))) {   // shot down
+                N(N_ADD_EXPLOSION, g.at.x, g.at.y, g.at.z, 0, 0.f, 1, 0, 0.3f, 1);
+                gta::Notify("~g~Drone down.~s~");
+                LOGI("godeye", "-", "taser drone shot down");
+                done = true;
+            } else {
+                // circle 7 m from the player, 4 m up, closing in at up to 14 m/s
+                float a = (float)(now % 9000) / 9000.f * 6.2832f;
+                Vec3 want{p.x + std::cos(a) * 7.f, p.y + std::sin(a) * 7.f, p.z + 4.f};
+                float dx = want.x - g.at.x, dy = want.y - g.at.y, dz = want.z - g.at.z, d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                float step = 14.f / 60.f;
+                if (d > step) { g.at.x += dx / d * step; g.at.y += dy / d * step; g.at.z += dz / d * step; } else g.at = want;
+                N(N_SET_ENTITY_COORDS_NO_OFFSET, g.obj, g.at.x, g.at.y, g.at.z, 0, 0, 0);
+                float face = std::atan2(-(p.x - g.at.x), p.y - g.at.y) * 57.2958f;
+                N(N_SET_ENTITY_ROTATION, g.obj, 0.f, 0.f, face, 2, 1);
+                if (now >= g.nextMs && Dist2(g.at, p) < 18.f * 18.f && g.zaps < 4) {   // zap
+                    g.nextMs = now + 5000;
+                    ++g.zaps;
+                    N(N_SHOOT_SINGLE_BULLET_BETWEEN_COORDS, g.at.x, g.at.y, g.at.z - 0.3f, p.x, p.y, p.z + 0.3f, 0, 1, gta::Joaat("weapon_stungun"), 0, 1, 0, -1.f);
+                    if (gta::InVehicle(me)) {   // an EMP into the car: the engine dies for a few seconds
+                        int veh = N<int>(N_GET_VEHICLE_PED_IS_IN, me, 0);
+                        N(N_SET_VEHICLE_ENGINE_ON, veh, 0, 1, 1);
+                        g.retaskMs = now + 4000;
+                        gta::Notify("~r~ZAP!~s~  The drone's EMP killed your engine.");
+                    } else {
+                        N(N_SET_PED_TO_RAGDOLL, me, 3500, 4000, 0, 0, 0, 0);
+                        gta::Notify("~r~ZAP!~s~  Tased by GodEye's drone.");
+                    }
+                    LOGI("godeye", "-", "drone zap %d", g.zaps);
+                }
+                if (g.retaskMs && now >= g.retaskMs && gta::InVehicle(me)) {   // the engine back on
+                    g.retaskMs = 0;
+                    N(N_SET_VEHICLE_ENGINE_ON, N<int>(N_GET_VEHICLE_PED_IS_IN, me, 0), 1, 0, 0);
+                }
+                if (g.zaps >= 4 && now >= g.nextMs) done = true;   // its battery is flat
+            }
+        }
+        if (g.kind == kGeRcBomb && !done) {
+            int v = g.vehs.empty() ? 0 : g.vehs[0];
+            if (!gta::Exists(v)) done = true;
+            else {
+                Vec3 c = gta::Pos(v);
+                bool wrecked = NB(N<int>(N_IS_ENTITY_DEAD, v)) || gta::Health(v) < 700;
+                if (wrecked || Dist2(c, p) < 4.5f * 4.5f) {   // boom: on the player, or where it was stopped
+                    N(N_ADD_EXPLOSION, c.x, c.y, c.z + 0.3f, 2, 1.f, 1, 0, 1.f, 0);
+                    LOGI("godeye", "-", "rc bomb %s", wrecked ? "destroyed before it arrived" : "went off at the player");
+                    if (wrecked) gta::Notify("~g~The RC Bandito was destroyed.~s~");
+                    done = true;
+                } else if (now >= g.retaskMs && !g.peds.empty() && gta::Exists(g.peds[0])) {
+                    g.retaskMs = now + 2500;
+                    N(N_TASK_VEHICLE_MISSION_PED_TARGET, g.peds[0], v, me, 2, 30.f, 786469, 1.f, 0.f, 1);
+                }
+            }
+        }
+        if (g.kind == kGeTaxis && !done && now >= g.retaskMs) {
+            g.retaskMs = now + 3000;
+            for (size_t k = 0; k < g.vehs.size() && k < g.peds.size(); ++k) {
+                if (!gta::Exists(g.vehs[k]) || !gta::Exists(g.peds[k])) continue;
+                N(N_TASK_VEHICLE_MISSION_PED_TARGET, g.peds[k], g.vehs[k], me, 2, 26.f, 786469, 1.f, 0.f, 1);
+                N(N_START_VEHICLE_HORN, g.vehs[k], 1500, gta::Joaat("HELDDOWN"), 0);
+            }
+        }
+        if (done) {
+            float far2 = 0.f;
+            for (int v : g.vehs) if (gta::Exists(v)) far2 = std::max(far2, Dist2(p, gta::Pos(v)));
+            GadgetRelease(g, g.kind != kGeTaxis || far2 > 200.f * 200.f);
+            g_gadgets.erase(g_gadgets.begin() + i);
+            continue;
+        }
+        ++i;
+    }
+}
+
 }  // namespace
 
 const char *TrafficModeName() {
@@ -363,11 +567,15 @@ void Frame(int me) {
             case kGeRoadblock: Roadblock(me); break;
             case kGeTraffic: if (m.value != g_traffic || m.durationMs) SetTraffic(m.value, m.durationMs); break;
             case kGeNotice: gta::Notify("~p~GodEye~s~  " + m.text); break;
+            case kGeDrone: Drone(me); break;
+            case kGeRcBomb: RcBomb(me); break;
+            case kGeTaxis: Taxis(me); break;
             default: break;
         }
     }
     if (g_flashUntil && gta::GameTimeMs() > g_flashUntil) { g_flashUntil = 0; N(N_FLASH_WANTED_DISPLAY, 0); }
     UnitsTick(me);
+    GadgetsTick(me);
     TrafficTick(me);
 }
 
@@ -377,6 +585,8 @@ void End() {
     for (auto &u : g_units) Release(u, true);
     if (!g_units.empty()) LOGI("godeye", "-", "%d police units released", (int)g_units.size());
     g_units.clear();
+    for (auto &g : g_gadgets) GadgetRelease(g, true);
+    g_gadgets.clear();
     if (g_traffic != kTrafficNormal || !g_lights.empty() || !g_restyled.empty()) RestoreTraffic();
     g_traffic = kTrafficNormal;
     g_trafficUntil = 0;

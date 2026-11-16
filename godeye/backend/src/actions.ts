@@ -16,6 +16,10 @@ export const ACTIONS: Record<string, ActionDef> = {
   notify:    { roles: ["OPERATOR"], cooldownS: 5, label: "Message", player: false },
   camera:    { roles: ["OPERATOR", "HACKER"], cooldownS: 2, label: "Camera", player: false },
   event:     { roles: ["OPERATOR"], cooldownS: 120, label: "Event", player: false },   // Phase 14: game.ts EVENTS
+  // GodEye's hacks on a player (2026-11-16), on the player's own game (LocalOnline godeye.cpp)
+  drone:     { roles: ["HACKER"], cooldownS: 60, label: "Taser drone", player: true },
+  rcbomb:    { roles: ["HACKER"], cooldownS: 90, label: "RC Bandito with C4", player: true },
+  taxis:     { roles: ["HACKER"], cooldownS: 60, label: "Hacked taxis", player: true },
 };
 
 export const WEATHERS = ["CLEAR", "EXTRASUNNY", "CLOUDS", "OVERCAST", "RAIN", "CLEARING", "THUNDER", "SMOG", "FOGGY", "XMAS", "SNOW", "SNOWLIGHT", "BLIZZARD", "HALLOWEEN", "NEUTRAL", "auto"];
@@ -51,6 +55,9 @@ export function toCommand(r: ActionRequest, playing: (id: number) => boolean): {
     }
     case "alert": return { line: `alert ${target} ${cleanText(r.text) || "Dispatch has your description."}` };
     case "roadblock": return { line: `roadblock ${target}` };
+    case "drone": return { line: `drone ${target}` };
+    case "rcbomb": return { line: `rcbomb ${target}` };
+    case "taxis": return { line: `taxis ${target}` };
     case "traffic": {
       const v = String(r.value ?? "");
       if (!TRAFFIC.includes(v)) return { error: "traffic: red, green, random or normal" };

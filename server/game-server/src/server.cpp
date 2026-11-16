@@ -797,6 +797,9 @@ bool Server::GodEyeCommand(const std::string &v, const std::string &line) {
         m.kind = kGePoliceAlert;
         m.text = rest.empty() ? "Dispatch has your description." : rest;
     } else if (v == "roadblock") m.kind = kGeRoadblock;
+    else if (v == "drone") m.kind = kGeDrone;      // GodEye's hacks (2026-11-16)
+    else if (v == "rcbomb") m.kind = kGeRcBomb;
+    else if (v == "taxis") m.kind = kGeTaxis;
     else if (v == "notify") {
         if (rest.empty()) return false;
         m.kind = kGeNotice;
@@ -872,7 +875,7 @@ bool Server::AdminCommand(const std::string &line) {
         LOGI("admin", "-", "%s: %s", line.c_str(), ok ? "ok" : "rejected");
         return ok;
     }
-    if (v == "wanted" || v == "alert" || v == "roadblock" || v == "notify" || v == "traffic") {
+    if (v == "wanted" || v == "alert" || v == "roadblock" || v == "notify" || v == "traffic" || v == "drone" || v == "rcbomb" || v == "taxis") {
         bool ok = GodEyeCommand(v, line);
         LOGI("admin", "-", "%s: %s", line.c_str(), ok ? "ok" : "rejected");
         if (ok) db_->Event("godeye", "", "{\"command\":\"" + JsonEsc(line.substr(0, 160)) + "\"}");

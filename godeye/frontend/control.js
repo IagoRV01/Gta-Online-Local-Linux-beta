@@ -45,6 +45,7 @@ function renderAuth() {
   $("roleTag").textContent = auth.role;
   for (const g of document.querySelectorAll(".ctl")) g.hidden = !g.dataset.need.split(" ").some((a) => auth.can.includes(a));
   for (const b of document.querySelectorAll("[data-act]")) b.hidden = !auth.can.includes(b.dataset.act);
+  camPower("status");
 }
 
 // the access dialog: log in, or make an account (the first one is the ADMIN; then a side to play)
@@ -91,7 +92,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
 $("loginCancel").onclick = () => $("loginDlg").close();
 
 // ---- actions
-const PLAYER_ACTIONS = new Set(["wanted", "alert", "roadblock"]);
+const PLAYER_ACTIONS = new Set(["wanted", "alert", "roadblock", "drone", "rcbomb", "taxis"]);
 
 async function act(payload) {
   if (PLAYER_ACTIONS.has(payload.action)) {
@@ -112,7 +113,24 @@ async function act(payload) {
   if (r.data.credits != null && typeof onCredits === "function") onCredits(r.data.credits);
   if (typeof loadGame === "function") loadGame();
   updateCooldowns();
+  if (payload.action === "camera" && $("videoBox").hidden) $("liveBtn").click();   // what the camera now shows, at once
 }
+
+// ---- the camera client's power (ADMIN, 2026-11-16): the camera GTA on the server PC, on and off
+async function camPower(op) {
+  if (!auth.panel) { $("camPower").hidden = true; return; }
+  $("camPower").hidden = false;
+  const r = await api("api/panel/camera", { op });
+  if (!r.ok) { $("camPowerState").textContent = r.data.error || "?"; return; }
+  const p = r.data;
+  $("camPowerState").textContent = p.busy ? (p.op === "start" ? "starting (a few minutes)…" : "stopping…") : p.running ? "on" : "off";
+  $("camOn").disabled = p.busy || p.running;
+  $("camOff").disabled = p.busy || !p.running;
+  if (op !== "status") toast(op === "start" ? "Starting the camera GTA: it takes a few minutes." : "Stopping the camera GTA.", false);
+}
+$("camOn").onclick = () => camPower("start");
+$("camOff").onclick = () => camPower("stop");
+setInterval(() => { if (auth && auth.panel && !$("control").hidden) camPower("status"); }, 8000);
 
 for (const b of document.querySelectorAll("[data-act]")) {
   b.addEventListener("click", () => {
@@ -187,6 +205,9 @@ function describe(e) {
     case "wanted": return `set ${name(a)}'s wanted level ${rest[0]}`;
     case "alert": return `sent a police alert to ${name(a)}`;
     case "roadblock": return `set up a roadblock ahead of ${name(a)}`;
+    case "drone": return `sent a taser drone after ${name(a)}`;
+    case "rcbomb": return `sent an RC Bandito packed with C4 at ${name(a)}`;
+    case "taxis": return `hacked the self-driving taxis to ram ${name(a)}`;
     case "traffic": return a === "normal" ? "put the traffic lights back to normal" : `turned every traffic light ${a.toUpperCase()}${rest[0] > 0 ? ` for ${rest[0]} s` : ""}`;
     case "blackout": return a === "on" ? "cut the city's power" : "turned the power back on";
     case "weather": return a === "auto" ? "let the weather run on its own" : `changed the weather to ${a}`;

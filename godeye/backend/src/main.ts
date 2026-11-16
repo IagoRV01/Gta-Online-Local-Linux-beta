@@ -6,7 +6,8 @@
 // panel: the PC, the game server, GodEye, accounts, settings, credits and logs.
 //   node src/main.ts [godeye.json]
 // GodEye never talks to GTA, and browsers never talk to the game server.
-import { appendFileSync, createReadStream, existsSync, readFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, createReadStream, existsSync, readFileSync, mkdirSync, openSync } from "node:fs";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,25 @@ import { acceptUpgrade, type WsClient } from "./ws.ts";
 import { Zones } from "./zones.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+// ---- the camera client's power (2026-11-16): GodEye starts and stops the camera GTA (camera_client.py puts the camera's
+// mods into the PC's GTA on start and takes them out on stop, so this PC's GTA is the plain game whenever it is off)
+const CAMERA_SCRIPT = resolve(HERE, "../../camera/camera_client.py");
+const CAMERA_PYTHON = process.env.GODEYE_PYTHON || "python";
+let camProc: ChildProcess | null = null, camOp = "";
+function camBusy() { return !!camProc && camProc.exitCode == null; }
+function runCamera(op: string): ChildProcess {
+  camOp = op;
+  const out = openSync(resolve(HERE, "../../../build/camera-client.log"), "a");
+  const p = spawn(CAMERA_PYTHON, ["-u", CAMERA_SCRIPT, op], { stdio: ["ignore", out, out], windowsHide: true, detached: true });
+  p.on("error", (e) => log("WARN", `camera client ${op}: ${e.message}`));
+  return p;
+}
+function cameraGtaRunning(): boolean {   // the camera's GTA: the Legacy GTA5.exe (the Enhanced one is GTA5_Enhanced.exe)
+  try { return /GTA5\.exe/i.test(execFileSync("tasklist", ["/FI", "IMAGENAME eq GTA5.exe", "/FO", "CSV", "/NH"], { encoding: "utf8", windowsHide: true })); }
+  catch { return false; }
+}
+function cameraPower() { return { running: cameraGtaRunning(), busy: camBusy(), op: camBusy() ? camOp : "" }; }
 const ROOT = resolve(HERE, "..");           // godeye/backend
 const FRONT = resolve(ROOT, "../frontend");
 
@@ -347,6 +367,15 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
   }
   // ---- the control panel (ADMIN)
   if (path.startsWith("/api/panel/") && s.role !== "ADMIN") { json(403, { error: "ADMIN only" }); return; }
+  if (path === "/api/panel/camera") {   // the camera client's power (2026-11-16): godeye/camera/camera_client.py start|stop
+    const op = String(body.op ?? "status");
+    if ((op === "start" || op === "stop") && !camBusy()) {
+      camProc = runCamera(op);
+      log("INFO", `${s.user}: camera client ${op}`);
+    }
+    json(200, cameraPower());
+    return;
+  }
   if (path === "/api/panel/user") {
     const op = String(body.op ?? ""), name = String(body.name ?? "");
     const target = users.get(name);

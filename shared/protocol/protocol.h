@@ -371,6 +371,9 @@ enum GodEyeKind : uint8_t {
     kGeRoadblock = 3,    // police cars across the road ahead of the player
     kGeTraffic = 4,      // value = TrafficMode, for durationMs (0 = until changed)
     kGeNotice = 5,       // text shown as a notification
+    kGeDrone = 6,        // GodEye's hacks (2026-11-16): a drone with a taser flies to the player
+    kGeRcBomb = 7,       // an RC Bandito packed with C4 drives at the player
+    kGeTaxis = 8,        // hacked self-driving taxis ram the player
 };
 enum TrafficMode : uint8_t { kTrafficNormal = 0, kTrafficAllRed = 1, kTrafficAllGreen = 2, kTrafficRandom = 3 };
 constexpr size_t kMaxGodEyeText = 120;
@@ -380,7 +383,7 @@ inline void Put(wire::Writer &w, const GodEyeActionMsg &m) {
 }
 inline bool Get(wire::Reader &r, GodEyeActionMsg &m) {
     m.kind = r.U8(); m.value = r.U8(); m.durationMs = r.U32(); m.text = r.Str(kMaxGodEyeText);
-    if (!r.Done() || m.kind < kGeWanted || m.kind > kGeNotice) return false;
+    if (!r.Done() || m.kind < kGeWanted || m.kind > kGeTaxis) return false;
     if (m.kind == kGeWanted) return m.value <= 5;
     if (m.kind == kGeTraffic) return m.value <= kTrafficRandom;
     return true;

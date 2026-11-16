@@ -319,6 +319,12 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   - it followed FOLLOW / HELI / CAM_003 on command; an unknown target was refused;
   - the player saw 0 other players.
 
+- **Power from GodEye (2026-11-16):** the ADMIN's Cameras box has "Turn cameras on" / "Turn cameras off". The backend
+  runs `camera_client.py start|stop` (`POST /api/panel/camera`, op start/stop/status, ADMIN only; log in
+  `build/camera-client.log`) and shows on / off / starting.
+  - A camera button (CCTV or a mode) now opens the LIVE panel when it is closed, so what the camera shows is on screen at
+    once. Until then the video only showed after a separate click on LIVE.
+
 ## Phase 13: live video
 
 - **Pipeline:**
@@ -400,6 +406,22 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   - the page (desktop and 375 px) showed both minigames, ACCESS GRANTED, the event banner, halved prices and the
     board;
   - 21 unit tests pass.
+
+## GodEye's hacks on a player (2026-11-16)
+
+HACKER (and ADMIN) actions on the selected player, paid in Hack Credits, each after a hacking minigame, carried out on
+that player's own game by LocalOnline (`godeye.cpp`, protocol `GodEyeAction` kinds 6-8):
+
+| Action | Price | Uses a day | Minigame | In the game |
+|---|---|---|---|---|
+| Taser drone (`drone`) | 400 | 5 | sequence, level 2 | A drone (Arena War's) flies in from 60 m and circles the player 7 m out, 4 m up, for 45 s. Up to four zaps 5 s apart within 18 m: on foot a stun-gun shot and a 3.5 s ragdoll; in a car an EMP that kills the engine for 4 s. It can be shot down. |
+| RC Bandito with C4 (`rcbomb`) | 600 | 3 | route, level 2 | An `rcbandito` with a hidden driver comes from a road 70-140 m away and rams the player. Within 4.5 m it goes off (a sticky bomb's explosion); destroyed first, it goes off where it is. After 75 s it is gone. |
+| Hacked taxis (`taxis`) | 350 | 5 | route, level 1 | Two locked taxis with hidden drivers ("self-driving") come from 80-230 m, ram the player and sound the horn for 45 s. |
+
+- Server commands: `drone <id>`, `rcbomb <id>`, `taxis <id>`.
+- They are released when the player dies, leaves YOU or goes offline.
+- **Not verified in game yet:** built and unit-tested (2290 tests, GodEye backend 27). The in-game run on the test
+  server was stopped when the user wanted the BC-250.
 
 ## Accounts and the control panel
 
