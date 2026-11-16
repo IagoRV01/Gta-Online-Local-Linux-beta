@@ -979,8 +979,10 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
     - Fleeca: "Driller (2) You 75 %", "Driver (2) Bot 25 %".
     - Pacific Standard: Hacker You, Demolition Bot, Crowd Control Bot2 and Bot3, reward $1,250,000, LAUNCH HEIST.
     - The map on the dark panel, the table on the whiteboard.
-    - Seen right after another heist's board, the pie chart can still show that heist's take (the movie is reused);
-      opened on its own it is right.
+    - The pie chart keeps the first take and cuts a movie was given: another heist or another crew on the finale's
+      board now gets a fresh movie (until then a crew joining left the old cuts in the pie). Verified: Fleeca's board
+      ($230,000, two slices), then the Pacific Standard's with three more players while open ($1,250,000, four
+      slices, four roles).
 - **Next.**
   - Online's own role names from its cloud data, if the heists' content IDs are ever found.
 

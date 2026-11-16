@@ -125,7 +125,7 @@ static void HbBuild(int h) {
         HbBegin("LAUNCH_BUTTON_ENABLED"); HbBool(true); HbEnd();
     }
     HbBegin("HIGHLIGHT_ITEM"); HbInt(g_hb.sel); HbInt(0); HbBool(false); HbBool(false); HbEnd();
-    g_hb.built = h; g_hb.builtStage = st; g_hb.builtCrew = g_coop.members;
+    g_hb.built = h; g_hb.builtStage = st; g_hb.builtCrew = h == g_hbFakeHeist ? g_hbFakeCrew : g_coop.members;
     Log("heist board: %s, %s (stage %d/%d)", d.name, HbFinale(h) ? "heist board" : "planning board", st + 1, d.stages);
 }
 
@@ -253,7 +253,10 @@ static void HbFrame() {
         if (in && room && room != g_hbRoom) { N(N_FORCE_ROOM_FOR_ENTITY, g_hb.prop, in, room); g_hbRoom = room; }
     }
     static int reloadAt = 0;
-    if (g_hb.movie && g_hb.built >= 0 && g_hb.built != g_hb.heist) {   // another heist: a fresh movie (the old one keeps its title); asked for at once it's the old one again
+    // another heist, or the finale's board with another crew: a fresh movie (the old one keeps its title, and its pie
+    // chart keeps the first take and cuts it was given, 2026-11-16); asked for at once it's the old one again
+    bool newCrew = g_hb.built == g_hb.heist && g_hb.heist >= 0 && HbFinale(g_hb.heist) && g_hb.builtCrew != (g_hb.heist == g_hbFakeHeist ? g_hbFakeCrew : g_coop.members);
+    if (g_hb.movie && g_hb.built >= 0 && (g_hb.built != g_hb.heist || newCrew)) {
         N(N_SET_SCALEFORM_MOVIE_AS_NO_LONGER_NEEDED, &g_hb.movie);
         g_hb.movie = 0; g_hb.built = -1; reloadAt = Now() + 400;
     }
@@ -261,7 +264,7 @@ static void HbFrame() {
     if (!g_hb.movie) g_hb.movie = N<int>(N_REQUEST_SCALEFORM_MOVIE, "HEIST_MP");
     if (!NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.movie))) return;
     if (g_hb.heist < 0) g_hb.heist = HbDefaultHeist();
-    if (g_hb.built != g_hb.heist || g_hb.builtStage != g_heistStage[g_hb.heist] || g_hb.builtCrew != g_coop.members) HbBuild(g_hb.heist);
+    if (g_hb.built != g_hb.heist || g_hb.builtStage != g_heistStage[g_hb.heist] || g_hb.builtCrew != (g_hb.heist == g_hbFakeHeist ? g_hbFakeCrew : g_coop.members)) HbBuild(g_hb.heist);
     // on the wall in front of the spot, its centre 1.55 m up, facing the spot (Online's board is 4.2 x 2.4 m, ours fits the
     // wall screen); the 3D movie is placed by its top-left corner
     float bw = g_hbW, bh = g_hbW * 2.4f / 4.2f;

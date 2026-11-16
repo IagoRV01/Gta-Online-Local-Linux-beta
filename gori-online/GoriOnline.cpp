@@ -5103,7 +5103,7 @@ static void CommandTick() {
         else if (a[0] == "hboff") HbClose();
         else if (a[0] == "hbside" && a.size() > 2) { g_hbSide = F(1); g_hbMapSide = F(2); }   // hbside <movie> <map>: their sideways offsets, + to your left (test)
         else if (a[0] == "hbfake" && a.size() > 1) {   // hbfake <heist|-1> [crew,names]: that heist's finale board with that crew, nothing saved (test)
-            g_hbFakeHeist = std::atoi(a[1].c_str()); g_hbFakeCrew = a.size() > 2 ? a[2] : ""; g_hb.built = -1;
+            g_hbFakeHeist = std::atoi(a[1].c_str()); g_hbFakeCrew = a.size() > 2 ? a[2] : "";
             for (int s2 = 0; s2 < 4; ++s2) Log("hbfake: %d slot %d %s", g_hbFakeHeist, s2, HbRole(g_hbFakeHeist, s2));
         }
         else if (a[0] == "hbslot" && a.size() > 3) {   // hbslot <dict|-> <done> <open>: how the slots are filled (test)
