@@ -956,8 +956,33 @@ GTA Online's own jobs are cloud UGC run by `fm_mission_controller` inside a real
   - The finale's scene played on a black screen: the lobby's Play fades the screen out and the scene ran under it (for all of its 105 s, with the busy spinner). `PlayCut` fades in once the scene plays. Verified: Fleeca's `MPH_TUT_FIN_INT` seen whole, Lester at the board with the crew's line (Crew (2), 25 %, $57,500, Ready), then the finale; its end with the bot: the leader 75 % plus the Elite Challenge ($272,500), the bot $57,500, and the celebration `MPH_FIN_CEL_APT` with the crew in it.
   - The crew watches the leader's scenes, as in Online: before each heist scene (intro, midpoint, finale, a setup's end, the celebration) the leader sends `hcut` (scene|world|apartment|roles|leader) to its session; a member of the leader's job, or of its last one within 3 minutes (the end scenes come after the job), plays the same scene on its own game, in the leader's apartment or where it was made, with the leader in it as `MP_2` (story mode always makes you `MP_1`), and can't skip it. From the lobby's member screen it goes back to it afterwards.
   - Verified with gobot as the leader (its `host` command opens a job, `say hcut ...` shares a scene) and the BC-250 as the member in Del Perro Apt 20: Fleeca's finale scene seen whole from the member's lobby (Players 2 of 1-4, back to it after), then `MPH_TUT_EXT` at the docks.
+- **Done 2026-11-16.**
+  - **The finale's roles on the heist board.** Online takes them from the job's cloud data, and Social Club does not
+    list heists (its job search has no heist type and finds nothing for "Pacific Standard"). As the user chose, the
+    board shows the roles GTABase gives for the five original finales, a slot each (`HeistBoard.inc` `HB_ROLES`):
+    - Fleeca: Driller, Driver.
+    - Prison Break: Prison Officer, Prisoner, Demolition, Pilot.
+    - Humane Labs: Pilot, Gunner, Ground Team ×2.
+    - Series A: Van Driver ×2, Technical Team ×2.
+    - Pacific Standard: Hacker, Demolition, Crowd Control ×2.
+
+    The other heists keep Leader / Crew. They are names only: the crew follows the leader's objectives whatever its
+    role.
+  - Empty places on the board are blanked (a heist seen before with a bigger crew left its rows).
+  - In our own apartments the board's movie and map hang side by side as in Online's: the movie 1.75 m to the right
+    of the board's centre (its text on the whiteboard), the map 0.33 m to the left (on the dark panel). They were
+    centred on one point and the map covered the crew's names, roles and cuts. The offsets come from Online's
+    points 141-143 in Del Perro Heights Apt 20.
+  - Test: Gori `hbfake <heist|-1> [crew,names]` (a finale's board with a made-up crew, nothing saved), `hbside <movie>
+    <map>`.
+  - **Verified in game 2026-11-16** in the Skyline Loft (dt10):
+    - Fleeca: "Driller (2) You 75 %", "Driver (2) Bot 25 %".
+    - Pacific Standard: Hacker You, Demolition Bot, Crowd Control Bot2 and Bot3, reward $1,250,000, LAUNCH HEIST.
+    - The map on the dark panel, the table on the whiteboard.
+    - Seen right after another heist's board, the pie chart can still show that heist's take (the movie is reused);
+      opened on its own it is right.
 - **Next.**
-  - The finale's roles on the board (Online takes them from the job's cloud data, `COR_TEAM_<n>` labels).
+  - Online's own role names from its cloud data, if the heists' content IDs are ever found.
 
 ## Co-op jobs (protocol v9, 2026-10-12)
 

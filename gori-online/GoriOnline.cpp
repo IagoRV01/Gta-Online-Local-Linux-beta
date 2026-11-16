@@ -5101,6 +5101,11 @@ static void CommandTick() {
             HbOpen();
         }
         else if (a[0] == "hboff") HbClose();
+        else if (a[0] == "hbside" && a.size() > 2) { g_hbSide = F(1); g_hbMapSide = F(2); }   // hbside <movie> <map>: their sideways offsets, + to your left (test)
+        else if (a[0] == "hbfake" && a.size() > 1) {   // hbfake <heist|-1> [crew,names]: that heist's finale board with that crew, nothing saved (test)
+            g_hbFakeHeist = std::atoi(a[1].c_str()); g_hbFakeCrew = a.size() > 2 ? a[2] : ""; g_hb.built = -1;
+            for (int s2 = 0; s2 < 4; ++s2) Log("hbfake: %d slot %d %s", g_hbFakeHeist, s2, HbRole(g_hbFakeHeist, s2));
+        }
         else if (a[0] == "hbslot" && a.size() > 3) {   // hbslot <dict|-> <done> <open>: how the slots are filled (test)
             g_hbTex = a[1] == "-" ? "" : a[1]; g_hbDone = std::atoi(a[2].c_str()); g_hbOpen = std::atoi(a[3].c_str()); g_hb.builtStage = -1;
             if (!g_hbTex.empty()) N(N_REQUEST_STREAMED_TEXTURE_DICT, g_hbTex.c_str(), 0);

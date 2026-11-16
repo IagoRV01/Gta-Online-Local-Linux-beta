@@ -24,7 +24,11 @@ static float g_hbPropAhead = 0.60f, g_hbPropZ = 1.6f, g_hbPropRot = 180.f;   // 
 static uint32_t g_hbRoom = 0;   // the room the board prop was put in
 // the map: on, drawn before the movie, solid, behind the movie by, its rotation, its centre off the board's, its scale
 static int g_hbMapOn = 1, g_hbMapFirst = 1, g_hbMapSolid = 1;
-static float g_hbMapAhead = 0.02f, g_hbMapRX = 0.f, g_hbMapRY = 0.f, g_hbMapRZ = 180.f, g_hbMapSide = 0.f, g_hbMapUp = 0.f, g_hbMapScale = 1.f;
+static float g_hbMapAhead = 0.02f, g_hbMapRX = 0.f, g_hbMapRY = 0.f, g_hbMapRZ = 180.f, g_hbMapSide = 0.33f, g_hbMapUp = 0.f, g_hbMapScale = 1.f;
+// side by side as in Online's apartments (2026-11-16): there the movie's corner is 0.35 m left of the board's centre and the
+// map's 2.24 m (Del Perro Heights Apt 20, points 141-143), so the movie's text is on the whiteboard and the map on the
+// dark panel. Centred on one point (until then) the map covered the crew's names, roles and cuts. Sides: + is your left
+static float g_hbSide = -1.75f;
 static int g_hbMode = 1, g_hbCorner = 0;   // 1 the solid 3D draw, 0 the plain one (placed by a corner, g_hbCorner: 0 grows right+down, 1 left+down, 2 right+up, 3 left+up), 2 full screen (tests)
 static float g_hbRotX = 0.f;   // the plain 3D draw's y axis points up: turned over (180) it reads right
 static bool HbUsing() { return g_hb.using_; }
@@ -46,11 +50,24 @@ static void HbBool(bool v) { N(N_SCALEFORM_MOVIE_METHOD_ADD_PARAM_BOOL, v ? 1 : 
 static void HbBegin(const char *m) { N<int>(N_BEGIN_SCALEFORM_MOVIE_METHOD, g_hb.movie, m); }
 static void HbEnd() { N(N_END_SCALEFORM_MOVIE_METHOD); }
 
+// the finale's roles on the heist board, a slot each (the leader first, then the crew in the lobby's order). Online takes
+// them from the job's cloud data, which Social Club does not list for heists (searched 2026-11-16); these are the roles
+// GTABase gives for the five original finales (gtabase.com/gta-online/jobs/heists/...), as the user chose. The others keep
+// Leader / Crew. Only names: here the crew follows the leader's objectives whatever its role.
+static const char *const HB_ROLES[5][4] = {
+    {"Driller", "Driver", "Crew", "Crew"},                              // The Fleeca Job (2 players)
+    {"Prison Officer", "Prisoner", "Demolition", "Pilot"},              // The Prison Break
+    {"Pilot", "Gunner", "Ground Team", "Ground Team"},                  // The Humane Labs Raid
+    {"Van Driver", "Van Driver", "Technical Team", "Technical Team"},  // Series A Funding
+    {"Hacker", "Demolition", "Crowd Control", "Crowd Control"},          // The Pacific Standard Job
+};
+static const char *HbRole(int h, int slot) { return h >= 0 && h < 5 && slot >= 0 && slot < 4 ? HB_ROLES[h][slot] : slot == 0 ? "Leader" : "Crew"; }
 static int HbDefaultHeist() {   // the first unlocked heist (Online: the one Lester last called about)
     for (int h = 0; h < NHEISTS; ++h) { std::string why; if (HeistUnlocked(h, why)) return h; }
     return 0;
 }
-static bool HbFinale(int h) { return g_heistStage[h] >= HEISTS[h].stages - 1; }
+static int g_hbFakeHeist = -1; static std::string g_hbFakeCrew;   // hbfake: a finale's board with a made-up crew, nothing saved (test)
+static bool HbFinale(int h) { return h == g_hbFakeHeist || g_heistStage[h] >= HEISTS[h].stages - 1; }
 
 static std::string g_hbTex;                 // the slots' pictures (hbslot: fmmc_launcher passes MPHEIST_BIOLAB)
 static int g_hbDone = 1, g_hbOpen = -1;     // a slot's state: 1 crossed out in red, -1 not (and the next one gets its yellow "To do" note)
@@ -80,7 +97,7 @@ static void HbBuild(int h) {
         for (int i = 0; i < 4; ++i) { HbBegin("ADD_CREW_MEMBER"); HbInt(i); HbEnd(); }
         // the crew: the heist lobby's members (Online's cuts: each at the lobby's Crew Cut, the leader the rest, min 15%)
         std::vector<std::string> crew;
-        for (auto &n : Split(g_coop.members, ',')) if (!n.empty() && crew.size() < 3) crew.push_back(n);
+        for (auto &n : Split(h == g_hbFakeHeist ? g_hbFakeCrew : g_coop.members, ',')) if (!n.empty() && crew.size() < 3) crew.push_back(n);
         int cut = g_heistCut[h], leaderPct = std::max(15, 100 - cut * (int)crew.size());
         HbBegin("ADD_PIECHART"); HbInt(d.payout); HbInt(leaderPct);
         for (int i = 0; i < 3; ++i) HbInt(i < (int)crew.size() ? cut : 0);
@@ -96,8 +113,14 @@ static void HbBuild(int h) {
             HbInt(d.payout * pct / 100); HbInt(pct); HbInt(0); HbRawLabel(""); HbRawLabel(""); HbInt(players); HbInt(0); HbBool(false);
             HbEnd();
         };
-        member(0, g_myName.empty() ? "You" : g_myName, LevelOf(g_rp), "Leader", leaderPct);
-        for (int i = 0; i < (int)crew.size(); ++i) member(i + 1, crew[i], 0, "Crew", cut);
+        member(0, g_myName.empty() ? "You" : g_myName, LevelOf(g_rp), HbRole(h, 0), leaderPct);
+        for (int i = 0; i < (int)crew.size(); ++i) member(i + 1, crew[i], 0, HbRole(h, i + 1), cut);
+        for (int i = players; i < 4; ++i) {   // the empty places (a heist seen before with a bigger crew left its rows there)
+            HbBegin("UPDATE_CREW_MEMBER");
+            HbInt(i); HbName(""); HbInt(0); HbTex(""); HbRawLabel(""); HbInt(0); HbRawLabel(""); HbInt(0);
+            HbInt(0); HbInt(0); HbInt(0); HbRawLabel(""); HbRawLabel(""); HbInt(players); HbInt(0); HbBool(false);
+            HbEnd();
+        }
         HbBegin("LAUNCH_BUTTON_VISIBLE"); HbBool(true); HbEnd();
         HbBegin("LAUNCH_BUTTON_ENABLED"); HbBool(true); HbEnd();
     }
@@ -184,7 +207,10 @@ static void HbDrawOnlineSpot() {
     Vec3 mp, pp; float mh = 0.f, ph = 0.f;
     if (g_inside < 0 || !OnlinePoint(g_inside, 142, pp, ph) || !OnlinePoint(g_inside, 143, mp, mh)) return;
     static int said = -1;
-    if (said != g_inside) { said = g_inside; Log("heist board: Online's points: movie %.2f %.2f %.2f h %.1f, map %.2f %.2f %.2f h %.1f", pp.x, pp.y, pp.z, ph, mp.x, mp.y, mp.z, mh); }
+    if (said != g_inside) {
+        said = g_inside; Vec3 bp{}; float bh = 0.f; OnlinePoint(g_inside, 141, bp, bh);
+        Log("heist board: Online's points: movie %.2f %.2f %.2f h %.1f, map %.2f %.2f %.2f h %.1f, board %.2f %.2f %.2f h %.1f", pp.x, pp.y, pp.z, ph, mp.x, mp.y, mp.z, mh, bp.x, bp.y, bp.z, bh);
+    }
     if (g_hb.map && NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.map))) N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.map, mp.x, mp.y, mp.z, 180.f, -180.f, mh, 1.f, 1.f, 1.f, 3.815f, 2.27f, 1.f, 2);
     if (g_hb.movie && NB(N<int>(N_HAS_SCALEFORM_MOVIE_LOADED, g_hb.movie))) N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.movie, pp.x, pp.y, pp.z, 180.f, -180.f, ph, 1.f, 1.f, 1.f, 4.2f, 2.4f, 1.f, 2);
 }
@@ -256,7 +282,7 @@ static void HbFrame() {
     if (g_hbMapFirst) drawMap();
     if (g_hbMode == 2) N(N_DRAW_SCALEFORM_MOVIE_FULLSCREEN, g_hb.movie, 255, 255, 255, 255, 0);
     else if (g_hbMode == 1) {   // the solid draw: placed by its centre
-        Vec3 cc = ActAhead(p, h, g_hbAhead, g_hbUp);
+        Vec3 cc = ActAhead(ActAhead(p, h, g_hbAhead, g_hbUp), h + 90.f, g_hbSide);
         N(N_DRAW_SCALEFORM_MOVIE_3D_SOLID, g_hb.movie, cc.x, cc.y, cc.z, g_hbRotX, 0.f, HbSolidYaw(h, g_hbRot, true), 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
     }
     else N(N_DRAW_SCALEFORM_MOVIE_3D, g_hb.movie, c.x, c.y, c.z, g_hbRotX, 0.f, h + g_hbRot, 1.f, 1.f, 1.f, bw, bh, 1.f, 2);
