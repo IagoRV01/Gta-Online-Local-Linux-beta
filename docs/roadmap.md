@@ -24,7 +24,7 @@
 | 9 GodEye Basic (2D map: players, position, heading, vehicle, speed, health, wanted, zone) | **done, verified with netprobe** (2026-10-22) | admin API on the server (loopback, secret), Node backend, web map; `docs/godeye.md` |
 | 10 GodEye Control (wanted, weather, police alerts, roadblocks, traffic hacks; roles, cooldowns, audit) | **done, verified in game** (2026-10-23) | protocol v12 `GodEyeAction`; `docs/godeye.md` |
 | 11 3D map (the real map from the player's own files, Cayo Perico, Isla Neón, Wuhu) | **done** (2026-10-23) | `tools/godeye-map map3d`, `godeye/frontend/map3d.js` |
-| 12 Camera Client (a second GTA on the server PC as a GodEye camera; CCTV + follow/heli/drone/cinematic/third/chase) | **built** (2026-10-23) | protocol v13 camera role + CameraSet; `docs/godeye.md` |
+| 12 Camera Client (a second GTA on the server PC as a GodEye camera; CCTV + follow/heli/drone/cinematic/third/chase) | **running, CCTV verified live** (2026-11-16; built 2026-10-23) | protocol v13 camera role + CameraSet; `docs/godeye.md` |
 | 13 WebRTC (the camera's picture live in the browser) | **done** (2026-10-23) | FFmpeg gfxcapture → NVENC → mediamtx → WHEP on the LAN, LL-HLS through the tunnel; `docs/godeye.md` |
 | 14 Web game (roles, credits, hacking minigames, cooldowns, events) | **done** (2026-10-23) | Hack Credits ledger, sequence and route minigames checked by the backend, daily limits, bounties, OPERATOR events; `docs/godeye.md` |
 

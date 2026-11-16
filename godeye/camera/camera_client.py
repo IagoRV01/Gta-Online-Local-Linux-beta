@@ -103,6 +103,55 @@ def click_story_mode(hwnd):
         print(f"not clicking: another window covers GTA ({cls.value}); a pending Windows prompt needs an answer", flush=True)
 
 
+def answer_scripthook_prompt():
+    """ScriptHookV asks "CHECK FOR SCRIPT HOOK V UPDATES ?" at start (a yes opens its download page): No, by a message to
+    the button (the dialog sits on the other virtual desktop; nothing is clicked on screen)."""
+    h = u32.FindWindowW(None, "SCRIPT HOOK V")
+    if not h: return False
+    found = []
+    def cb(c, _):
+        cls = ctypes.create_unicode_buffer(64); u32.GetClassNameW(c, cls, 64)
+        t = ctypes.create_unicode_buffer(64); u32.GetWindowTextW(c, t, 64)
+        if cls.value == "Button" and t.value.replace("&", "").strip().lower() == "no": found.append(c)
+        return True
+    u32.EnumChildWindows(h, ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)(cb), 0)
+    for c in found: u32.SendMessageW(c, 0x00F5, 0, 0)   # BM_CLICK
+    if found: print("answered No to ScriptHookV's update prompt", flush=True)
+    return bool(found)
+
+
+# The camera's mods live outside the game folder (2026-11-16) and are put in only while the camera runs, so this PC's
+# own GTA is the plain game the rest of the time: the ASI loader, ScriptHookV, RageOpenV (the mods folder, a junction to
+# D:\GTACamera\mods), LocalOnline in camera mode and Gori Online (the world only, in camera mode)
+CAMERA_BIN = os.environ.get("CAMERA_BIN", "D:/GTACamera/bin")
+CAMERA_FILES = ["dinput8.dll", "ScriptHookV.dll", "RageOpenV.asi", "LocalOnline.asi", "GoriOnline.asi"]
+
+
+def gta_dir():
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
+        steam = os.path.dirname(winreg.QueryValueEx(k, "SteamExe")[0])
+    return os.path.join(steam, "steamapps", "common", "Grand Theft Auto V")
+
+
+def install_mods():
+    import shutil
+    g = gta_dir()
+    for f in CAMERA_FILES:
+        src = os.path.join(CAMERA_BIN, f)
+        if os.path.exists(src): shutil.copy2(src, os.path.join(g, f))
+    print(f"camera mods put in {g}", flush=True)
+
+
+def remove_mods():
+    g = gta_dir()
+    n = 0
+    for f in CAMERA_FILES:
+        p = os.path.join(g, f)
+        if os.path.exists(p) and os.path.exists(os.path.join(CAMERA_BIN, f)):   # only our own copies
+            os.remove(p); n += 1
+    print(f"camera mods taken out ({n} files): this PC's GTA is the plain game again", flush=True)
+
+
 def gta_pids():
     r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq GTA5.exe", "/FO", "CSV", "/NH"], capture_output=True, text=True)
     return [int(line.split('","')[1]) for line in r.stdout.splitlines() if line.startswith('"GTA5.exe"')]
@@ -112,8 +161,12 @@ def start(desk):
     from pyvda import AppView, VirtualDesktop
     if gta_pids():
         print("GTA is already running"); return
+    install_mods()
     # no BattlEye (it blocks ScriptHookV, so the game never shows a window) and no Rockstar sign-in
-    subprocess.Popen([steam_exe(), "-applaunch", "271590", "-nobattleye", "-noBE", "-scOffline"])
+    # the camera's window and card by command line (2026-11-16), so the PC's own GTA settings (settings.xml: the
+    # user's 4K borderless on card 0) stay as they are: a 1280x720 window on DXGI adapter 1, the RTX 5060 Ti 8 GB
+    subprocess.Popen([steam_exe(), "-applaunch", "271590", "-nobattleye", "-noBE", "-scOffline",
+                      "-windowed", "-width", "1280", "-height", "720", "-adapter", os.environ.get("CAMERA_ADAPTER", "1")])
     moved, t0, landed, low_since = set(), time.time(), False, None
     while time.time() - t0 < 1800:   # the launcher, then the game window (loading takes minutes)
         for h in game_windows():
@@ -124,12 +177,14 @@ def start(desk):
                 print(f"window {h} -> desktop {desk}", flush=True)
             except Exception as e:
                 print("move failed", e, flush=True)
+        answer_scripthook_prompt()
         pids = gta_pids()
         game = [h for h in game_windows() if os.path.basename(exe_of(_pid_of(h))).lower() == "gta5.exe"]
         if pids and game and not landed:
-            # the landing page: the game sits at ~1.1 GB until story mode is picked (loading it takes 2 GB and more)
-            mem = max(gta_memory_mb(p) for p in pids)
-            if mem > 1800: landed = True; print(f"story mode loading ({mem} MB)", flush=True)
+            # story mode has loaded once LocalOnline writes its log (2026-11-16: memory told it no more, build 3889's
+            # landing page already takes 1.9 GB); until then the landing page waits for STORY MODE
+            lo = os.path.join(os.path.dirname(exe_of(pids[0])), "LocalOnline", "LocalOnline.log")
+            if os.path.exists(lo) and os.path.getmtime(lo) > t0: landed = True; print("story mode loaded (LocalOnline is up)", flush=True)
             elif low_since is None: low_since = time.time()
             elif time.time() - low_since > 40 and idle_seconds() >= 60:
                 click_story_mode(game[0])
@@ -139,6 +194,19 @@ def start(desk):
     print("camera client started" if gta_pids() else "GTA did not start")
 
 
+def launcher_pids():
+    """PlayGTAV.exe and the Rockstar Launcher stay after the game closes; while they run Steam takes GTA for running and
+    a new start does nothing (2026-11-16). Only those of this GTA's install and of Rockstar Games."""
+    r = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True)
+    out = []
+    for line in r.stdout.splitlines():
+        f = line.strip('"').split('","')
+        if len(f) > 1 and f[0].lower() in ("playgtav.exe", "launcher.exe", "socialclubhelper.exe", "rockstarservice.exe"):
+            path = exe_of(int(f[1])).lower()
+            if "grand theft auto v" in path or "rockstar games" in path: out.append(int(f[1]))
+    return out
+
+
 def stop():
     pids = gta_pids()
     for pid in pids:
@@ -146,7 +214,12 @@ def stop():
     time.sleep(5)
     for pid in gta_pids():
         subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
-    print(f"stopped {len(pids)} GTA process(es)")
+    lp = launcher_pids()
+    for pid in lp:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+    print(f"stopped {len(pids)} GTA process(es) and {len(lp)} launcher process(es)")
+    time.sleep(2)
+    remove_mods()
 
 
 if __name__ == "__main__":

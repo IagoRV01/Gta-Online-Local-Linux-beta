@@ -289,6 +289,31 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
 - **On the user's PC**
   - GTA's AdapterIndex is 1, the RTX 5060 Ti 8 GB as DXGI numbers it (the 16 GB card appears three times).
   - 1280×720 window. `camera_client.py` launches it through Steam with `-scOffline` and keeps it on virtual desktop 2.
+- **Running for real (2026-11-16)** on the user's PC, the second GTA (same build, 3889) as `GodEye Camera 1`:
+  - **The camera's mods live outside the game:**
+    - `D:\GTACamerain` holds the ASI loader, ScriptHookV, RageOpenV, LocalOnline and Gori, copied from the
+      BC-250.
+    - `D:\GTACamera\mods` (11 GB, C: had 15 GB free) is reached through a junction `<GTA>\mods`.
+    - `camera_client.py start` copies the five files into the game folder and `stop` takes them out again (with the
+      Rockstar launcher left behind, which made Steam take GTA for running). So the PC's own GTA is the plain game
+      whenever the camera is off.
+  - **Window and card by command line:** `-windowed -width 1280 -height 720 -adapter 1` (`CAMERA_ADAPTER`). The
+    PC's own `settings.xml` (4K borderless on card 0) is left alone; a copy is in `D:\GTACamera\settings.user.xml`.
+  - **ScriptHookV's "CHECK FOR SCRIPT HOOK V UPDATES ?"** is answered No by a message to its button.
+  - **STORY MODE:** the landing page is told by LocalOnline's log, not by memory (build 3889's landing page already
+    takes 1.9 GB, so the old test called it loaded and nobody clicked).
+  - **Gori Online in camera mode** (`[camera] enabled = true` in `LocalOnline/client.toml`) only gives the camera the
+    players' world: our island's IPL, Online's map, the finished Mile High Club (265 construction models hidden) and
+    the towers' night models. No menus, notifications, character or saving.
+  - **Name:** "Camera 1" already had an account in the live database with a token nobody has. The camera is
+    `GodEye Camera 1`, its token in `LocalOnline/camera.token`.
+  - **Verified:**
+    - Logged in to the live server as netId 1, new account.
+    - CCTV `CAM_001` Legion Square at night on GodEye's LIVE panel over WebRTC.
+    - `camera all cctv CAM_002` (server.cmd) switched it to the airport in the rain, "CAM_002 Airport 21:17".
+  - **Not covered:**
+    - Following a player: a second GTA on the same Steam account cannot run while the camera does (README).
+    - The video shows the PC's RivaTuner overlay (FPS, CPU, GPU), RTSS's own and not ours.
 - **Verified 2026-10-23** on an isolated server, with a netprobe camera and a netprobe player:
   - the camera got CAM_001 by default and saw the player;
   - it followed FOLLOW / HELI / CAM_003 on command; an unknown target was refused;

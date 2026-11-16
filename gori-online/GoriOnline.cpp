@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 #include <initializer_list>
+#include <fstream>
 #include <map>
 #include <set>
 #include <deque>
@@ -6292,7 +6293,34 @@ static void ProfileTick() {
     if (you != g_profileYou) SwitchProfile(you);
 }
 
+// the GodEye camera client (LocalOnline's [camera] enabled = true, 2026-11-16): a GTA with no player, only a camera. Gori
+// gives it the world the players see (our island's map, Online's map, the finished Mile High Club, the towers' night
+// models) and nothing else: no menus, no notifications, no character, no saving
+static bool CameraClient() {
+    std::ifstream f(g_dir + "LocalOnline/client.toml");   // (next to GTA5.exe: the working directory is not always there)
+    std::string line; bool inCam = false;
+    while (std::getline(f, line)) {
+        size_t a = line.find_first_not_of(" 	");
+        if (a == std::string::npos || line[a] == '#') continue;
+        if (line[a] == '[') { inCam = line.compare(a, 8, "[camera]") == 0; continue; }
+        if (inCam && line.find("enabled") != std::string::npos && line.find("true") != std::string::npos) return true;
+    }
+    return false;
+}
+static void CameraWorldMain() {
+    while (!NB(N<int>(N_IS_PLAYER_PLAYING, Player()))) Wait(500);
+    Log("Gori Online: camera client, the world only");
+    MhcInit();
+    N(N_REQUEST_IPL, "islaneon");
+    int mpMapAt = Now() + 25000;
+    for (;;) {
+        if (mpMapAt && Now() > mpMapAt && !NB(N<int>(N_GET_IS_LOADING_SCREEN_ACTIVE))) { mpMapAt = 0; ApplyOnlineMap(true); Log("camera: Online's map applied"); }
+        NightModelsTick();
+        Wait(0);
+    }
+}
 static void ScriptMain() {
+    if (CameraClient()) { CameraWorldMain(); return; }
     BuildProps();
     FcExtendProps();
     Load();
