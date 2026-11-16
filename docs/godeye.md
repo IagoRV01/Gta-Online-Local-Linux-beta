@@ -291,7 +291,7 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   - 1280×720 window. `camera_client.py` launches it through Steam with `-scOffline` and keeps it on virtual desktop 2.
 - **Running for real (2026-11-16)** on the user's PC, the second GTA (same build, 3889) as `GodEye Camera 1`:
   - **The camera's mods live outside the game:**
-    - `D:\GTACamerain` holds the ASI loader, ScriptHookV, RageOpenV, LocalOnline and Gori, copied from the
+    - `D:\GTACamera\bin` holds the ASI loader, ScriptHookV, RageOpenV, LocalOnline and Gori, copied from the
       BC-250.
     - `D:\GTACamera\mods` (11 GB, C: had 15 GB free) is reached through a junction `<GTA>\mods`.
     - `camera_client.py start` copies the five files into the game folder and `stop` takes them out again (with the
