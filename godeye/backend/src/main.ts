@@ -12,7 +12,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGzip, gzipSync } from "node:zlib";
-import { ACTIONS, Limits, allowed, toCommand, type ActionRequest } from "./actions.ts";
+import { ACTIONS, DRIVE_KINDS, DRIVE_SECONDS, Limits, allowed, steerLine, toCommand, type ActionRequest, type Drive } from "./actions.ts";
 import { AdminLink } from "./admin.ts";
 import { LoginLimiter, ROLES, Sessions, SignupLimiter, Users, type Role } from "./auth.ts";
 import { EVENTS, GAME_DEFAULTS, Game, eventLines, type GameConfig } from "./game.ts";
@@ -153,6 +153,15 @@ function enrich(p: any): any {
   return out;
 }
 
+// ---- hacks driven from the web (2026-11-17): one per user, the newest one bought
+const drives = new Map<string, Drive>();
+function driveOf(user: string): Drive | null {
+  const d = drives.get(user.toLowerCase());
+  if (!d) return null;
+  if (d.until < Date.now() || !players.get(d.target)?.playing) { drives.delete(user.toLowerCase()); return null; }
+  return d;
+}
+
 const browsers = new Set<WsClient>();
 function broadcast(msg: object): void {
   const text = JSON.stringify(msg);
@@ -259,7 +268,7 @@ function me(s: ReturnType<Sessions["get"]>, pub = false): object {
   const signup = users.count > 0 && settings.value.registration === "open" ? settings.value.signupRoles : [];
   if (!s) return { user: null, control: users.count > 0, signup, setup: users.count === 0 && !pub, public: pub, map3d };
   const can = Object.keys(ACTIONS).filter((a) => allowed(s.role, a) && (a !== "event" || !!game));
-  return { user: s.user, role: s.role, csrf: s.csrf, can, cooldowns: limits.cooldowns(s.user), public: pub, map3d, game: !!game, panel: s.role === "ADMIN" };
+  return { user: s.user, role: s.role, csrf: s.csrf, can, cooldowns: limits.cooldowns(s.user), public: pub, map3d, game: !!game, panel: s.role === "ADMIN", drive: driveOf(s.user) };
 }
 
 async function handlePost(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
@@ -362,7 +371,12 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
     }
     record(s.user, s.role, action, cmd.line, ok);
     log(ok ? "INFO" : "WARN", `action by ${s.user} (${s.role}): ${cmd.line}${price ? ` for ${price} credits` : ""} -> ${ok ? "ok" : "refused by the game server"}`);
-    json(ok ? 200 : 409, ok ? { ok, cooldownUntil: until, credits: game?.balance(s.user) } : { error: "the game server refused it" });
+    let drive: Drive | null = null;
+    if (ok && DRIVE_KINDS[action] && target != null) {   // the buyer drives it (2026-11-17)
+      drive = { user: s.user, action, kind: DRIVE_KINDS[action], target, targetName: players.get(target)?.name ?? "", until: Date.now() + DRIVE_SECONDS * 1000 };
+      drives.set(s.user.toLowerCase(), drive);
+    }
+    json(ok ? 200 : 409, ok ? { ok, cooldownUntil: until, credits: game?.balance(s.user), drive } : { error: "the game server refused it" });
     return;
   }
   // ---- the control panel (ADMIN)
@@ -599,10 +613,21 @@ http.on("upgrade", (req: IncomingMessage, sock, _head) => {
   browsers.add(ws);
   log("INFO", `browser ${addr} connected (${browsers.size} open)`);
   ws.onClose = () => { browsers.delete(ws); log("INFO", `browser ${addr} left (${browsers.size} open)`); };
+  let steerWindow = 0, steers = 0;
   ws.onMessage = (text: string) => {
     let m: any;
     try { m = JSON.parse(text); } catch { return; }
     if (m?.t === "full") ws.send(JSON.stringify(fullState()));
+    else if (m?.t === "steer") {   // a driven hack's stick (2026-11-17): only its buyer, only while it lasts, at most 25 a second
+      const now = Date.now();
+      if (now - steerWindow >= 1000) { steerWindow = now; steers = 0; }
+      if (++steers > 25) return;
+      const s = sessions.byCsrf(m.csrf);
+      const d = s ? driveOf(s.user) : null;
+      if (!d) { ws.send(JSON.stringify({ t: "drive", drive: null })); return; }
+      const line = steerLine(d, m);
+      if (line && admin.connected) void admin.command(line);
+    }
   };
   ws.send(JSON.stringify(fullState()));
 });

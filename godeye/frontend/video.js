@@ -95,8 +95,11 @@ async function playVideo(path) {
 
 function cameraLabel() {   // what the camera shows, from the camera telemetry (control.js)
   const s = streams.find((x) => x.path === current);
-  const c = typeof camList !== "undefined" ? camList.find((x) => x.name === s?.name) : null;
-  return c ? c.label : s?.name ?? "";
+  // the stream "Camera 1" is the camera client "GodEye Camera 1" (2026-11-17: the names differ, so the title stayed
+  // "Camera 1" whatever it showed); a single camera client is that stream whatever its name
+  const cams = typeof camList !== "undefined" ? camList : [];
+  const c = cams.find((x) => x.name === s?.name) ?? cams.find((x) => s?.name && x.name.endsWith(s.name)) ?? (cams.length === 1 ? cams[0] : null);
+  return c ? c.label.replace(/^(CAM_\d+) /, "$1 · ").replace(/^(\w+) /, (m, w) => /^CAM_/.test(w) ? m : `${w[0]}${w.slice(1).toLowerCase()} · `) : s?.name ?? "";
 }
 
 $("liveBtn").onclick = async () => {

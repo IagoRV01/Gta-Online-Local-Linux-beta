@@ -294,6 +294,21 @@ void Server::OnPacket(ENetPeer *peer, const uint8_t *data, size_t size, uint8_t 
             if (c.authed) HandleVehicleUpdate(c, m);
             break;
         }
+        case MsgType::GadgetState: {   // 2026-11-17: where GodEye's hacks on this player are (GodEye's map, the cameras)
+            GadgetStateMsg m;
+            if (!Get(r, m)) return malformed("GadgetState");
+            if (!c.authed || c.camera) return;
+            c.gadgets = m.g;
+            c.gadgetsMs = now;
+            GadgetRelayMsg relay;
+            relay.owner = c.netId;
+            relay.g = m.g;
+            wire::Writer w;
+            Put(w, relay);
+            for (auto &kv : clients_)
+                if (kv.second.authed && kv.second.camera) Send(kv.first, w, kChanState, false);
+            break;
+        }
         case MsgType::PlayerState: {
             if (!c.authed) return;   // state before auth is ignored, not an error
             PlayerStateMsg s;
@@ -797,9 +812,11 @@ bool Server::GodEyeCommand(const std::string &v, const std::string &line) {
         m.kind = kGePoliceAlert;
         m.text = rest.empty() ? "Dispatch has your description." : rest;
     } else if (v == "roadblock") m.kind = kGeRoadblock;
-    else if (v == "drone") m.kind = kGeDrone;      // GodEye's hacks (2026-11-16)
-    else if (v == "rcbomb") m.kind = kGeRcBomb;
-    else if (v == "taxis") m.kind = kGeTaxis;
+    else if (v == "drone" || v == "rcbomb" || v == "taxis") {   // GodEye's hacks (2026-11-16); "drone 2 120": driven, 120 s
+        m.kind = v == "drone" ? kGeDrone : v == "rcbomb" ? kGeRcBomb : kGeTaxis;
+        int secs = std::atoi(rest.c_str());
+        m.durationMs = (uint32_t)(secs < 0 ? 0 : secs > 180 ? 180 : secs) * 1000u;
+    }
     else if (v == "notify") {
         if (rest.empty()) return false;
         m.kind = kGeNotice;
@@ -835,7 +852,7 @@ bool Server::CameraCommand(const std::string &line) {
     CameraSetMsg m;
     std::string md = mode;
     int mi = -1;
-    for (int i = 0; i < 7; ++i) if (md == kCameraModeNames[i]) mi = i;
+    for (int i = 0; i <= kCamGadget; ++i) if (i != kCamFree && md == kCameraModeNames[i]) mi = i;
     if (mi < 0) return false;
     m.mode = (uint8_t)mi;
     if (m.mode == kCamCctv) {
@@ -847,8 +864,8 @@ bool Server::CameraCommand(const std::string &line) {
         Client *t = ByNetId((uint16_t)std::atoi(arg));
         if (!t || t->camera || !t->haveState) return false;   // a player in the world
         m.target = t->netId;
-        m.fov = m.mode == kCamHeli ? 40.f : m.mode == kCamCinematic ? 35.f : 55.f;
-        std::string up = md;
+        m.fov = m.mode == kCamHeli ? 40.f : m.mode == kCamCinematic ? 35.f : m.mode == kCamGadget ? 65.f : 55.f;
+        std::string up = m.mode == kCamGadget ? std::string("hack") : md;
         for (auto &ch : up) ch = (char)toupper((unsigned char)ch);
         m.label = up + " " + t->name;
     }
@@ -863,6 +880,21 @@ bool Server::CameraCommand(const std::string &line) {
     return any;
 }
 
+// "steer <player netId> <kind> <x> <y> <z> <buttons>" (2026-11-17): a GodEye user's stick for the hack on that player,
+// ~10 a second while they drive it; not logged one by one
+bool Server::SteerCommand(const std::string &line) {
+    int id = 0, kind = 0, x = 0, y = 0, z = 0, b = 0;
+    if (std::sscanf(line.c_str(), "%*s %d %d %d %d %d %d", &id, &kind, &x, &y, &z, &b) != 6) return false;
+    if (kind < kGeDrone || kind > kGeTaxis || x < -100 || x > 100 || y < -100 || y > 100 || z < -100 || z > 100 || b < 0 || b > 3) return false;
+    Client *c = ByNetId((uint16_t)id);
+    if (!c || c->camera || !c->haveState) return false;
+    GodEyeSteerMsg m{(uint8_t)kind, (int8_t)x, (int8_t)y, (int8_t)z, (uint8_t)b};
+    wire::Writer w;
+    Put(w, m);
+    Send(c->peer, w, kChanState, false);
+    return true;
+}
+
 // Admin commands (server.cmd and the GodEye admin API). Every change is logged and stored, and pushed to the
 // clients immediately.
 bool Server::AdminCommand(const std::string &line) {
@@ -870,6 +902,7 @@ bool Server::AdminCommand(const std::string &line) {
     int a = 0, b = 0;
     std::sscanf(line.c_str(), "%31s %63s", verb, arg);
     std::string v = verb, x = arg;
+    if (v == "steer") return SteerCommand(line);
     if (v == "camera") {
         bool ok = CameraCommand(line);
         LOGI("admin", "-", "%s: %s", line.c_str(), ok ? "ok" : "rejected");

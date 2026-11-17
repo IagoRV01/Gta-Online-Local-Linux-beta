@@ -9,6 +9,7 @@
 namespace godeye {
 
 void OnAction(const proto::GodEyeActionMsg &m);   // network callback: queued, carried out in Frame
+void OnSteer(const proto::GodEyeSteerMsg &m);     // network callback (2026-11-17): a GodEye user's stick for a hack
 void Frame(int me);                               // every frame while YOU is active and online
 void End();                                       // leaving YOU or going offline: units released, traffic normal
 const char *TrafficModeName();                    // for the log and the F10 status

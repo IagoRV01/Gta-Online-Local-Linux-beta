@@ -9,6 +9,7 @@
 #include "common/log.h"
 #include "engine/gta.h"
 #include "engine/shv.h"
+#include "game/net_client.h"
 
 namespace godeye {
 
@@ -351,8 +352,17 @@ struct Gadget {
     std::vector<int> blips;
     int startMs = 0, untilMs = 0, nextMs = 0, retaskMs = 0, zaps = 0;
     Vec3 at;                      // the drone's place
+    float yaw = 0;                // the drone's heading
+    // driven from GodEye (2026-11-17): the stick of whoever bought it, while it keeps coming
+    bool aiStopped = false, told = false, actionHeld = false;
+    float speed = 0;              // the driven car's forward speed (m/s)
 };
 std::vector<Gadget> g_gadgets;
+GodEyeSteerMsg g_steer[kGeTaxis + 1];   // the newest stick per hack kind
+int g_steerUntil[kGeTaxis + 1] = {};    // game ms: driven until then (the stick comes ~10 a second)
+int g_nextGadgetReport = 0;
+bool g_reported = false;                // the last report had gadgets: one empty report when they are gone
+constexpr int kDroneZaps = 5;
 
 void GadgetRelease(Gadget &g, bool remove) {
     for (int &b : g.blips) if (b) N(N_REMOVE_BLIP, &b);
@@ -387,7 +397,9 @@ int HiddenDriver(int veh) {
     return ped;
 }
 
-void Drone(int me) {
+uint32_t Lifetime(uint32_t durationMs, int fallbackMs) { return durationMs ? durationMs : (uint32_t)fallbackMs; }
+
+void Drone(int me, uint32_t durationMs) {
     uint32_t m = 0;
     for (const char *n : {"xs_prop_arena_drone_01", "xs_prop_arena_drone_02", "ba_prop_battle_drone_quad"})
         if (NB(N<int>(N_IS_MODEL_VALID, gta::Joaat(n)))) { m = gta::Joaat(n); break; }
@@ -404,14 +416,15 @@ void Drone(int me) {
     gta::Freeze(g.obj, true);
     g.blips.push_back(Blip(g.obj, 1));
     g.startMs = gta::GameTimeMs();
-    g.untilMs = g.startMs + 45000;
+    g.untilMs = g.startMs + (int)Lifetime(durationMs, 45000);
     g.nextMs = g.startMs + 6000;
+    g.yaw = std::atan2(-(p.x - g.at.x), p.y - g.at.y) * 57.2958f;
     g_gadgets.push_back(g);
     gta::Notify("~p~GodEye~s~  A ~r~taser drone~s~ has been hacked onto you. Shoot it down!");
     LOGI("godeye", "-", "taser drone launched 60 m out");
 }
 
-void RcBomb(int me) {
+void RcBomb(int me, uint32_t durationMs) {
     Vec3 p = gta::Pos(me), node;
     float h = 0;
     if (!RoadNodeAround(p, 70.f, 140.f, node, h)) { LOGW("godeye", "-", "rc bomb: no road near the player"); return; }
@@ -428,13 +441,13 @@ void RcBomb(int me) {
     N(N_SET_VEHICLE_ENGINE_ON, v, 1, 1, 0);
     g.blips.push_back(Blip(v, 1));
     g.startMs = gta::GameTimeMs();
-    g.untilMs = g.startMs + 75000;
+    g.untilMs = g.startMs + (int)Lifetime(durationMs, 75000);
     g_gadgets.push_back(g);
     gta::Notify("~p~GodEye~s~  An ~r~RC Bandito packed with C4~s~ is coming for you. Destroy it or run!");
     LOGI("godeye", "-", "rc bomb sent from %.0f,%.0f (%.0f m)", node.x, node.y, std::sqrt(Dist2(node, p)));
 }
 
-void Taxis(int me) {
+void Taxis(int me, uint32_t durationMs) {
     Vec3 p = gta::Pos(me);
     uint32_t m = gta::Joaat("taxi");
     if (!gta::LoadModel(m)) return;
@@ -456,10 +469,89 @@ void Taxis(int me) {
     gta::ReleaseModel(m);
     if (g.vehs.empty()) { LOGW("godeye", "-", "taxis: no road near the player"); return; }
     g.startMs = gta::GameTimeMs();
-    g.untilMs = g.startMs + 45000;
+    g.untilMs = g.startMs + (int)Lifetime(durationMs, 45000);
     g_gadgets.push_back(g);
     gta::Notify("~p~GodEye~s~  The city's ~y~self-driving taxis~s~ have been hacked. They are coming for you!");
     LOGI("godeye", "-", "%d hacked taxis sent", (int)g.vehs.size());
+}
+
+float Approach(float v, float to, float step) { return v < to ? std::min(v + step, to) : std::max(v - step, to); }
+float FrameS() { float dt = N<float>(N_GET_FRAME_TIME); return dt > 0.f && dt < 0.1f ? dt : 0.016f; }
+
+// the taser: at the player when it is close enough
+void Zap(Gadget &g, int me, const Vec3 &p, int now, int cooldownMs) {
+    g.nextMs = now + cooldownMs;
+    ++g.zaps;
+    N(N_SHOOT_SINGLE_BULLET_BETWEEN_COORDS, g.at.x, g.at.y, g.at.z - 0.3f, p.x, p.y, p.z + 0.3f, 0, 1, gta::Joaat("weapon_stungun"), 0, 1, 0, -1.f);
+    if (gta::InVehicle(me)) {   // an EMP into the car: the engine dies for a few seconds
+        int veh = N<int>(N_GET_VEHICLE_PED_IS_IN, me, 0);
+        N(N_SET_VEHICLE_ENGINE_ON, veh, 0, 1, 1);
+        g.retaskMs = now + 4000;
+        gta::Notify("~r~ZAP!~s~  The drone's EMP killed your engine.");
+    } else {
+        N(N_SET_PED_TO_RAGDOLL, me, 3500, 4000, 0, 0, 0, 0);
+        gta::Notify("~r~ZAP!~s~  Tased by GodEye's drone.");
+    }
+    LOGI("godeye", "-", "drone zap %d", g.zaps);
+}
+
+// a GodEye user flies the drone: x turns, y forward/back, z up/down; it stays above the ground and near the player
+void DriveDrone(Gadget &g, const GodEyeSteerMsg &s, const Vec3 &p) {
+    float dt = FrameS();
+    g.yaw -= s.x / 100.f * 110.f * dt;
+    Vec3 f = Forward(g.yaw);
+    float v = s.y / 100.f * 17.f;
+    g.at.x += f.x * v * dt;
+    g.at.y += f.y * v * dt;
+    g.at.z += s.z / 100.f * 9.f * dt;
+    float dx = g.at.x - p.x, dy = g.at.y - p.y, d = std::sqrt(dx * dx + dy * dy);
+    if (d > 250.f) { g.at.x = p.x + dx / d * 250.f; g.at.y = p.y + dy / d * 250.f; }   // the player's world ends there
+    float ground = gta::GroundZ(g.at.x, g.at.y, g.at.z + 1.f, g.at.z - 50.f);
+    if (g.at.z < ground + 1.2f) g.at.z = ground + 1.2f;
+    if (g.at.z > p.z + 120.f) g.at.z = p.z + 120.f;
+}
+
+// a GodEye user drives a car (the RC Bandito, the lead taxi): arcade steering on the car GTA keeps simulating
+void DriveCar(Gadget &g, int veh, const GodEyeSteerMsg &s, float top, float turnDegS) {
+    float dt = FrameS();
+    if (!g.aiStopped) {   // the hidden driver lets go of the wheel
+        if (!g.peds.empty() && gta::Exists(g.peds[0])) N(N_CLEAR_PED_TASKS, g.peds[0]);
+        g.speed = N<NVec3>(N_GET_ENTITY_SPEED_VECTOR, veh, 1).y;
+        g.aiStopped = true;
+    }
+    if (!NB(N<int>(N_IS_VEHICLE_ON_ALL_WHEELS, veh))) { g.speed = N<NVec3>(N_GET_ENTITY_SPEED_VECTOR, veh, 1).y; return; }   // in the air
+    float want = s.y >= 0 ? s.y / 100.f * top : s.y / 100.f * 9.f;
+    bool braking = (want >= 0) != (g.speed >= 0) || std::fabs(want) < std::fabs(g.speed);
+    g.speed = Approach(g.speed, want, (braking ? 20.f : 11.f) * dt);
+    float grip = std::min(1.f, std::fabs(g.speed) / 5.f) * (g.speed >= 0 ? 1.f : -1.f);
+    if (s.x) N(N_SET_ENTITY_HEADING, veh, gta::Heading(veh) - s.x / 100.f * turnDegS * grip * dt);
+    N(N_SET_VEHICLE_FORWARD_SPEED, veh, g.speed);
+}
+
+// ~10 a second: where the hacks are, for GodEye's map and the camera clients
+void ReportGadgets(const Vec3 &p, int now) {
+    if (now < g_nextGadgetReport) return;
+    g_nextGadgetReport = now + 100;
+    GadgetStateMsg m;
+    for (const Gadget &g : g_gadgets) {
+        bool driven = now < g_steerUntil[g.kind];
+        uint16_t left = (uint16_t)(g.untilMs > now ? (g.untilMs - now + 999) / 1000 : 0);
+        if (g.kind == kGeDrone && gta::Exists(g.obj) && m.g.size() < kMaxGadgets) {
+            uint8_t fl = (driven ? kGadgetDriven : 0) | (Dist2(g.at, p) < 20.f * 20.f ? kGadgetInRange : 0);
+            m.g.push_back(GadgetPose{(uint8_t)g.kind, fl, {g.at.x, g.at.y, g.at.z}, g.yaw, left});
+        }
+        for (size_t k = 0; k < g.vehs.size() && m.g.size() < kMaxGadgets; ++k) {
+            if (!gta::Exists(g.vehs[k])) continue;
+            Vec3 c = gta::Pos(g.vehs[k]);
+            uint8_t fl = driven && k == 0 ? kGadgetDriven : 0;
+            m.g.push_back(GadgetPose{(uint8_t)g.kind, fl, {c.x, c.y, c.z}, gta::Heading(g.vehs[k]), left});
+        }
+    }
+    if (m.g.empty() && !g_reported) return;
+    g_reported = !m.g.empty();
+    wire::Writer w;
+    Put(w, m);
+    net::SendUnreliable(w);
 }
 
 // every frame: the drone flies and zaps, the RC car homes in and blows up, the taxis ram
@@ -478,35 +570,32 @@ void GadgetsTick(int me) {
                 LOGI("godeye", "-", "taser drone shot down");
                 done = true;
             } else {
-                // circle 7 m from the player, 4 m up, closing in at up to 14 m/s
-                float a = (float)(now % 9000) / 9000.f * 6.2832f;
-                Vec3 want{p.x + std::cos(a) * 7.f, p.y + std::sin(a) * 7.f, p.z + 4.f};
-                float dx = want.x - g.at.x, dy = want.y - g.at.y, dz = want.z - g.at.z, d = std::sqrt(dx * dx + dy * dy + dz * dz);
-                float step = 14.f / 60.f;
-                if (d > step) { g.at.x += dx / d * step; g.at.y += dy / d * step; g.at.z += dz / d * step; } else g.at = want;
-                N(N_SET_ENTITY_COORDS_NO_OFFSET, g.obj, g.at.x, g.at.y, g.at.z, 0, 0, 0);
-                float face = std::atan2(-(p.x - g.at.x), p.y - g.at.y) * 57.2958f;
-                N(N_SET_ENTITY_ROTATION, g.obj, 0.f, 0.f, face, 2, 1);
-                if (now >= g.nextMs && Dist2(g.at, p) < 18.f * 18.f && g.zaps < 4) {   // zap
-                    g.nextMs = now + 5000;
-                    ++g.zaps;
-                    N(N_SHOOT_SINGLE_BULLET_BETWEEN_COORDS, g.at.x, g.at.y, g.at.z - 0.3f, p.x, p.y, p.z + 0.3f, 0, 1, gta::Joaat("weapon_stungun"), 0, 1, 0, -1.f);
-                    if (gta::InVehicle(me)) {   // an EMP into the car: the engine dies for a few seconds
-                        int veh = N<int>(N_GET_VEHICLE_PED_IS_IN, me, 0);
-                        N(N_SET_VEHICLE_ENGINE_ON, veh, 0, 1, 1);
-                        g.retaskMs = now + 4000;
-                        gta::Notify("~r~ZAP!~s~  The drone's EMP killed your engine.");
-                    } else {
-                        N(N_SET_PED_TO_RAGDOLL, me, 3500, 4000, 0, 0, 0, 0);
-                        gta::Notify("~r~ZAP!~s~  Tased by GodEye's drone.");
-                    }
-                    LOGI("godeye", "-", "drone zap %d", g.zaps);
+                if (now < g_steerUntil[kGeDrone]) {   // a GodEye user flies it; the action button zaps
+                    const GodEyeSteerMsg &s = g_steer[kGeDrone];
+                    if (!g.told) { g.told = true; gta::Notify("~p~GodEye~s~  Someone on GodEye is ~r~flying the drone~s~ now."); LOGI("godeye", "-", "drone driven from GodEye"); }
+                    DriveDrone(g, s, p);
+                    N(N_SET_ENTITY_COORDS_NO_OFFSET, g.obj, g.at.x, g.at.y, g.at.z, 0, 0, 0);
+                    N(N_SET_ENTITY_ROTATION, g.obj, 0.f, 0.f, g.yaw, 2, 1);
+                    bool press = (s.buttons & kSteerAction) && !g.actionHeld;
+                    g.actionHeld = (s.buttons & kSteerAction) != 0;
+                    if (press && now >= g.nextMs && Dist2(g.at, p) < 20.f * 20.f && g.zaps < kDroneZaps) Zap(g, me, p, now, 2500);
+                } else {
+                    // circle 7 m from the player, 4 m up, closing in at up to 14 m/s
+                    float a = (float)(now % 9000) / 9000.f * 6.2832f;
+                    Vec3 want{p.x + std::cos(a) * 7.f, p.y + std::sin(a) * 7.f, p.z + 4.f};
+                    float dx = want.x - g.at.x, dy = want.y - g.at.y, dz = want.z - g.at.z, d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    float step = 14.f / 60.f;
+                    if (d > step) { g.at.x += dx / d * step; g.at.y += dy / d * step; g.at.z += dz / d * step; } else g.at = want;
+                    N(N_SET_ENTITY_COORDS_NO_OFFSET, g.obj, g.at.x, g.at.y, g.at.z, 0, 0, 0);
+                    g.yaw = std::atan2(-(p.x - g.at.x), p.y - g.at.y) * 57.2958f;
+                    N(N_SET_ENTITY_ROTATION, g.obj, 0.f, 0.f, g.yaw, 2, 1);
+                    if (now >= g.nextMs && Dist2(g.at, p) < 18.f * 18.f && g.zaps < kDroneZaps) Zap(g, me, p, now, 5000);
                 }
                 if (g.retaskMs && now >= g.retaskMs && gta::InVehicle(me)) {   // the engine back on
                     g.retaskMs = 0;
                     N(N_SET_VEHICLE_ENGINE_ON, N<int>(N_GET_VEHICLE_PED_IS_IN, me, 0), 1, 0, 0);
                 }
-                if (g.zaps >= 4 && now >= g.nextMs) done = true;   // its battery is flat
+                if (g.zaps >= kDroneZaps && now >= g.nextMs) done = true;   // its battery is flat
             }
         }
         if (g.kind == kGeRcBomb && !done) {
@@ -515,20 +604,39 @@ void GadgetsTick(int me) {
             else {
                 Vec3 c = gta::Pos(v);
                 bool wrecked = NB(N<int>(N_IS_ENTITY_DEAD, v)) || gta::Health(v) < 700;
-                if (wrecked || Dist2(c, p) < 4.5f * 4.5f) {   // boom: on the player, or where it was stopped
+                bool driven = now < g_steerUntil[kGeRcBomb];
+                const GodEyeSteerMsg &s = g_steer[kGeRcBomb];
+                bool press = driven && (s.buttons & kSteerAction) && !g.actionHeld;
+                g.actionHeld = driven && (s.buttons & kSteerAction);
+                if (wrecked || press || Dist2(c, p) < 4.5f * 4.5f) {   // boom: on the player, by remote, or where it was stopped
                     N(N_ADD_EXPLOSION, c.x, c.y, c.z + 0.3f, 2, 1.f, 1, 0, 1.f, 0);
-                    LOGI("godeye", "-", "rc bomb %s", wrecked ? "destroyed before it arrived" : "went off at the player");
+                    LOGI("godeye", "-", "rc bomb %s", wrecked ? "destroyed before it arrived" : press ? "set off from GodEye" : "went off at the player");
                     if (wrecked) gta::Notify("~g~The RC Bandito was destroyed.~s~");
                     done = true;
+                } else if (driven) {   // a GodEye user drives it; the action button sets it off
+                    if (!g.told) { g.told = true; gta::Notify("~p~GodEye~s~  Someone on GodEye is ~r~driving the RC Bandito~s~ now."); LOGI("godeye", "-", "rc bomb driven from GodEye"); }
+                    DriveCar(g, v, s, 27.f, 130.f);
+                } else if (g.aiStopped) {   // the user let go: the AI takes it back at once
+                    g.aiStopped = false;
+                    g.retaskMs = 0;
                 } else if (now >= g.retaskMs && !g.peds.empty() && gta::Exists(g.peds[0])) {
                     g.retaskMs = now + 2500;
                     N(N_TASK_VEHICLE_MISSION_PED_TARGET, g.peds[0], v, me, 2, 30.f, 786469, 1.f, 0.f, 1);
                 }
             }
         }
+        bool taxiDriven = g.kind == kGeTaxis && !done && now < g_steerUntil[kGeTaxis] && !g.vehs.empty() && gta::Exists(g.vehs[0]);
+        if (taxiDriven) {   // a GodEye user drives the lead taxi (action: horn, boost: a burst of speed); the other one rams on its own
+            const GodEyeSteerMsg &s = g_steer[kGeTaxis];
+            if (!g.told) { g.told = true; gta::Notify("~p~GodEye~s~  Someone on GodEye is ~y~driving a hacked taxi~s~ at you."); LOGI("godeye", "-", "taxi driven from GodEye"); }
+            DriveCar(g, g.vehs[0], s, (s.buttons & kSteerBoost) ? 42.f : 31.f, 75.f);
+            bool press = (s.buttons & kSteerAction) && !g.actionHeld;
+            g.actionHeld = (s.buttons & kSteerAction) != 0;
+            if (press) N(N_START_VEHICLE_HORN, g.vehs[0], 1200, gta::Joaat("HELDDOWN"), 0);
+        } else if (g.kind == kGeTaxis && g.aiStopped) { g.aiStopped = false; g.retaskMs = 0; }
         if (g.kind == kGeTaxis && !done && now >= g.retaskMs) {
             g.retaskMs = now + 3000;
-            for (size_t k = 0; k < g.vehs.size() && k < g.peds.size(); ++k) {
+            for (size_t k = taxiDriven ? 1 : 0; k < g.vehs.size() && k < g.peds.size(); ++k) {
                 if (!gta::Exists(g.vehs[k]) || !gta::Exists(g.peds[k])) continue;
                 N(N_TASK_VEHICLE_MISSION_PED_TARGET, g.peds[k], g.vehs[k], me, 2, 26.f, 786469, 1.f, 0.f, 1);
                 N(N_START_VEHICLE_HORN, g.vehs[k], 1500, gta::Joaat("HELDDOWN"), 0);
@@ -543,6 +651,7 @@ void GadgetsTick(int me) {
         }
         ++i;
     }
+    ReportGadgets(p, now);
 }
 
 }  // namespace
@@ -550,6 +659,11 @@ void GadgetsTick(int me) {
 const char *TrafficModeName() {
     static const char *n[] = {"normal", "all red", "all green", "random"};
     return n[g_traffic <= kTrafficRandom ? g_traffic : 0];
+}
+
+void OnSteer(const GodEyeSteerMsg &m) {   // ~10 a second while a GodEye user drives (unreliable)
+    g_steer[m.kind] = m;
+    g_steerUntil[m.kind] = gta::GameTimeMs() + 700;
 }
 
 void OnAction(const GodEyeActionMsg &m) {
@@ -567,9 +681,9 @@ void Frame(int me) {
             case kGeRoadblock: Roadblock(me); break;
             case kGeTraffic: if (m.value != g_traffic || m.durationMs) SetTraffic(m.value, m.durationMs); break;
             case kGeNotice: gta::Notify("~p~GodEye~s~  " + m.text); break;
-            case kGeDrone: Drone(me); break;
-            case kGeRcBomb: RcBomb(me); break;
-            case kGeTaxis: Taxis(me); break;
+            case kGeDrone: Drone(me, m.durationMs); break;
+            case kGeRcBomb: RcBomb(me, m.durationMs); break;
+            case kGeTaxis: Taxis(me, m.durationMs); break;
             default: break;
         }
     }
@@ -587,6 +701,7 @@ void End() {
     g_units.clear();
     for (auto &g : g_gadgets) GadgetRelease(g, true);
     g_gadgets.clear();
+    if (g_reported) { wire::Writer w; Put(w, GadgetStateMsg{}); net::SendUnreliable(w); g_reported = false; }
     if (g_traffic != kTrafficNormal || !g_lights.empty() || !g_restyled.empty()) RestoreTraffic();
     g_traffic = kTrafficNormal;
     g_trafficUntil = 0;

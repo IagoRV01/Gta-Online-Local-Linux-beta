@@ -324,6 +324,17 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
   `build/camera-client.log`) and shows on / off / starting.
   - A camera button (CCTV or a mode) now opens the LIVE panel when it is closed, so what the camera shows is on screen at
     once. Until then the video only showed after a separate click on LIVE.
+- **Inside (2026-11-17):** a player in an apartment, shop or garage showed only walls or the empty sky: GTA draws an
+  interior only for a viewport that is in one of its rooms, and the camera's hidden ped stayed outside (so `RoomFix`
+  even took the puppet out of its room).
+  - When the target stands in an interior (`GET_INTERIOR_AT_COORDS`), the hidden ped is put at the target. The
+    interior is pinned, and the viewport is forced into the target's room (`FORCE_ROOM_FOR_GAME_VIEWPORT`, the puppet's
+    room key, else the ped's), once a second. Leaving clears it.
+  - Inside, every player mode becomes a close shot: 3.2 m behind, or Third person's shoulder; fov 70. A line test from
+    the target's head keeps the camera in front of the walls. There is no helicopter or drone shot indoors.
+- **The video's title** said "Camera 1" whatever was on screen: the stream ("Camera 1") and the camera client ("GodEye
+  Camera 1") have different names, so the camera's label was never found. It now shows what the camera shows:
+  "CAM_003 · Vinewood", "Follow · Alex", "Hack · Alex".
 - **Normal GTA Online on the server PC (2026-11-17):** two desktop shortcuts run `D:\GTAEnhancedMods\GTA-Modo.ps1`
   (PC-only, not in the repo).
   - "GTA Online normal" (`Online`): takes ReShade out of GTA V Enhanced, stops the camera (which takes its mods out of
@@ -426,8 +437,31 @@ that player's own game by LocalOnline (`godeye.cpp`, protocol `GodEyeAction` kin
 | RC Bandito with C4 (`rcbomb`) | 600 | 3 | route, level 2 | An `rcbandito` with a hidden driver comes from a road 70-140 m away and rams the player. Within 4.5 m it goes off (a sticky bomb's explosion); destroyed first, it goes off where it is. After 75 s it is gone. |
 | Hacked taxis (`taxis`) | 350 | 5 | route, level 1 | Two locked taxis with hidden drivers ("self-driving") come from 80-230 m, ram the player and sound the horn for 45 s. |
 
-- Server commands: `drone <id>`, `rcbomb <id>`, `taxis <id>`.
+- Server commands: `drone <id> [seconds]`, `rcbomb <id> [seconds]`, `taxis <id> [seconds]` (seconds: how long the hack
+  lasts, 0-180; GodEye sends 120).
 - They are released when the player dies, leaves YOU or goes offline.
+- **Driven from the web (2026-11-17):** whoever buys one drives it for up to two minutes (`DRIVE_SECONDS`).
+  - The page shows a pad: keys (W/S, A/D, R/F up and down for the drone, Space = zap / detonate / horn, Shift = the
+    taxi's boost) or touch buttons. It sends the stick over the WebSocket 10 times a second as
+    `{t: "steer", csrf, x, y, z, b}`.
+  - The backend takes it only from the buyer's session (found by its CSRF token), only while the drive lasts, at most
+    25 a second. It becomes the admin command `steer <player> <kind> <x> <y> <z> <buttons>` (not logged one by one).
+  - The server sends `GodEyeSteer` (unreliable) to the hacked player's game. There, the drone flies with it (17 m/s, at
+    least 1.2 m above the ground, within 250 m of the player; a zap needs 20 m), the RC Bandito and the lead taxi are
+    steered arcade style on GTA's own car physics, and the action button zaps, sets off the C4 or sounds the horn.
+    With no stick for 0.7 s (pad closed, page gone) the hack's own AI takes it back.
+  - The hacked game reports its gadgets 10 times a second (`GadgetState`). The server puts them in GodEye's telemetry
+    (`gadgets` on the player: kind, driven, inRange, x/y/z, heading, seconds left) and passes them to the camera
+    clients (`GadgetRelay`), which draw frozen copies of the drone / RC car / taxis gliding between the reports.
+  - The maps draw them (red diamond: drone; red box: RC car; yellow box: taxi). While driving, the 2D map keeps yours in
+    the middle and the 3D map sits behind it. "Camera on it" (or the Cameras box's "Hack cam") puts the camera behind
+    the hack: camera mode `gadget`.
+  - These messages were added inside protocol v14: a client without them files them away unread, but an older server
+    counts a `GadgetState` as malformed, so the server goes first.
+  - **Verified 2026-11-17:** builds, 2297 unit tests, GodEye backend 28; live server and camera run the new versions;
+    the pad sends the right stick (W + D + Shift: x 100, y 100, boost) and the backend refuses a page without a drive.
+    **Not yet in game:** driving and the interior camera. The BC-250 overheated (k10temp 95 C) on the restart that was
+    to load the new client and had to be rebooted.
 - **Not verified in game yet:** built and unit-tested (2290 tests, GodEye backend 27). The in-game run on the test
   server was stopped when the user wanted the BC-250.
 

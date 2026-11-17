@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Limits, allowed, cleanText, toCommand } from "../src/actions.ts";
+import { Limits, allowed, cleanText, steerLine, toCommand, type Drive } from "../src/actions.ts";
 import { Sessions, Users, hashPassword } from "../src/auth.ts";
 
 const playing = (id: number) => id === 1;
@@ -69,4 +69,14 @@ test("passwords and sessions", () => {
   assert.equal(sessions.get("ge_session=" + "0".repeat(64)), null);
   sessions.end(s);
   assert.equal(sessions.get(`ge_session=${s.id}`), null);
+});
+
+test("a driven hack: the buyer's stick, clamped, and the hack lasts the drive", () => {
+  const playing = (id: number) => id === 2;
+  assert.equal(toCommand({ action: "rcbomb", target: 2 }, playing).line, "rcbomb 2 120");
+  const d: Drive = { user: "neo", action: "drone", kind: 6, target: 2, targetName: "Alex", until: Date.now() + 1000 };
+  assert.equal(steerLine(d, { x: 30.4, y: -250, z: "7", b: 1 }), "steer 2 6 30 -100 7 1");
+  assert.equal(steerLine(d, { x: "nope" }), "steer 2 6 0 0 0 0");
+  assert.equal(steerLine(d, { b: 9 }), null);
+  assert.equal(toCommand({ action: "camera", camera: "all", value: "gadget", target: 2 }, playing).line, "camera all gadget 2");
 });

@@ -277,6 +277,16 @@ void OnMessage(MsgType type, wire::Reader &r) {
             if (Get(r, m)) godeye::OnAction(m);
             break;
         }
+        case MsgType::GodEyeSteer: {
+            GodEyeSteerMsg m;
+            if (Get(r, m)) godeye::OnSteer(m);
+            break;
+        }
+        case MsgType::GadgetRelay: {
+            GadgetRelayMsg m;
+            if (Get(r, m)) camera_client::OnGadgets(m);
+            break;
+        }
         case MsgType::KillFeed: {
             KillFeedMsg m;
             if (Get(r, m)) combat::OnKillFeed(m);

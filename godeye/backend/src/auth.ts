@@ -113,6 +113,13 @@ export class Sessions {
 
   end(s: Session): void { this.byId.delete(s.id); }
 
+  // the WebSocket's steering (2026-11-17): the page names its session by its CSRF token (the socket may predate the login)
+  byCsrf(csrf: unknown): Session | null {
+    if (typeof csrf !== "string" || csrf.length !== 48) return null;
+    for (const s of this.byId.values()) if (s.csrf === csrf) return s.expires < Date.now() ? null : s;
+    return null;
+  }
+
   // after a role change or a deletion: open sessions follow (a new role) or end (role null)
   updateUser(name: string, role: Role | null): void {
     for (const [id, s] of this.byId)

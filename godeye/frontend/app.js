@@ -214,6 +214,7 @@ function upsert(p, now) {
   let e = players.get(p.id);
   if (!e) players.set(p.id, e = { info: p, samples: [], trail: [] });
   e.info = p;
+  upsertGadgets(p, now);
   if (!p.playing) { e.samples = []; e.trail = []; return; }
   const last = e.samples[e.samples.length - 1];
   // after a pause (nothing changed, so nothing was sent) anchor the old spot just before now, or the marker would glide
@@ -222,6 +223,37 @@ function upsert(p, now) {
   if (e.samples.length > 30) e.samples.splice(0, e.samples.length - 30);
   const tl = e.trail[e.trail.length - 1];
   if (!tl || Math.hypot(tl[0] - p.x, tl[1] - p.y) > 4) { e.trail.push([p.x, p.y, now]); if (e.trail.length > 400) e.trail.shift(); }
+}
+
+// ---- GodEye's hacks on the players (2026-11-17): drones, RC cars, taxis, from the hacked player's telemetry
+const gadgets = new Map();   // "owner:index" -> { owner, kind, driven, inRange, left, z, samples }
+const GADGET_LABEL = { 6: "DRONE", 7: "RC C4", 8: "TAXI" };
+function upsertGadgets(p, now) {
+  const list = p.playing && Array.isArray(p.gadgets) ? p.gadgets : [];
+  list.forEach((g, i) => {
+    const key = `${p.id}:${i}`;
+    let e = gadgets.get(key);
+    if (!e || e.kind !== g.kind) gadgets.set(key, e = { owner: p.id, kind: g.kind, samples: [] });
+    Object.assign(e, { driven: g.driven, inRange: g.inRange, left: g.left, z: g.z });
+    const last = e.samples[e.samples.length - 1];
+    if (last && now - last.t > 300) e.samples.push({ ...last, t: now - 100 });
+    e.samples.push({ t: now, x: g.x, y: g.y, h: g.h });
+    if (e.samples.length > 30) e.samples.splice(0, e.samples.length - 30);
+  });
+  for (const [key, e] of gadgets) if (e.owner === p.id && Number(key.split(":")[1]) >= list.length) gadgets.delete(key);
+}
+function dropGadgets(owner) { for (const [key, e] of gadgets) if (e.owner === owner) gadgets.delete(key); }
+// the hack this page drives (control.js sets `driving`): the driven one of that kind on that player, else the first
+let driving = null;
+function drivenGadget() {
+  if (!driving) return null;
+  let first = null;
+  for (const e of gadgets.values()) {
+    if (e.owner !== driving.target || e.kind !== driving.kind) continue;
+    if (e.driven) return e;
+    first = first || e;
+  }
+  return first;
 }
 
 function sampleAt(e, t) {
@@ -282,6 +314,29 @@ function drawPlayers(now) {
       c.font = "11px system-ui, sans-serif"; c.fillStyle = "#ffd23f";
       c.strokeText("★".repeat(e.info.wanted), x, y - 28); c.fillText("★".repeat(e.info.wanted), x, y - 28);
     }
+  }
+  drawGadgets(now);
+}
+
+function drawGadgets(now) {
+  const c = ctx, t = now - INTERP_DELAY, mine = drivenGadget();
+  for (const e of gadgets.values()) {
+    const p = sampleAt(e, t);
+    if (!p) continue;
+    e.drawn = p;
+    const [x, y] = toScreen(p.x, p.y), col = e.kind === 8 ? "#ffd23f" : "#ff4d5e";
+    c.save();
+    c.translate(x, y);
+    c.rotate(-p.h * Math.PI / 180);
+    c.beginPath();
+    if (e.kind === 6) { c.moveTo(0, -8); c.lineTo(8, 0); c.lineTo(0, 8); c.lineTo(-8, 0); c.closePath(); }
+    else c.rect(-4, -7, 8, 14);
+    c.fillStyle = col; c.strokeStyle = "#071018"; c.lineWidth = 2; c.fill(); c.stroke();
+    c.restore();
+    if (e === mine || e.driven) { c.beginPath(); c.arc(x, y, 13, 0, 7); c.strokeStyle = col; c.globalAlpha = 0.5 + 0.4 * Math.sin(now / 150); c.lineWidth = 2; c.stroke(); c.globalAlpha = 1; }
+    c.font = "600 10px ui-monospace, monospace"; c.textAlign = "center"; c.textBaseline = "top";
+    c.lineWidth = 3; c.strokeStyle = "rgba(4, 8, 12, .85)"; c.strokeText(GADGET_LABEL[e.kind] ?? "", x, y + 11);
+    c.fillStyle = col; c.fillText(GADGET_LABEL[e.kind] ?? "", x, y + 11);
   }
 }
 
@@ -369,6 +424,7 @@ function connect() {
       online = !!m.online;
       setStatus(online ? "on" : "wait", online ? (m.server?.name ?? "game server") : "game server offline");
       players.clear();
+      gadgets.clear();
       for (const p of m.players) upsert(p, now);
       renderWorld(m.world);
       listDirty = false;
@@ -378,12 +434,13 @@ function connect() {
     } else if (m.t === "tel") {
       need2d = true;
       for (const p of m.players) upsert(p, now);
-      for (const id of m.gone) { players.delete(id); if (selected === id) selected = follow = null; }
+      for (const id of m.gone) { players.delete(id); dropGadgets(id); if (selected === id) selected = follow = null; }
       if (m.world) renderWorld(m.world);
       if (m.cameras && typeof onCameras === "function") onCameras(m.cameras, null);
       if (m.players.length || m.gone.length) listDirty = true;
     } else if (m.t === "event" && typeof onGodEyeEvent === "function") onGodEyeEvent(m.entry);
     else if (m.t === "game" && typeof onGameEvent === "function") onGameEvent(m.event);
+    else if (m.t === "drive" && typeof onDrive === "function") onDrive(m.drive);
   };
   ws.onclose = () => {
     online = false; setStatus("", "GodEye offline, reconnecting…");
@@ -449,7 +506,11 @@ function frame(now) {
   const moving = [...players.values()].some((e) => e.info.playing);
   if (!baseDirty && !need2d && !moving && follow == null) return;
   need2d = false;
-  if (follow != null) {
+  const mine = drivenGadget();
+  if (mine?.drawn) {   // driving a hack: the map keeps it in the middle
+    const dx = mine.drawn.x - view.cx, dy = mine.drawn.y - view.cy;
+    if (Math.abs(dx) * view.s > 0.5 || Math.abs(dy) * view.s > 0.5) { view.cx += dx * 0.25; view.cy += dy * 0.25; baseDirty = true; }
+  } else if (follow != null) {
     const e = players.get(follow);
     if (e?.drawn) {
       const dx = e.drawn.x - view.cx, dy = e.drawn.y - view.cy;

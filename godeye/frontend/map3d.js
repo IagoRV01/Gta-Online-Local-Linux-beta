@@ -465,6 +465,44 @@ function updatePlayers(now) {
   if (key !== playerKey) { playerKey = key; playersMoved = true; }
 }
 
+// GodEye's hacks (2026-11-17): a red diamond (drone), a red box (RC car), a yellow box (taxi)
+const gadgetMarks = new Map();
+let chase = null;   // the driven hack the camera sits behind
+function updateGadgets(now) {
+  const t = now - 150, seen = new Set(), mine = drivenGadget();
+  let key = "";
+  chase = null;
+  for (const [id, e] of gadgets) {
+    const p = sampleAt(e, t);
+    if (!p) continue;
+    seen.add(id);
+    let mk = gadgetMarks.get(id);
+    if (!mk) {
+      const col = e.kind === 8 ? "#ffd23f" : "#ff4d5e";
+      const geo = e.kind === 6 ? new THREE.OctahedronGeometry(1.2) : new THREE.BoxGeometry(e.kind === 7 ? 1.4 : 2, e.kind === 7 ? 2.2 : 4.6, e.kind === 7 ? 1 : 1.5);
+      const body = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, depthTest: false }));
+      body.renderOrder = 9;
+      const group = new THREE.Group();
+      mk = { group, body, label: label(GADGET_LABEL[e.kind] ?? "", col) };
+      group.add(body, mk.label);
+      playerGroup.add(group);
+      gadgetMarks.set(id, mk);
+    }
+    const z = e.z ?? 0;
+    const k = Math.max(0.5, camera.position.distanceTo(new THREE.Vector3(p.x, p.y, z)) / 160);
+    mk.group.position.set(p.x, p.y, z);
+    mk.body.scale.setScalar(k);
+    mk.body.rotation.set(0, 0, p.h * Math.PI / 180);
+    mk.label.position.set(0, 0, 4 * k);
+    mk.label.scale.set(12 * k, 3 * k, 1);
+    if (e === mine) chase = { x: p.x, y: p.y, z, h: p.h };
+    key += `${id}:${p.x.toFixed(1)},${p.y.toFixed(1)},${z.toFixed(1)},${Math.round(p.h)},${k.toFixed(2)};`;
+  }
+  for (const [id, mk] of gadgetMarks) if (!seen.has(id)) { mk.group.removeFromParent(); gadgetMarks.delete(id); }
+  if (key !== gadgetKey) { gadgetKey = key; playersMoved = true; }
+}
+let gadgetKey = "", chasing = false;
+
 // ---------------------------------------------------------------- camera
 function placeCamera() {
   const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
@@ -518,10 +556,19 @@ function resize3d() {
 
 function frame(now) {
   if (!running) return;
-  if (follow != null) {
-    const e = players.get(follow);
-    const p = e && sampleAt(e, now - 150);
-    if (p) { orbit.tx += (p.x - orbit.tx) * 0.15; orbit.ty += (p.y - orbit.ty) * 0.15; orbit.tz += ((e.info.z ?? orbit.tz) - orbit.tz) * 0.15; }
+  updateGadgets(now);
+  if (chase) {   // driving a hack: the camera sits behind it, turning with it (the wheel still zooms)
+    if (!chasing) { chasing = true; orbit.dist = 45; orbit.pitch = 0.42; }
+    const want = -chase.h * Math.PI / 180;
+    orbit.yaw += ((((want - orbit.yaw) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI) * 0.12;
+    orbit.tx += (chase.x - orbit.tx) * 0.3; orbit.ty += (chase.y - orbit.ty) * 0.3; orbit.tz += (chase.z - orbit.tz) * 0.3;
+  } else {
+    chasing = false;
+    if (follow != null) {
+      const e = players.get(follow);
+      const p = e && sampleAt(e, now - 150);
+      if (p) { orbit.tx += (p.x - orbit.tx) * 0.15; orbit.ty += (p.y - orbit.ty) * 0.15; orbit.tz += ((e.info.z ?? orbit.tz) - orbit.tz) * 0.15; }
+    }
   }
   placeCamera();
   sky.position.copy(camera.position);

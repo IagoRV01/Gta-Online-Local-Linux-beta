@@ -214,6 +214,21 @@ body { background: var(--bg); color: var(--text); font: 14px/1.4 var(--sans); di
 .videobox video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
 .vstate { position: absolute; left: 0; right: 0; bottom: 0; top: 30px; display: grid; place-items: center; color: var(--muted); font-size: 13px; pointer-events: none; }
 
+/* ---- driving a hack from the web (2026-11-17) */
+.drivepad { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: min(400px, calc(100% - 24px)); background: rgba(13, 20, 28, .94); border: 1px solid var(--bad); border-radius: 10px; padding: 10px 12px; z-index: 6; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 8px; }
+.dhead { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.dhead b { font: 600 13px var(--mono); color: var(--bad); }
+.dleft { margin-left: auto; font: 600 14px var(--mono); color: var(--warn); }
+.dkeys { font-size: 11px; color: var(--muted); }
+.dkeys kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--text); background: var(--panel-2); }
+.dbtns { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-auto-rows: 40px; gap: 4px; }
+.dalt, .dact { display: flex; flex-direction: column; gap: 4px; }
+.drivepad button[data-d] { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; font: 600 15px var(--sans); cursor: pointer; touch-action: none; user-select: none; min-width: 44px; min-height: 40px; }
+.drivepad button[data-d].on { background: var(--accent); color: #04121c; }
+.drivepad .daction { border-color: var(--bad); color: var(--bad); padding: 0 16px; font-family: var(--mono); }
+.dfoot { display: flex; gap: 8px; justify-content: flex-end; }
+
 /* ---- Phase 12: cameras */
 .camstate { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px; }
 .camstate b { color: var(--text); font-weight: 600; }

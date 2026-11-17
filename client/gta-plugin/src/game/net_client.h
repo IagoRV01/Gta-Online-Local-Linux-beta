@@ -37,6 +37,7 @@ void OnGameMessage(std::function<void(proto::MsgType, wire::Reader &)> cb);
 void SendState(const proto::PlayerStateMsg &s);          // unreliable, channel 1
 void SendAppearance(const std::string &json);            // reliable
 void SendEvent(const wire::Writer &w);                   // reliable, channel 2 (combat events)
+void SendUnreliable(const wire::Writer &w);              // unreliable, channel 1 (the GodEye hacks' places)
 
 void Service();             // call every frame
 unsigned RttMs();

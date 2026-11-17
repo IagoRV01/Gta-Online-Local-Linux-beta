@@ -78,6 +78,17 @@
       <video id="vid" muted playsinline autoplay></video>
       <div class="vstate" id="vState">Connecting…</div>
     </div>
+    <div class="drivepad" id="drivePad" hidden>
+      <div class="dhead"><span class="rec"></span><b id="dName"></b><span class="muted">→</span><span id="dTarget"></span><span id="dLeft" class="dleft"></span></div>
+      <div class="dkeys" id="dKeys"></div>
+      <div class="dbtns">
+        <div class="dpad"><span></span><button data-d="up" aria-label="Forward">▲</button><span></span>
+          <button data-d="left" aria-label="Left">◀</button><button data-d="down" aria-label="Back">▼</button><button data-d="right" aria-label="Right">▶</button></div>
+        <div class="dalt" id="dAlt"><button data-d="rise" aria-label="Up">⤒</button><button data-d="sink" aria-label="Down">⤓</button></div>
+        <div class="dact"><button id="dAction" class="daction" data-d="action">ZAP</button><button id="dBoost" data-d="boost">BOOST</button></div>
+      </div>
+      <div class="dfoot"><button id="dCam" class="ghost">Camera on it</button><button id="dStop" class="ghost">Let the AI drive</button></div>
+    </div>
     <div class="hint3d" id="hint3d" hidden>Drag to turn · right-drag or Shift+drag to move · wheel to zoom · pick a player to follow</div>
     <div class="map-tools">
       <button id="zin" title="Zoom in" aria-label="Zoom in">+</button>
@@ -157,6 +168,7 @@
           <button data-cam="heli">Helicopter</button>
           <button data-cam="drone">Drone</button>
           <button data-cam="cinematic">Cinematic</button>
+          <button data-cam="gadget" title="Behind the drone, RC car or taxi hacked onto this player">Hack cam</button>
         </div>
       </div>
       <div class="ctl" id="eventCtl" data-need="event" hidden>

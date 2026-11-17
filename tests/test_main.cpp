@@ -528,6 +528,51 @@ static void TestWorld() {
         AuthMsg b;
         CHECK(GetHeader(ra, h) && Get(ra, b) && b.role == kRoleCamera && b.name == "Camera 1");
     }
+    // GodEye users drive their hacks (2026-11-17)
+    {
+        GodEyeSteerMsg s{kGeRcBomb, -100, 55, 0, kSteerAction};
+        wire::Writer ws;
+        Put(ws, s);
+        wire::Reader rs(ws.Bytes().data(), ws.Size());
+        GodEyeSteerMsg t;
+        CHECK(GetHeader(rs, h) && h.type == MsgType::GodEyeSteer && Get(rs, t) && t.kind == kGeRcBomb && t.x == -100 && t.y == 55 && t.buttons == kSteerAction);
+        s.kind = kGeWanted;   // not a hack
+        wire::Writer ws2;
+        Put(ws2, s);
+        wire::Reader rs2(ws2.Bytes().data(), ws2.Size());
+        CHECK(GetHeader(rs2, h) && !Get(rs2, t));
+        s.kind = kGeDrone; s.z = -128;   // off the stick
+        wire::Writer ws3;
+        Put(ws3, s);
+        wire::Reader rs3(ws3.Bytes().data(), ws3.Size());
+        CHECK(GetHeader(rs3, h) && !Get(rs3, t));
+        GadgetStateMsg g;
+        g.g.push_back(GadgetPose{kGeTaxis, kGadgetDriven, {-1450, -527, 70}, 271.f, 118});
+        g.g.push_back(GadgetPose{kGeTaxis, 0, {-1400, -500, 30}, 90.f, 118});
+        wire::Writer wg;
+        Put(wg, g);
+        wire::Reader rg(wg.Bytes().data(), wg.Size());
+        GadgetStateMsg g2;
+        CHECK(GetHeader(rg, h) && h.type == MsgType::GadgetState && Get(rg, g2) && g2.g.size() == 2 && g2.g[0].flags == kGadgetDriven && g2.g[0].pos.x == -1450 && g2.g[1].secondsLeft == 118);
+        GadgetRelayMsg rl{7, g.g};
+        wire::Writer wr;
+        Put(wr, rl);
+        wire::Reader rr(wr.Bytes().data(), wr.Size());
+        GadgetRelayMsg rl2;
+        CHECK(GetHeader(rr, h) && h.type == MsgType::GadgetRelay && Get(rr, rl2) && rl2.owner == 7 && rl2.g.size() == 2);
+        g.g[1].pos.x = 1e9f;   // nowhere on the map
+        wire::Writer wb;
+        Put(wb, g);
+        wire::Reader rb(wb.Bytes().data(), wb.Size());
+        CHECK(GetHeader(rb, h) && !Get(rb, g2));
+        CameraSetMsg c;
+        c.mode = kCamGadget; c.target = 7; c.fov = 65; c.label = "HACK Alex";
+        wire::Writer wc;
+        Put(wc, c);
+        wire::Reader rc(wc.Bytes().data(), wc.Size());
+        CameraSetMsg d;
+        CHECK(GetHeader(rc, h) && Get(rc, d) && d.mode == kCamGadget && d.target == 7);
+    }
     // Maze Bank transaction log
     {   // co-op jobs (v9)
         wire::Writer jw;

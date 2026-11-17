@@ -13,6 +13,7 @@
 // The server is the authority: clients send *requests* and *their own* state; everything that
 // matters (profile, money, ownership, world) is decided and stored by the server.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -55,6 +56,10 @@ enum class MsgType : uint16_t {
     WorldState = 40,     // S  {u8 h, u8 m, u8 s, u8 flags, str weather, str nextWeather, f32 transition}
     GodEyeAction = 41,   // S  {u8 kind, u8 value, u32 durationMs, str text}   v12: GodEye's actions on one player (or the traffic mode for all)
     CameraSet = 42,      // S  {u8 mode, u16 target, str cameraId, vec3 pos, vec3 rot, f32 fov, str label}   v13: what a camera client shows
+    // GodEye users drive their hacks (2026-11-17; added inside v14: an older client files them away unread)
+    GodEyeSteer = 43,    // S  {u8 kind, i8 x, i8 y, i8 z, u8 buttons}   to the hacked player, ~10 Hz, unreliable
+    GadgetState = 44,    // C  {u8 count, count x GadgetPose}             the hacks on this player, ~10 Hz, unreliable
+    GadgetRelay = 45,    // S  {u16 owner, u8 count, count x GadgetPose}  to camera clients: they draw copies
     // economy (channel 2) — Phase 8: the server owns every balance
     MoneyChange = 50,    // C  {u32 requestId, u8 account, i64 delta, str reason}   account: 0 wallet, 1 bank, 2 deposit (wallet->bank; negative = withdraw)
     MoneyResult = 51,    // S  {u32 requestId, u8 ok, i64 wallet, i64 bank, str reason}
@@ -395,8 +400,9 @@ inline bool Get(wire::Reader &r, GodEyeActionMsg &m) {
 // other modes frame the target player.
 enum CameraMode : uint8_t {
     kCamCctv = 0, kCamFollow = 1, kCamHeli = 2, kCamDrone = 3, kCamCinematic = 4, kCamThird = 5, kCamChase = 6, kCamFree = 7,
+    kCamGadget = 8,   // 2026-11-17: behind the hack (drone, RC car, taxi) on the target player
 };
-constexpr const char *kCameraModeNames[] = {"cctv", "follow", "heli", "drone", "cinematic", "third", "chase", "free"};
+constexpr const char *kCameraModeNames[] = {"cctv", "follow", "heli", "drone", "cinematic", "third", "chase", "free", "gadget"};
 struct CameraSetMsg {
     uint8_t mode = kCamCctv;
     uint16_t target = 0;          // a player's netId (not CCTV / free)
@@ -411,8 +417,49 @@ inline void Put(wire::Writer &w, const CameraSetMsg &m) {
 }
 inline bool Get(wire::Reader &r, CameraSetMsg &m) {
     m.mode = r.U8(); m.target = r.U16(); m.cameraId = r.Str(16); m.pos = GetVec(r); m.rot = GetVec(r); m.fov = r.F32(); m.label = r.Str(64);
-    return r.Done() && m.mode <= kCamFree && m.fov >= 5.f && m.fov <= 130.f;
+    return r.Done() && m.mode <= kCamGadget && m.fov >= 5.f && m.fov <= 130.f;
 }
+
+// ---- GodEye users drive their hacks (2026-11-17) ------------------------------------------------------
+// Whoever bought a drone / RC Bandito / taxi hack on the web drives it for up to two minutes: GodEye sends the stick
+// (x right, y forward, z up, -100..100) and the buttons; the hacked player's game flies or drives the gadget with it and
+// falls back to its own AI when no input came for a moment. That game reports where its gadgets are (GodEye's map) and
+// the server passes it on to the camera clients, which draw copies so the video can follow them.
+enum SteerButtons : uint8_t { kSteerAction = 1, kSteerBoost = 2 };   // action: zap / detonate / horn; boost: taxi
+struct GodEyeSteerMsg { uint8_t kind = 0; int8_t x = 0, y = 0, z = 0; uint8_t buttons = 0; };
+inline void Put(wire::Writer &w, const GodEyeSteerMsg &m) {
+    PutHeader(w, MsgType::GodEyeSteer); w.U8(m.kind); w.U8((uint8_t)m.x); w.U8((uint8_t)m.y); w.U8((uint8_t)m.z); w.U8(m.buttons);
+}
+inline bool Get(wire::Reader &r, GodEyeSteerMsg &m) {
+    m.kind = r.U8(); m.x = (int8_t)r.U8(); m.y = (int8_t)r.U8(); m.z = (int8_t)r.U8(); m.buttons = r.U8();
+    auto ok = [](int8_t v) { return v >= -100 && v <= 100; };
+    return r.Done() && m.kind >= kGeDrone && m.kind <= kGeTaxis && ok(m.x) && ok(m.y) && ok(m.z);
+}
+enum GadgetFlags : uint8_t { kGadgetDriven = 1, kGadgetInRange = 2 };   // driven: a GodEye user has it; in range: the taser reaches
+constexpr size_t kMaxGadgets = 4;
+struct GadgetPose { uint8_t kind = 0, flags = 0; Vec3 pos; float heading = 0; uint16_t secondsLeft = 0; };
+struct GadgetStateMsg { std::vector<GadgetPose> g; };
+struct GadgetRelayMsg { uint16_t owner = 0; std::vector<GadgetPose> g; };
+inline void PutPoses(wire::Writer &w, const std::vector<GadgetPose> &g) {
+    size_t n = g.size() < kMaxGadgets ? g.size() : kMaxGadgets;
+    w.U8((uint8_t)n);
+    for (size_t i = 0; i < n; ++i) { w.U8(g[i].kind); w.U8(g[i].flags); PutVec(w, g[i].pos); w.F32(g[i].heading); w.U16(g[i].secondsLeft); }
+}
+inline bool GetPoses(wire::Reader &r, std::vector<GadgetPose> &g) {
+    size_t n = r.U8();
+    if (n > kMaxGadgets) return false;
+    g.resize(n);
+    for (auto &p : g) {
+        p.kind = r.U8(); p.flags = r.U8(); p.pos = GetVec(r); p.heading = r.F32(); p.secondsLeft = r.U16();
+        if (p.kind < kGeDrone || p.kind > kGeTaxis || !std::isfinite(p.pos.x) || !std::isfinite(p.pos.y) || !std::isfinite(p.pos.z) ||
+            !std::isfinite(p.heading) || std::fabs(p.pos.x) > 20000.f || std::fabs(p.pos.y) > 20000.f || std::fabs(p.pos.z) > 5000.f) return false;
+    }
+    return true;
+}
+inline void Put(wire::Writer &w, const GadgetStateMsg &m) { PutHeader(w, MsgType::GadgetState); PutPoses(w, m.g); }
+inline bool Get(wire::Reader &r, GadgetStateMsg &m) { return GetPoses(r, m.g) && r.Done(); }
+inline void Put(wire::Writer &w, const GadgetRelayMsg &m) { PutHeader(w, MsgType::GadgetRelay); w.U16(m.owner); PutPoses(w, m.g); }
+inline bool Get(wire::Reader &r, GadgetRelayMsg &m) { m.owner = r.U16(); return GetPoses(r, m.g) && r.Done(); }
 
 // ---- economy (Phase 8) -------------------------------------------------------------------------------
 constexpr size_t kMaxMoneyReason = 40;

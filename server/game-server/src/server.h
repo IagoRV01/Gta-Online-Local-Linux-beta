@@ -78,6 +78,8 @@ private:
         proto::CameraSetMsg cam;          // what it shows now
         bool haveState = false;
         proto::PlayerStateMsg state;
+        std::vector<proto::GadgetPose> gadgets;   // 2026-11-17: GodEye's hacks on this player, as its game reports them
+        int gadgetsMs = -100000;
         int windowStartMs = 0, windowPackets = 0, dropped = 0, malformed = 0;
     };
 
@@ -145,6 +147,7 @@ private:
     bool AdminCommand(const std::string &line);
     bool GodEyeCommand(const std::string &verb, const std::string &line);
     bool CameraCommand(const std::string &line);
+    bool SteerCommand(const std::string &line);
     void SendCamera(Client &c);
     proto::CameraSetMsg DefaultCamera() const;
     std::string CamerasTelemetry() const;

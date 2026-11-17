@@ -17,6 +17,7 @@ struct Settings {
 
 void Run(const Settings &s);                     // the camera client's own loop: never returns
 void OnCameraSet(const proto::CameraSetMsg &m);  // network callback
+void OnGadgets(const proto::GadgetRelayMsg &m);  // network callback (2026-11-17): GodEye's hacks on a player, drawn as copies
 bool Active();                                   // camera mode is on (keys and other modules stay out)
 
 }  // namespace camera_client

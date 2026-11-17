@@ -74,7 +74,7 @@ std::string Server::CamerasTelemetry() const {
         const Client &c = kv.second;
         if (!c.authed || !c.camera) continue;
         char b[128];
-        std::snprintf(b, sizeof b, "{\"id\":%u,\"mode\":\"%s\",\"target\":%u,", c.netId, kCameraModeNames[c.cam.mode <= kCamFree ? c.cam.mode : 0], c.cam.target);
+        std::snprintf(b, sizeof b, "{\"id\":%u,\"mode\":\"%s\",\"target\":%u,", c.netId, kCameraModeNames[c.cam.mode <= kCamGadget ? c.cam.mode : 0], c.cam.target);
         s += (s.size() > 1 ? "," : "") + std::string(b) + "\"name\":\"" + Esc(c.name) + "\",\"cctv\":\"" + Esc(c.cam.cameraId) + "\",\"label\":\"" + Esc(c.cam.label) + "\"}";
     }
     return s + "]";
@@ -105,10 +105,24 @@ std::string Server::PlayerTelemetry(const Client &c) const {
                        s.pos.x, s.pos.y, s.pos.z, (int)std::lround(s.heading) % 360, spd, s.health, s.armour, s.wanted, s.weapon,
                        (s.flags & kFlagDead) ? "true" : "false", (unsigned)s.move);
     if (s.flags & kFlagInVehicle)
-        std::snprintf(b + n, sizeof b - n, ",\"veh\":{\"model\":%u,\"seat\":%d,\"driver\":%u}}", s.veh.model, s.veh.seat, s.veh.driverNetId);
+        n += std::snprintf(b + n, sizeof b - n, ",\"veh\":{\"model\":%u,\"seat\":%d,\"driver\":%u}", s.veh.model, s.veh.seat, s.veh.driverNetId);
     else
-        std::snprintf(b + n, sizeof b - n, ",\"veh\":null}");
-    return b;
+        n += std::snprintf(b + n, sizeof b - n, ",\"veh\":null");
+    std::string out(b);
+    if (!c.gadgets.empty() && NowMs() - c.gadgetsMs < 1500) {   // GodEye's hacks on this player (2026-11-17), 0.5 m / 5 degrees
+        out += ",\"gadgets\":[";
+        for (size_t i = 0; i < c.gadgets.size(); ++i) {
+            const GadgetPose &g = c.gadgets[i];
+            char gb[192];
+            std::snprintf(gb, sizeof gb, "%s{\"kind\":%u,\"driven\":%s,\"inRange\":%s,\"x\":%.1f,\"y\":%.1f,\"z\":%.1f,\"h\":%d,\"left\":%u}",
+                          i ? "," : "", g.kind, (g.flags & kGadgetDriven) ? "true" : "false", (g.flags & kGadgetInRange) ? "true" : "false",
+                          std::round(g.pos.x * 2.f) / 2.f, std::round(g.pos.y * 2.f) / 2.f, std::round(g.pos.z * 2.f) / 2.f,
+                          ((int)std::lround(g.heading / 5.f) * 5 % 360 + 360) % 360, g.secondsLeft);
+            out += gb;
+        }
+        out += "]";
+    }
+    return out + "}";
 }
 
 void Server::AdminTelemetry(AdminConn &a, bool full) {

@@ -25,7 +25,19 @@ export const ACTIONS: Record<string, ActionDef> = {
 export const WEATHERS = ["CLEAR", "EXTRASUNNY", "CLOUDS", "OVERCAST", "RAIN", "CLEARING", "THUNDER", "SMOG", "FOGGY", "XMAS", "SNOW", "SNOWLIGHT", "BLIZZARD", "HALLOWEEN", "NEUTRAL", "auto"];
 const TIMES: Record<string, string> = { dawn: "6 30", day: "12 0", dusk: "19 30", night: "0 0" };
 const TRAFFIC = ["red", "green", "random", "normal"];
-export const CAMERA_MODES = ["cctv", "follow", "heli", "drone", "cinematic", "third", "chase"];
+export const CAMERA_MODES = ["cctv", "follow", "heli", "drone", "cinematic", "third", "chase", "gadget"];
+
+// ---- driving a hack (2026-11-17): the buyer of a drone / RC Bandito / taxi hack drives it from the web for up to two
+// minutes. The stick comes over the WebSocket ~10 a second and becomes "steer <player> <kind> <x> <y> <z> <buttons>".
+export const DRIVE_SECONDS = 120;
+export const DRIVE_KINDS: Record<string, number> = { drone: 6, rcbomb: 7, taxis: 8 };   // protocol.h GodEyeKind
+export interface Drive { user: string; action: string; kind: number; target: number; targetName: string; until: number }
+export function steerLine(d: Drive, m: any): string | null {
+  const v = (k: string) => { const n = Math.round(Number(m?.[k] ?? 0)); return Number.isFinite(n) ? Math.max(-100, Math.min(100, n)) : 0; };
+  const b = Math.round(Number(m?.b ?? 0));
+  if (!Number.isInteger(b) || b < 0 || b > 3) return null;
+  return `steer ${d.target} ${d.kind} ${v("x")} ${v("y")} ${v("z")} ${b}`;
+}
 
 export function allowed(role: Role, action: string): boolean {
   const a = ACTIONS[action];
@@ -55,9 +67,10 @@ export function toCommand(r: ActionRequest, playing: (id: number) => boolean): {
     }
     case "alert": return { line: `alert ${target} ${cleanText(r.text) || "Dispatch has your description."}` };
     case "roadblock": return { line: `roadblock ${target}` };
-    case "drone": return { line: `drone ${target}` };
-    case "rcbomb": return { line: `rcbomb ${target}` };
-    case "taxis": return { line: `taxis ${target}` };
+    // driven by whoever bought it for DRIVE_SECONDS (2026-11-17): the hack lasts that long on the player's game
+    case "drone": return { line: `drone ${target} ${DRIVE_SECONDS}` };
+    case "rcbomb": return { line: `rcbomb ${target} ${DRIVE_SECONDS}` };
+    case "taxis": return { line: `taxis ${target} ${DRIVE_SECONDS}` };
     case "traffic": {
       const v = String(r.value ?? "");
       if (!TRAFFIC.includes(v)) return { error: "traffic: red, green, random or normal" };

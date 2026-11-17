@@ -46,6 +46,7 @@ function renderAuth() {
   for (const g of document.querySelectorAll(".ctl")) g.hidden = !g.dataset.need.split(" ").some((a) => auth.can.includes(a));
   for (const b of document.querySelectorAll("[data-act]")) b.hidden = !auth.can.includes(b.dataset.act);
   camPower("status");
+  onDrive(auth.drive || null);
 }
 
 // the access dialog: log in, or make an account (the first one is the ADMIN; then a side to play)
@@ -111,10 +112,74 @@ async function act(payload) {
   const mood = { 402: "credits", 429: "cooldown", 503: "offline", 403: r.data.denied ? "denied" : "error" }[r.status] ?? "error";
   if (!r.ok) { toast(r.data.error || "refused", true, mood); updateCooldowns(); if (r.status === 401) { auth = { user: null, control: true }; renderAuth(); } return; }
   if (r.data.credits != null && typeof onCredits === "function") onCredits(r.data.credits);
+  if (r.data.drive) onDrive(r.data.drive);   // a drone / RC car / taxi: yours to drive for two minutes
   if (typeof loadGame === "function") loadGame();
   updateCooldowns();
   if (payload.action === "camera" && $("videoBox").hidden) $("liveBtn").click();   // what the camera now shows, at once
 }
+
+// ---- driving a hack (2026-11-17): the buyer of a drone, RC Bandito or taxi hack drives it for two minutes. The stick
+// goes over the WebSocket 10 times a second; with no stick (pad closed, page gone) the hack's own AI takes it back.
+let drive = null;
+const DRIVE = {
+  drone: { name: "TASER DRONE", action: "ZAP", alt: true, boost: false,
+    keys: "<kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Space</kbd> zap (within 20 m)" },
+  rcbomb: { name: "RC BANDITO C4", action: "BOOM", alt: false, boost: false,
+    keys: "<kbd>W</kbd><kbd>S</kbd> throttle/reverse · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> detonate" },
+  taxis: { name: "HACKED TAXI", action: "HORN", alt: false, boost: true,
+    keys: "<kbd>W</kbd><kbd>S</kbd> throttle/reverse · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Shift</kbd> boost · <kbd>Space</kbd> horn" },
+};
+const KEYMAP = { KeyW: "up", ArrowUp: "up", KeyS: "down", ArrowDown: "down", KeyA: "left", ArrowLeft: "left", KeyD: "right", ArrowRight: "right",
+  KeyR: "rise", PageUp: "rise", KeyF: "sink", PageDown: "sink", Space: "action", KeyE: "action", ShiftLeft: "boost", ShiftRight: "boost" };
+const held = new Set();
+function onDrive(d) {
+  drive = d && d.until > Date.now() ? d : null;
+  driving = drive ? { target: drive.target, kind: drive.kind } : null;
+  held.clear();
+  for (const b of document.querySelectorAll("[data-d]")) b.classList.remove("on");
+  $("drivePad").hidden = !drive;
+  if (!drive) return;
+  const D = DRIVE[drive.action];
+  $("dName").textContent = D.name;
+  $("dTarget").textContent = drive.targetName || `player ${drive.target}`;
+  $("dKeys").innerHTML = D.keys;
+  $("dAction").textContent = D.action;
+  $("dAlt").hidden = !D.alt;
+  $("dBoost").hidden = !D.boost;
+  $("dCam").hidden = !auth.can?.includes("camera");
+}
+function stick() {
+  const h = (k) => held.has(k);
+  return { x: (h("right") ? 100 : 0) - (h("left") ? 100 : 0), y: (h("up") ? 100 : 0) - (h("down") ? 100 : 0),
+    z: (h("rise") ? 100 : 0) - (h("sink") ? 100 : 0), b: (h("action") ? 1 : 0) | (h("boost") ? 2 : 0) };
+}
+setInterval(() => {
+  if (!drive) return;
+  const left = Math.ceil((drive.until - Date.now()) / 1000);
+  if (left <= 0) { onDrive(null); toast("Your two minutes are up: the hack is on its own now.", false); return; }
+  $("dLeft").textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "steer", csrf: auth.csrf, ...stick() }));
+}, 100);
+const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName) || e.target?.isContentEditable;
+addEventListener("keydown", (e) => {
+  const k = KEYMAP[e.code];
+  if (!drive || !k || typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+  e.preventDefault();
+  held.add(k);
+});
+addEventListener("keyup", (e) => { const k = KEYMAP[e.code]; if (k) held.delete(k); });
+addEventListener("blur", () => held.clear());
+for (const b of document.querySelectorAll("[data-d]")) {   // the touch pad
+  const k = b.dataset.d;
+  const down = (e) => { e.preventDefault(); b.setPointerCapture?.(e.pointerId); held.add(k); b.classList.add("on"); };
+  const up = () => { held.delete(k); b.classList.remove("on"); };
+  b.addEventListener("pointerdown", down);
+  b.addEventListener("pointerup", up);
+  b.addEventListener("pointercancel", up);
+  b.addEventListener("lostpointercapture", up);
+}
+$("dStop").onclick = () => { onDrive(null); toast("Released: the hack's own AI drives it now.", false); };
+$("dCam").onclick = () => { if (drive) act({ action: "camera", camera: camTarget(), value: "gadget", target: drive.target }); };
 
 // ---- the camera client's power (ADMIN, 2026-11-16): the camera GTA on the server PC, on and off
 async function camPower(op) {
