@@ -460,6 +460,16 @@ that player's own game by LocalOnline (`godeye.cpp`, protocol `GodEyeAction` kin
     renewed every 0.45 s or when the stick changes, so GTA's engine, gears, wheels and suspension do the driving.
     Boost is `SET_VEHICLE_CHEAT_POWER_INCREASE` 2.2. The camera's copies of the cars roll the same way as the players'
     cars (velocity and a pull, not frozen), and a Knoway is drawn as a Knoway (`kGadgetKnoway`).
+  - **Verified in game (2026-11-17, test server, BC-250):** "2 self-driving cars hacked (2 of the Knoway fleet taken
+    over)". Driven with the stick, the car accelerated from 0 to 27 m/s, turned left on 7, reversed on 28 and spun on
+    13 at speed, like any GTA car; the RC Bandito did the same with no damage and blew up on the player afterwards.
+    Steering right (8) turned less clearly in that test. The AI side had a bug: the ram task
+    (`TASK_VEHICLE_MISSION_PED_TARGET`, mission 2) was given again every 3 s, which restarted its route each time, so
+    the cars kept braking and one sat still for 30 s. Now each car is tasked once and changed only when it is stuck
+    (two checks in a row standing still more than 15 m from the player): ram <-> `TASK_VEHICLE_DRIVE_TO_COORD_LONGRANGE`
+    to the player (26 m/s); the drive-to ends near its point or when the player moves 20 m on, and the ram takes over.
+    In the test both Knoways came from 250-280 m at about 25 m/s and hit the player. Logs:
+    `self-driving car N: speed, distance, ramming | driving to the player (new task)`.
   - The hacked game reports its gadgets 10 times a second (`GadgetState`). The server puts them in GodEye's telemetry
     (`gadgets` on the player: kind, driven, inRange, x/y/z, heading, seconds left) and passes them to the camera
     clients (`GadgetRelay`), which draw frozen copies of the drone / RC car / taxis gliding between the reports.

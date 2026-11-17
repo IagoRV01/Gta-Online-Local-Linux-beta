@@ -358,6 +358,9 @@ struct Gadget {
     bool aiStopped = false, told = false, actionHeld = false, boosted = false;
     int tempAction = -1, tempUntil = 0;   // the driven car's current TASK_VEHICLE_TEMP_ACTION
     std::vector<char> borrowed;   // per car: a Knoway of Gori Online's own fleet (hacked, never deleted: given back)
+    std::vector<int> stuck;       // per car: checks in a row that found it standing still far from the player
+    std::vector<int> mode;        // per car: 0 not tasked yet, 1 ramming the player, 2 driving to where the player was
+    std::vector<Vec3> gotoAt;     // per car in mode 2: where it drives to
 };
 std::vector<Gadget> g_gadgets;
 GodEyeSteerMsg g_steer[kGeTaxis + 1];   // the newest stick per hack kind
@@ -706,10 +709,36 @@ void GadgetsTick(int me) {
         }
         if (g.kind == kGeTaxis && !done && now >= g.retaskMs) {
             g.retaskMs = now + 3000;
+            g.stuck.resize(g.vehs.size(), 0); g.mode.resize(g.vehs.size(), 0); g.gotoAt.resize(g.vehs.size());
+            if (taxiDriven) g.mode[0] = 0;   // the stick has it: the AI tasks it afresh when it's let go
             for (size_t k = taxiDriven ? 1 : 0; k < g.vehs.size() && k < g.peds.size(); ++k) {
-                if (!gta::Exists(g.vehs[k]) || !gta::Exists(g.peds[k])) continue;
-                N(N_TASK_VEHICLE_MISSION_PED_TARGET, g.peds[k], g.vehs[k], me, 2, 26.f, 786469, 1.f, 0.f, 1);
-                N(N_START_VEHICLE_HORN, g.vehs[k], 1500, gta::Joaat("HELDDOWN"), 0);
+                int v = g.vehs[k];
+                if (!gta::Exists(v) || gta::Dead(v)) continue;
+                if (!gta::Exists(g.peds[k]) && !(k < g.borrowed.size() && g.borrowed[k])) {   // its hidden driver never came: seat a new one
+                    g.peds[k] = HiddenDriver(v);
+                    g.mode[k] = 0;
+                    LOGI("godeye", "-", "self-driving car %d had no driver: new one %d", (int)k, g.peds[k]);
+                }
+                if (!gta::Exists(g.peds[k])) continue;
+                // 2026-11-17 test: re-giving the ram task every 3 s restarted its route each time, so the cars kept
+                // braking and some never got going. Now it is given once and changed only when the car is stuck: two
+                // checks standing still far from the player swap ram <-> drive-to-the-player; a drive-to ends near its
+                // point or when the player has moved on, and the ram takes over again.
+                float speed = N<float>(N_GET_ENTITY_SPEED, v), dist = std::sqrt(Dist2(gta::Pos(v), p));
+                g.stuck[k] = speed < 1.f && dist > 15.f ? g.stuck[k] + 1 : 0;
+                int was = g.mode[k];
+                if (g.mode[k] == 0) g.mode[k] = 1;
+                else if (g.stuck[k] >= 2) { g.mode[k] = g.mode[k] == 1 ? 2 : 1; g.stuck[k] = 0; }
+                else if (g.mode[k] == 2 && (Dist2(g.gotoAt[k], p) > 20.f * 20.f || Dist2(g.gotoAt[k], gta::Pos(v)) < 20.f * 20.f)) g.mode[k] = 1;
+                bool retask = g.mode[k] != was;
+                if (g.mode[k] == 2 && retask) {
+                    g.gotoAt[k] = p;
+                    N(N_TASK_VEHICLE_DRIVE_TO_COORD_LONGRANGE, g.peds[k], v, p.x, p.y, p.z, 26.f, 786469, 5.f);
+                } else if (g.mode[k] == 1 && retask) N(N_TASK_VEHICLE_MISSION_PED_TARGET, g.peds[k], v, me, 2, 26.f, 786469, 1.f, 0.f, 1);
+                N(N_START_VEHICLE_HORN, v, 1500, gta::Joaat("HELDDOWN"), 0);
+                if (now - g.startMs < 40000 || g.mode[k] != was)
+                    LOGI("godeye", "-", "self-driving car %d: speed %.1f, %.0f m from the player, %s%s", (int)k, speed, dist,
+                         g.mode[k] == 2 ? "driving to the player" : "ramming", g.mode[k] != was ? " (new task)" : "");
             }
         }
         if (done) {
