@@ -1,4 +1,5 @@
 #include "game/godeye.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <deque>
@@ -354,8 +355,9 @@ struct Gadget {
     Vec3 at;                      // the drone's place
     float yaw = 0;                // the drone's heading
     // driven from GodEye (2026-11-17): the stick of whoever bought it, while it keeps coming
-    bool aiStopped = false, told = false, actionHeld = false;
-    float speed = 0;              // the driven car's forward speed (m/s)
+    bool aiStopped = false, told = false, actionHeld = false, boosted = false;
+    int tempAction = -1, tempUntil = 0;   // the driven car's current TASK_VEHICLE_TEMP_ACTION
+    std::vector<char> borrowed;   // per car: a Knoway of Gori Online's own fleet (hacked, never deleted: given back)
 };
 std::vector<Gadget> g_gadgets;
 GodEyeSteerMsg g_steer[kGeTaxis + 1];   // the newest stick per hack kind
@@ -368,10 +370,21 @@ void GadgetRelease(Gadget &g, bool remove) {
     for (int &b : g.blips) if (b) N(N_REMOVE_BLIP, &b);
     g.blips.clear();
     if (gta::Exists(g.obj)) N(N_DELETE_ENTITY, &g.obj);
-    for (int &e : g.peds) if (gta::Exists(e)) N(N_DELETE_ENTITY, &e);   // the hidden drivers never linger
-    for (int &e : g.vehs) {
-        if (!gta::Exists(e)) continue;
-        if (remove) N(N_DELETE_ENTITY, &e); else N(N_SET_ENTITY_AS_NO_LONGER_NEEDED, &e);
+    for (size_t k = 0; k < g.vehs.size(); ++k) {
+        int &v = g.vehs[k];
+        int &d = g.peds[k];
+        if (k < g.borrowed.size() && g.borrowed[k]) {   // a Knoway of Gori Online's fleet: back to wandering, as Gori had it
+            if (gta::Exists(v)) {
+                N(N_SET_ENTITY_PROOFS, v, 0, 0, 0, 0, 0, 0, 0, 0);
+                N(N_SET_VEHICLE_CHEAT_POWER_INCREASE, v, 1.f);
+                N(N_SET_VEHICLE_DOORS_LOCKED, v, 1);
+                if (gta::Exists(d)) N(N_TASK_VEHICLE_DRIVE_WANDER, d, v, 14.f, 786603);
+            }
+            continue;
+        }
+        if (gta::Exists(d)) N(N_DELETE_ENTITY, &d);   // our hidden drivers never linger
+        if (!gta::Exists(v)) continue;
+        if (remove) N(N_DELETE_ENTITY, &v); else N(N_SET_ENTITY_AS_NO_LONGER_NEEDED, &v);
     }
 }
 
@@ -436,8 +449,8 @@ void RcBomb(int me, uint32_t durationMs) {
     gta::ReleaseModel(m);
     if (!v) return;
     g.vehs.push_back(v);
-    int d = HiddenDriver(v);
-    if (d) g.peds.push_back(d);
+    g.peds.push_back(HiddenDriver(v));
+    g.borrowed.push_back(0);
     N(N_SET_VEHICLE_ENGINE_ON, v, 1, 1, 0);
     g.blips.push_back(Blip(v, 1));
     g.startMs = gta::GameTimeMs();
@@ -447,35 +460,67 @@ void RcBomb(int me, uint32_t durationMs) {
     LOGI("godeye", "-", "rc bomb sent from %.0f,%.0f (%.0f m)", node.x, node.y, std::sqrt(Dist2(node, p)));
 }
 
+// GodEye hacks the city's self-driving cars (2026-11-17): Gori Online's Knoway fleet (the knowayest add-on, a hidden
+// computer driver; Knoway.inc) round the player is taken over first; the rest of the pair comes as new Knoways from a
+// road out of sight (taxis in a game without the add-on). The taken ones go back to wandering afterwards.
+uint32_t KnowayModel() { static uint32_t h = gta::Joaat("knowayest"); return h; }
+bool HaveKnoway() { return NB(N<int>(N_IS_MODEL_IN_CDIMAGE, KnowayModel())) && NB(N<int>(N_IS_MODEL_A_VEHICLE, KnowayModel())); }
+
 void Taxis(int me, uint32_t durationMs) {
     Vec3 p = gta::Pos(me);
-    uint32_t m = gta::Joaat("taxi");
-    if (!gta::LoadModel(m)) return;
     Gadget g;
     g.kind = kGeTaxis;
-    for (int k = 0; k < 2; ++k) {
-        Vec3 node;
-        float h = 0;
-        if (!RoadNodeAround(p, 80.f + 50.f * k, 180.f + 40.f * k, node, h)) continue;
-        int v = SpawnCar(m, node, h);
-        if (!v) continue;
-        g.vehs.push_back(v);
-        int d = HiddenDriver(v);
-        if (d) g.peds.push_back(d);
-        N(N_SET_VEHICLE_ENGINE_ON, v, 1, 1, 0);
-        N(N_SET_VEHICLE_DOORS_LOCKED, v, 2);
-        g.blips.push_back(Blip(v, 5));
+    int taken = 0;
+    if (g_allVehicles && HaveKnoway()) {   // the Knoways already driving round the player
+        static int vehs[1024];
+        int n = g_allVehicles(vehs, 1024);
+        std::vector<std::pair<float, int>> around;   // ("near" is a macro in windows.h)
+        for (int i = 0; i < n; ++i) {
+            int v = vehs[i];
+            if (N<uint32_t>(N_GET_ENTITY_MODEL, v) != KnowayModel() || gta::Dead(v)) continue;
+            int d = N<int>(N_GET_PED_IN_VEHICLE_SEAT, v, -1, 0);
+            if (!d || NB(N<int>(N_IS_PED_A_PLAYER, d)) || N<int>(N_GET_PED_IN_VEHICLE_SEAT, v, 1, 0) == me || N<int>(N_GET_PED_IN_VEHICLE_SEAT, v, 2, 0) == me) continue;
+            float d2 = Dist2(gta::Pos(v), p);
+            if (d2 < 300.f * 300.f) around.push_back({d2, v});
+        }
+        std::sort(around.begin(), around.end());
+        for (size_t k = 0; k < around.size() && g.vehs.size() < 2; ++k) {
+            int v = around[k].second;
+            g.vehs.push_back(v);
+            g.peds.push_back(N<int>(N_GET_PED_IN_VEHICLE_SEAT, v, -1, 0));
+            g.borrowed.push_back(1);
+            N(N_SET_VEHICLE_DOORS_LOCKED, v, 2);
+            g.blips.push_back(Blip(v, 5));
+            ++taken;
+        }
     }
-    gta::ReleaseModel(m);
-    if (g.vehs.empty()) { LOGW("godeye", "-", "taxis: no road near the player"); return; }
+    uint32_t m = HaveKnoway() ? KnowayModel() : gta::Joaat("taxi");
+    if (g.vehs.size() < 2 && gta::LoadModel(m)) {
+        for (int k = (int)g.vehs.size(); k < 2; ++k) {
+            Vec3 node;
+            float h = 0;
+            if (!RoadNodeAround(p, 80.f + 50.f * k, 180.f + 40.f * k, node, h)) continue;
+            int v = SpawnCar(m, node, h);
+            if (!v) continue;
+            g.vehs.push_back(v);
+            g.peds.push_back(HiddenDriver(v));
+            g.borrowed.push_back(0);
+            N(N_SET_VEHICLE_ENGINE_ON, v, 1, 1, 0);
+            N(N_SET_VEHICLE_DOORS_LOCKED, v, 2);
+            g.blips.push_back(Blip(v, 5));
+        }
+        gta::ReleaseModel(m);
+    }
+    if (g.vehs.empty()) { LOGW("godeye", "-", "self-driving cars: none near the player and no road"); return; }
     g.startMs = gta::GameTimeMs();
     g.untilMs = g.startMs + (int)Lifetime(durationMs, 45000);
     g_gadgets.push_back(g);
-    gta::Notify("~p~GodEye~s~  The city's ~y~self-driving taxis~s~ have been hacked. They are coming for you!");
-    LOGI("godeye", "-", "%d hacked taxis sent", (int)g.vehs.size());
+    gta::Notify(m == KnowayModel() ? "~p~GodEye~s~  The ~b~Knoway~s~ self-driving cars have been hacked. They are coming for you!"
+                                   : "~p~GodEye~s~  The city's ~y~self-driving taxis~s~ have been hacked. They are coming for you!");
+    LOGI("godeye", "-", "%d self-driving cars hacked (%d of the Knoway fleet taken over, model %s)", (int)g.vehs.size(), taken,
+         m == KnowayModel() ? "knowayest" : "taxi");
 }
 
-float Approach(float v, float to, float step) { return v < to ? std::min(v + step, to) : std::max(v - step, to); }
 float FrameS() { float dt = N<float>(N_GET_FRAME_TIME); return dt > 0.f && dt < 0.1f ? dt : 0.016f; }
 
 // the taser: at the player when it is close enough
@@ -512,23 +557,33 @@ void DriveDrone(Gadget &g, const GodEyeSteerMsg &s, const Vec3 &p) {
 }
 
 // a GodEye user drives a car (the RC Bandito, the lead taxi): arcade steering on the car GTA keeps simulating
-void DriveCar(Gadget &g, int veh, const GodEyeSteerMsg &s, float top, float turnDegS) {
-    float dt = FrameS();
-    if (!g.aiStopped) {   // the hidden driver lets go of the wheel
-        if (!g.peds.empty() && gta::Exists(g.peds[0])) N(N_CLEAR_PED_TASKS, g.peds[0]);
-        g.speed = std::min(N<NVec3>(N_GET_ENTITY_SPEED_VECTOR, veh, 1).y, top);
+// The stick as GTA's own driving: the car's (hidden) driver gets the matching temporary action, so the engine, the gears,
+// the wheels and the suspension do the work exactly as for any car in the game (2026-11-17: the first version pushed
+// the car with SET_VEHICLE_FORWARD_SPEED and turned it with SET_ENTITY_HEADING, and it slid like a toy).
+int TempActionFor(const GodEyeSteerMsg &s) {
+    bool left = s.x < -30, right = s.x > 30;
+    if (s.y > 30) return left ? 7 : right ? 8 : 23;     // turn left / right and accelerate; accelerate hard
+    if (s.y < -30) return left ? 13 : right ? 14 : 28;  // turn and reverse; brake and reverse
+    return left ? 10 : right ? 11 : 1;                  // steer while rolling; brake
+}
+
+void DriveCar(Gadget &g, size_t k, const GodEyeSteerMsg &s, bool boost, int now) {
+    int veh = g.vehs[k], drv = k < g.peds.size() ? g.peds[k] : 0;
+    if (!gta::Exists(drv)) return;
+    if (!g.aiStopped) {
         // its driver's crashes do not wreck it (an RC Bandito lost 600 health on one wall at speed in the 2026-11-17
         // test); bullets, fire and explosions still do, so the player can still destroy it
         N(N_SET_ENTITY_PROOFS, veh, 0, 0, 0, 1, 0, 0, 0, 0);
         g.aiStopped = true;
+        g.tempAction = -1;
     }
-    if (!NB(N<int>(N_IS_VEHICLE_ON_ALL_WHEELS, veh))) { g.speed = N<NVec3>(N_GET_ENTITY_SPEED_VECTOR, veh, 1).y; return; }   // in the air
-    float want = s.y >= 0 ? s.y / 100.f * top : s.y / 100.f * 9.f;
-    bool braking = (want >= 0) != (g.speed >= 0) || std::fabs(want) < std::fabs(g.speed);
-    g.speed = Approach(g.speed, want, (braking ? 20.f : 11.f) * dt);
-    float grip = std::min(1.f, std::fabs(g.speed) / 5.f) * (g.speed >= 0 ? 1.f : -1.f);
-    if (s.x) N(N_SET_ENTITY_HEADING, veh, gta::Heading(veh) - s.x / 100.f * turnDegS * grip * dt);
-    N(N_SET_VEHICLE_FORWARD_SPEED, veh, g.speed);
+    int a = TempActionFor(s);
+    if (a != g.tempAction || now >= g.tempUntil) {
+        N(N_TASK_VEHICLE_TEMP_ACTION, drv, veh, a, 700);
+        g.tempAction = a;
+        g.tempUntil = now + 450;
+    }
+    if (boost != g.boosted) { N(N_SET_VEHICLE_CHEAT_POWER_INCREASE, veh, boost ? 2.2f : 1.f); g.boosted = boost; }
 }
 
 // ~10 a second: where the hacks are, for GodEye's map and the camera clients
@@ -546,7 +601,7 @@ void ReportGadgets(const Vec3 &p, int now) {
         for (size_t k = 0; k < g.vehs.size() && m.g.size() < kMaxGadgets; ++k) {
             if (!gta::Exists(g.vehs[k])) continue;
             Vec3 c = gta::Pos(g.vehs[k]);
-            uint8_t fl = driven && k == 0 ? kGadgetDriven : 0;
+            uint8_t fl = (driven && k == 0 ? kGadgetDriven : 0) | (N<uint32_t>(N_GET_ENTITY_MODEL, g.vehs[k]) == KnowayModel() ? kGadgetKnoway : 0);
             m.g.push_back(GadgetPose{(uint8_t)g.kind, fl, {c.x, c.y, c.z}, gta::Heading(g.vehs[k]), left});
         }
     }
@@ -621,11 +676,11 @@ void GadgetsTick(int me) {
                     done = true;
                 } else if (driven) {   // a GodEye user drives it; the action button sets it off
                     if (!g.told) { g.told = true; gta::Notify("~p~GodEye~s~  Someone on GodEye is ~r~driving the RC Bandito~s~ now."); LOGI("godeye", "-", "rc bomb driven from GodEye"); }
-                    DriveCar(g, v, s, 22.f, 120.f);
+                    DriveCar(g, 0, s, false, now);
                     if (now >= g.nextMs) {   // trace (2026-11-17): how a driven RC car holds up
                         g.nextMs = now + 2000;
-                        LOGI("godeye", "-", "rc driven: health %d body %.0f engine %.0f speed %.1f wheels %d", gta::Health(v),
-                             N<float>(N_GET_VEHICLE_BODY_HEALTH, v), N<float>(N_GET_VEHICLE_ENGINE_HEALTH, v), g.speed,
+                        LOGI("godeye", "-", "rc driven: health %d body %.0f engine %.0f speed %.1f action %d wheels %d", gta::Health(v),
+                             N<float>(N_GET_VEHICLE_BODY_HEALTH, v), N<float>(N_GET_VEHICLE_ENGINE_HEALTH, v), N<float>(N_GET_ENTITY_SPEED, v), g.tempAction,
                              (int)NB(N<int>(N_IS_VEHICLE_ON_ALL_WHEELS, v)));
                     }
                 } else if (g.aiStopped) {   // the user let go: the AI takes it back at once
@@ -640,12 +695,15 @@ void GadgetsTick(int me) {
         bool taxiDriven = g.kind == kGeTaxis && !done && now < g_steerUntil[kGeTaxis] && !g.vehs.empty() && gta::Exists(g.vehs[0]);
         if (taxiDriven) {   // a GodEye user drives the lead taxi (action: horn, boost: a burst of speed); the other one rams on its own
             const GodEyeSteerMsg &s = g_steer[kGeTaxis];
-            if (!g.told) { g.told = true; gta::Notify("~p~GodEye~s~  Someone on GodEye is ~y~driving a hacked taxi~s~ at you."); LOGI("godeye", "-", "taxi driven from GodEye"); }
-            DriveCar(g, g.vehs[0], s, (s.buttons & kSteerBoost) ? 42.f : 31.f, 75.f);
+            if (!g.told) { g.told = true; gta::Notify("~p~GodEye~s~  Someone on GodEye is ~y~driving a hacked self-driving car~s~ at you."); LOGI("godeye", "-", "self-driving car driven from GodEye"); }
+            DriveCar(g, 0, s, (s.buttons & kSteerBoost) != 0, now);
             bool press = (s.buttons & kSteerAction) && !g.actionHeld;
             g.actionHeld = (s.buttons & kSteerAction) != 0;
             if (press) N(N_START_VEHICLE_HORN, g.vehs[0], 1200, gta::Joaat("HELDDOWN"), 0);
-        } else if (g.kind == kGeTaxis && g.aiStopped) { g.aiStopped = false; g.retaskMs = 0; }
+        } else if (g.kind == kGeTaxis && g.aiStopped) {   // let go: its computer rams again, at normal power
+            g.aiStopped = false; g.retaskMs = 0;
+            if (g.boosted && gta::Exists(g.vehs[0])) { N(N_SET_VEHICLE_CHEAT_POWER_INCREASE, g.vehs[0], 1.f); g.boosted = false; }
+        }
         if (g.kind == kGeTaxis && !done && now >= g.retaskMs) {
             g.retaskMs = now + 3000;
             for (size_t k = taxiDriven ? 1 : 0; k < g.vehs.size() && k < g.peds.size(); ++k) {

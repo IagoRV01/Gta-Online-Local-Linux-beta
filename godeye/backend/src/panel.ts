@@ -1,7 +1,7 @@
 // The control panel's data (ADMIN): how the PC, the game server and GodEye are doing, the settings an ADMIN can change
 // from the page (kept in settings.json next to users.json), and the tails of the logs. Read-only probes, no npm packages.
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statfsSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { cpus, freemem, hostname, totalmem, uptime } from "node:os";
 import type { Role } from "./auth.ts";
 
@@ -97,4 +97,23 @@ export function tail(file: string, lines = 200): string[] {
     if (size > len) all.shift();   // a cut first line
     return all.filter((l) => l.length).slice(-lines);
   } finally { closeSync(fd); }
+}
+
+// ---- start with Windows (2026-11-17): a .cmd in the user's Startup folder that starts the game server, then GodEye
+// (GodEye.exe starts this backend and the tunnel). on / off / status; true when the file is there.
+export interface AutostartPaths { startupCmd: string; serverBat: string; godeyeExe: string }
+export function setAutostart(op: string, p: AutostartPaths): { on: boolean; error?: string } {
+  if (op === "on") {
+    if (!existsSync(p.serverBat) || !existsSync(p.godeyeExe)) return { on: existsSync(p.startupCmd), error: "start-server.bat or GodEye.exe not found" };
+    const win = (f: string) => f.replace(/\//g, "\\");
+    writeFileSync(p.startupCmd, [
+      "@echo off",
+      "rem GTA Local Online at logon (GodEye's control panel, \"Start with Windows\"): the game server, then GodEye.",
+      `start "GTA Local Online server" /min "${win(p.serverBat)}"`,
+      "timeout /t 5 /nobreak >nul",
+      `start "" "${win(p.godeyeExe)}"`,
+      "",
+    ].join("\r\n"));
+  } else if (op === "off") rmSync(p.startupCmd, { force: true });
+  return { on: existsSync(p.startupCmd) };
 }

@@ -227,7 +227,7 @@ function upsert(p, now) {
 
 // ---- GodEye's hacks on the players (2026-11-17): drones, RC cars, taxis, from the hacked player's telemetry
 const gadgets = new Map();   // "owner:index" -> { owner, kind, driven, inRange, left, z, samples }
-const GADGET_LABEL = { 6: "DRONE", 7: "RC C4", 8: "TAXI" };
+const GADGET_LABEL = { 6: "DRONE", 7: "RC C4", 8: "KNOWAY" };
 function upsertGadgets(p, now) {
   const list = p.playing && Array.isArray(p.gadgets) ? p.gadgets : [];
   list.forEach((g, i) => {

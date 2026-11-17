@@ -335,6 +335,10 @@ GTA clients ──ENet──► Game server ──local admin API (127.0.0.1 onl
 - **The video's title** said "Camera 1" whatever was on screen: the stream ("Camera 1") and the camera client ("GodEye
   Camera 1") have different names, so the camera's label was never found. It now shows what the camera shows:
   "CAM_003 · Vinewood", "Follow · Alex", "Hack · Alex".
+- **Start with Windows (2026-11-17):** after a reboot nothing ran until someone started the game server and GodEye by
+  hand. The control panel's Game server card has "Start with Windows: ON/OFF" (`POST /api/panel/autostart`, op
+  on/off/status, ADMIN). On writes `GTA Local Online.cmd` in the user's Startup folder: `start-server.bat`, then
+  `GodEye.exe` (which starts the backend and the tunnel). Off deletes it. The camera keeps its own button.
 - **Normal GTA Online on the server PC (2026-11-17):** two desktop shortcuts run `D:\GTAEnhancedMods\GTA-Modo.ps1`
   (PC-only, not in the repo).
   - "GTA Online normal" (`Online`): takes ReShade out of GTA V Enhanced, stops the camera (which takes its mods out of
@@ -435,7 +439,7 @@ that player's own game by LocalOnline (`godeye.cpp`, protocol `GodEyeAction` kin
 |---|---|---|---|---|
 | Taser drone (`drone`) | 400 | 5 | sequence, level 2 | A drone (Arena War's) flies in from 60 m and circles the player 7 m out, 4 m up, for 45 s. Up to four zaps 5 s apart within 18 m: on foot a stun-gun shot and a 3.5 s ragdoll; in a car an EMP that kills the engine for 4 s. It can be shot down. |
 | RC Bandito with C4 (`rcbomb`) | 600 | 3 | route, level 2 | An `rcbandito` with a hidden driver comes from a road 70-140 m away and rams the player. Within 4.5 m it goes off (a sticky bomb's explosion); destroyed first, it goes off where it is. After 75 s it is gone. |
-| Hacked taxis (`taxis`) | 350 | 5 | route, level 1 | Two locked taxis with hidden drivers ("self-driving") come from 80-230 m, ram the player and sound the horn for 45 s. |
+| Hacked Knoway cars (`taxis`, the key kept) | 350 | 5 | route, level 1 | Since 2026-11-17 the city's real self-driving cars: up to two of Gori Online's Knoway fleet (`knowayest`, Knoway.inc) within 300 m are taken over, the rest of the pair comes as new Knoways from a road 80-230 m away (taxis in a game without the add-on). Locked, they ram the player and sound the horn; the taken ones go back to wandering afterwards. |
 
 - Server commands: `drone <id> [seconds]`, `rcbomb <id> [seconds]`, `taxis <id> [seconds]` (seconds: how long the hack
   lasts, 0-180; GodEye sends 120).
@@ -450,6 +454,12 @@ that player's own game by LocalOnline (`godeye.cpp`, protocol `GodEyeAction` kin
     least 1.2 m above the ground, within 250 m of the player; a zap needs 20 m), the RC Bandito and the lead taxi are
     steered arcade style on GTA's own car physics, and the action button zaps, sets off the C4 or sounds the horn.
     With no stick for 0.7 s (pad closed, page gone) the hack's own AI takes it back.
+  - **Real driving (2026-11-17):** the first version pushed the cars (`SET_VEHICLE_FORWARD_SPEED`, `SET_ENTITY_HEADING`)
+    and they slid like toys. Now the stick becomes the hidden driver's `TASK_VEHICLE_TEMP_ACTION`: 23 accelerate,
+    7 / 8 turn and accelerate, 28 brake and reverse, 13 / 14 turn and reverse, 10 / 11 steer rolling, 1 brake. It is
+    renewed every 0.45 s or when the stick changes, so GTA's engine, gears, wheels and suspension do the driving.
+    Boost is `SET_VEHICLE_CHEAT_POWER_INCREASE` 2.2. The camera's copies of the cars roll the same way as the players'
+    cars (velocity and a pull, not frozen), and a Knoway is drawn as a Knoway (`kGadgetKnoway`).
   - The hacked game reports its gadgets 10 times a second (`GadgetState`). The server puts them in GodEye's telemetry
     (`gadgets` on the player: kind, driven, inRange, x/y/z, heading, seconds left) and passes them to the camera
     clients (`GadgetRelay`), which draw frozen copies of the drone / RC car / taxis gliding between the reports.

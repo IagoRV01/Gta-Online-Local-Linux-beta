@@ -50,7 +50,9 @@
       <div class="phead"><span id="panelZ"></span><h2>Control panel</h2><button id="panelClose" class="ghost" aria-label="Close the control panel">Close</button></div>
       <div class="pgrid">
         <article class="pcard"><h3>This PC</h3><div id="pSystem"></div></article>
-        <article class="pcard"><h3>Game server</h3><div id="pServer"></div></article>
+        <article class="pcard"><h3>Game server</h3><div id="pServer"></div>
+          <div class="btns"><button id="autoBtn">Start with Windows: …</button></div>
+          <p class="pnote">On: when this PC starts and you log in, the game server and GodEye start by themselves.</p></article>
         <article class="pcard"><h3>GodEye</h3><div id="pGodEye"></div></article>
         <article class="pcard"><h3>Settings</h3>
           <form id="pSettings" class="pform">
@@ -123,7 +125,7 @@
         <div class="btns">
           <button data-act="drone">Taser drone</button>
           <button data-act="rcbomb">RC Bandito C4</button>
-          <button data-act="taxis">Hack taxis</button>
+          <button data-act="taxis">Hack Knoway</button>
         </div>
       </div>
       <div class="ctl" data-need="traffic">
@@ -168,7 +170,7 @@
           <button data-cam="heli">Helicopter</button>
           <button data-cam="drone">Drone</button>
           <button data-cam="cinematic">Cinematic</button>
-          <button data-cam="gadget" title="Behind the drone, RC car or taxi hacked onto this player">Hack cam</button>
+          <button data-cam="gadget" title="Behind the drone, RC car or Knoway car hacked onto this player">Hack cam</button>
         </div>
       </div>
       <div class="ctl" id="eventCtl" data-need="event" hidden>

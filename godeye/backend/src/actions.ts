@@ -19,7 +19,7 @@ export const ACTIONS: Record<string, ActionDef> = {
   // GodEye's hacks on a player (2026-11-16), on the player's own game (LocalOnline godeye.cpp)
   drone:     { roles: ["HACKER"], cooldownS: 60, label: "Taser drone", player: true },
   rcbomb:    { roles: ["HACKER"], cooldownS: 90, label: "RC Bandito with C4", player: true },
-  taxis:     { roles: ["HACKER"], cooldownS: 60, label: "Hacked taxis", player: true },
+  taxis:     { roles: ["HACKER"], cooldownS: 60, label: "Hacked Knoway cars", player: true },   // the action keeps its old key
 };
 
 export const WEATHERS = ["CLEAR", "EXTRASUNNY", "CLOUDS", "OVERCAST", "RAIN", "CLEARING", "THUNDER", "SMOG", "FOGGY", "XMAS", "SNOW", "SNOWLIGHT", "BLIZZARD", "HALLOWEEN", "NEUTRAL", "auto"];

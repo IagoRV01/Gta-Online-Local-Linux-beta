@@ -126,7 +126,7 @@ const DRIVE = {
     keys: "<kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Space</kbd> zap (within 20 m)" },
   rcbomb: { name: "RC BANDITO C4", action: "BOOM", alt: false, boost: false,
     keys: "<kbd>W</kbd><kbd>S</kbd> throttle/reverse · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> detonate" },
-  taxis: { name: "HACKED TAXI", action: "HORN", alt: false, boost: true,
+  taxis: { name: "HACKED KNOWAY", action: "HORN", alt: false, boost: true,
     keys: "<kbd>W</kbd><kbd>S</kbd> throttle/reverse · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Shift</kbd> boost · <kbd>Space</kbd> horn" },
 };
 const KEYMAP = { KeyW: "up", ArrowUp: "up", KeyS: "down", ArrowDown: "down", KeyA: "left", ArrowLeft: "left", KeyD: "right", ArrowRight: "right",
@@ -272,7 +272,7 @@ function describe(e) {
     case "roadblock": return `set up a roadblock ahead of ${name(a)}`;
     case "drone": return `sent a taser drone after ${name(a)}`;
     case "rcbomb": return `sent an RC Bandito packed with C4 at ${name(a)}`;
-    case "taxis": return `hacked the self-driving taxis to ram ${name(a)}`;
+    case "taxis": return `hacked the Knoway self-driving cars to ram ${name(a)}`;
     case "traffic": return a === "normal" ? "put the traffic lights back to normal" : `turned every traffic light ${a.toUpperCase()}${rest[0] > 0 ? ` for ${rest[0]} s` : ""}`;
     case "blackout": return a === "on" ? "cut the city's power" : "turned the power back on";
     case "weather": return a === "auto" ? "let the weather run on its own" : `changed the weather to ${a}`;

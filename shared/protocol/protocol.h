@@ -435,7 +435,8 @@ inline bool Get(wire::Reader &r, GodEyeSteerMsg &m) {
     auto ok = [](int8_t v) { return v >= -100 && v <= 100; };
     return r.Done() && m.kind >= kGeDrone && m.kind <= kGeTaxis && ok(m.x) && ok(m.y) && ok(m.z);
 }
-enum GadgetFlags : uint8_t { kGadgetDriven = 1, kGadgetInRange = 2 };   // driven: a GodEye user has it; in range: the taser reaches
+// driven: a GodEye user has it; in range: the taser reaches; knoway: the car is a Knoway self-driving car (knowayest)
+enum GadgetFlags : uint8_t { kGadgetDriven = 1, kGadgetInRange = 2, kGadgetKnoway = 4 };
 constexpr size_t kMaxGadgets = 4;
 struct GadgetPose { uint8_t kind = 0, flags = 0; Vec3 pos; float heading = 0; uint16_t secondsLeft = 0; };
 struct GadgetStateMsg { std::vector<GadgetPose> g; };

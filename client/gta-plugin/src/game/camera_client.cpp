@@ -33,6 +33,8 @@ int g_nextRoom = 0;
 // draws a copy of each (frozen, no collision) gliding between the reports, so the video can show them and follow them
 struct Ghost {
     uint8_t kind = 0, flags = 0;
+    uint32_t model = 0;
+    Vec3 vel;                       // from the last two reports: the car copies roll with it
     int ent = 0;
     bool isObject = false;
     Vec3 from, to;
@@ -76,16 +78,18 @@ int GhostSpawn(const Ghost &g, bool &isObject) {
     if (isObject) {
         for (const char *n : {"xs_prop_arena_drone_01", "xs_prop_arena_drone_02", "ba_prop_battle_drone_quad"})
             if (NB(N<int>(N_IS_MODEL_VALID, gta::Joaat(n)))) { m = gta::Joaat(n); break; }
-    } else m = gta::Joaat(g.kind == kGeRcBomb ? "rcbandito" : "taxi");
+    } else {
+        m = gta::Joaat(g.kind == kGeRcBomb ? "rcbandito" : "taxi");
+        if (g.kind == kGeTaxis && (g.flags & kGadgetKnoway) && NB(N<int>(N_IS_MODEL_IN_CDIMAGE, gta::Joaat("knowayest")))) m = gta::Joaat("knowayest");
+    }
     if (!m || !gta::LoadModel(m, 3000)) { LOGW("camera", "-", "hack copy (kind %d): model %08x not loaded", g.kind, m); return 0; }
     int e = isObject ? N<int>(N_CREATE_OBJECT, m, g.to.x, g.to.y, g.to.z, 0, 1, 0)
                      : N<int>(N_CREATE_VEHICLE, m, g.to.x, g.to.y, g.to.z, g.hTo, 0, 1, 0);
     gta::ReleaseModel(m);
     if (!e) { LOGW("camera", "-", "hack copy (kind %d): not created", g.kind); return 0; }
     gta::MakeMission(e);
-    gta::Freeze(e, true);
-    gta::SetCollision(e, false);
     gta::SetInvincible(e, true);
+    if (isObject) { gta::Freeze(e, true); gta::SetCollision(e, false); }   // the drone flies where it is put; cars drive (GhostsTick)
     if (!isObject) { N(N_SET_VEHICLE_ENGINE_ON, e, 1, 1, 0); N(N_SET_VEHICLE_LIGHTS, e, 2); }
     LOGI("camera", "-", "hack copy (kind %d) entity %d at %.0f,%.0f,%.0f", g.kind, e, g.to.x, g.to.y, g.to.z);
     return e;
@@ -104,7 +108,12 @@ void GhostsTick(int now) {
             Vec3 p = GhostPos(g, now, &h);
             N(N_SET_ENTITY_COORDS_NO_OFFSET, g.ent, p.x, p.y, p.z, 0, 0, 0);
             if (g.isObject) N(N_SET_ENTITY_ROTATION, g.ent, 0.f, 0.f, h, 2, 1);
-            else N(N_SET_ENTITY_HEADING, g.ent, h);
+            else {   // as the players' cars (remote.cpp DriveVehicle): their speed plus a pull towards the report; wheels turn
+                Vec3 c = gta::Pos(g.ent), e{p.x - c.x, p.y - c.y, p.z - c.z};
+                if (Len(e) > 8.f) { N(N_SET_ENTITY_COORDS_NO_OFFSET, g.ent, p.x, p.y, p.z, 0, 0, 0); e = {}; }
+                N(N_SET_ENTITY_VELOCITY, g.ent, g.vel.x + e.x * 3.f, g.vel.y + e.y * 3.f, g.vel.z + e.z * 3.f);
+                N(N_SET_ENTITY_HEADING, g.ent, h);
+            }
         }
         ++it;
     }
@@ -268,8 +277,12 @@ void OnGadgets(const GadgetRelayMsg &m) {
     for (size_t i = 0; i < m.g.size(); ++i) {
         const GadgetPose &p = m.g[i];
         Ghost &g = g_ghosts[{m.owner, (int)i}];
-        if (g.kind && g.kind != p.kind) { GhostDelete(g); g = Ghost(); }
+        if (g.kind && (g.kind != p.kind || (g.flags & kGadgetKnoway) != (p.flags & kGadgetKnoway))) { GhostDelete(g); g = Ghost(); }
         Vec3 to{p.pos.x, p.pos.y, p.pos.z};
+        if (g.kind && now - g.atMs > 30 && now - g.atMs < 1000) {
+            float dt = (now - g.atMs) / 1000.f;
+            g.vel = {(to.x - g.to.x) / dt, (to.y - g.to.y) / dt, (to.z - g.to.z) / dt};
+        }
         if (!g.kind) { g.from = to; g.hFrom = p.heading; }
         else { float h = 0; g.from = GhostPos(g, now, &h); g.hFrom = h; }
         g.kind = p.kind; g.flags = p.flags; g.to = to; g.hTo = p.heading; g.atMs = now; g.seenMs = now;

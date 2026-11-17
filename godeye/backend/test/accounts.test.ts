@@ -73,3 +73,18 @@ test("log tail: last lines only", () => {
   assert.equal(t[9], "line 499");
   assert.match(tail(join(dir(), "none.log"))[0], /no file/);
 });
+
+test("start with Windows: the Startup .cmd starts the server, then GodEye; off removes it", async () => {
+  const { setAutostart } = await import("../src/panel.ts");
+  const dir = mkdtempSync(join(tmpdir(), "ge-auto-"));
+  const p = { startupCmd: join(dir, "GTA Local Online.cmd"), serverBat: join(dir, "start-server.bat"), godeyeExe: join(dir, "GodEye.exe") };
+  assert.deepEqual(setAutostart("on", p), { on: false, error: "start-server.bat or GodEye.exe not found" });
+  writeFileSync(p.serverBat, ""); writeFileSync(p.godeyeExe, "");
+  assert.deepEqual(setAutostart("on", p), { on: true });
+  const cmd = readFileSync(p.startupCmd, "utf8");
+  assert.match(cmd, /start "GTA Local Online server" \/min ".*start-server\.bat"\r\n/);
+  assert.ok(cmd.indexOf("start-server.bat") < cmd.indexOf("GodEye.exe"));
+  assert.ok(!cmd.includes("/start-server"), "Windows paths");
+  assert.deepEqual(setAutostart("status", p), { on: true });
+  assert.deepEqual(setAutostart("off", p), { on: false });
+});

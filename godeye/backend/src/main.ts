@@ -16,7 +16,7 @@ import { ACTIONS, DRIVE_KINDS, DRIVE_SECONDS, Limits, allowed, steerLine, toComm
 import { AdminLink } from "./admin.ts";
 import { LoginLimiter, ROLES, Sessions, SignupLimiter, Users, type Role } from "./auth.ts";
 import { EVENTS, GAME_DEFAULTS, Game, eventLines, type GameConfig } from "./game.ts";
-import { SIGNUP_ROLES, SettingsStore, system, tail } from "./panel.ts";
+import { SIGNUP_ROLES, SettingsStore, setAutostart, system, tail } from "./panel.ts";
 import { Puzzles } from "./puzzles.ts";
 import { loadVehicles, vehicleName, weaponName } from "./names.ts";
 import { Video, VIDEO_DEFAULTS, type VideoConfig } from "./video.ts";
@@ -42,6 +42,14 @@ function cameraGtaRunning(): boolean {   // the camera's GTA: the Legacy GTA5.ex
   try { return /GTA5\.exe/i.test(execFileSync("tasklist", ["/FI", "IMAGENAME eq GTA5.exe", "/FO", "CSV", "/NH"], { encoding: "utf8", windowsHide: true })); }
   catch { return false; }
 }
+// ---- start with Windows (2026-11-17): after a reboot nothing ran until someone started the game server and GodEye by
+// hand. The ADMIN's switch puts a small .cmd in the user's Startup folder (it runs at logon) that starts both; off
+// removes it. GodEye.exe starts this backend and the tunnel; the camera stays on its own button.
+const SERVER_BAT = resolve(HERE, "../../../build/server-run/start-server.bat");
+const GODEYE_EXE = process.env.GODEYE_EXE || "D:/GTALocalOnline/GodEye/GodEye.exe";
+const STARTUP_CMD = join(process.env.APPDATA || "", "Microsoft/Windows/Start Menu/Programs/Startup/GTA Local Online.cmd");
+const autostart = (op: string) => setAutostart(op, { startupCmd: STARTUP_CMD, serverBat: SERVER_BAT, godeyeExe: GODEYE_EXE });
+
 function cameraPower() { return { running: cameraGtaRunning(), busy: camBusy(), op: camBusy() ? camOp : "" }; }
 const ROOT = resolve(HERE, "..");           // godeye/backend
 const FRONT = resolve(ROOT, "../frontend");
@@ -388,6 +396,13 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
       log("INFO", `${s.user}: camera client ${op}`);
     }
     json(200, cameraPower());
+    return;
+  }
+  if (path === "/api/panel/autostart") {   // start with Windows (2026-11-17): op on / off / status
+    const op = String(body.op ?? "status");
+    const r = autostart(op);
+    if (op === "on" || op === "off") log("INFO", `${s.user}: start with Windows ${op}${r.error ? ` failed: ${r.error}` : ""}`);
+    json(r.error ? 500 : 200, r);
     return;
   }
   if (path === "/api/panel/user") {

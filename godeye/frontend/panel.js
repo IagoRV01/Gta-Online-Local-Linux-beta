@@ -15,10 +15,22 @@ function openPanel() {
   $("panelZ").innerHTML = zMood("Inspired", "zport");
   refreshPanel();
   loadLogs();
+  autostart("status");
   clearInterval(panelTimer); clearInterval(logTimer);
   panelTimer = setInterval(refreshPanel, 5000);
   logTimer = setInterval(loadLogs, 10000);
 }
+// start with Windows (2026-11-17): the game server and GodEye at logon
+async function autostart(op) {
+  const r = await api("api/panel/autostart", { op });
+  const b = $("autoBtn");
+  b.textContent = `Start with Windows: ${r.data.on ? "ON" : "OFF"}`;
+  b.classList.toggle("on", !!r.data.on);
+  b.dataset.on = r.data.on ? "1" : "";
+  if (op !== "status") toast(r.data.error || (r.data.on ? "The server and GodEye will start with Windows." : "They will no longer start with Windows."), !!r.data.error);
+}
+$("autoBtn").onclick = () => autostart($("autoBtn").dataset.on ? "off" : "on");
+
 function closePanel() {
   $("panelView").hidden = true;
   clearInterval(panelTimer); clearInterval(logTimer);

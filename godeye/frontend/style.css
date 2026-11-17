@@ -284,3 +284,6 @@ button { font: inherit; }
 }
 
 [hidden] { display: none !important; }
+
+/* start with Windows (2026-11-17) */
+#autoBtn.on { border-color: var(--ok); color: var(--ok); }
