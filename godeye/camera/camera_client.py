@@ -18,6 +18,11 @@ except OSError: pass
 GAME_EXES = {"gta5.exe", "playgtav.exe", "launcher.exe", "launcherpatcher.exe", "rockstarerrorhandler.exe", "socialclubhelper.exe"}
 
 
+
+# started from GodEye (node, detached) this script has no console, so every tasklist / taskkill opened a console window of
+# its own: a stream of terminals for as long as the start waited for the game (2026-11-17). They run windowless now.
+NO_WINDOW = 0x08000000   # CREATE_NO_WINDOW
+
 def steam_exe():
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
         return winreg.QueryValueEx(k, "SteamExe")[0]
@@ -153,7 +158,7 @@ def remove_mods():
 
 
 def gta_pids():
-    r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq GTA5.exe", "/FO", "CSV", "/NH"], capture_output=True, text=True)
+    r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq GTA5.exe", "/FO", "CSV", "/NH"], capture_output=True, text=True, creationflags=NO_WINDOW)
     return [int(line.split('","')[1]) for line in r.stdout.splitlines() if line.startswith('"GTA5.exe"')]
 
 
@@ -165,7 +170,7 @@ def start(desk):
     # no BattlEye (it blocks ScriptHookV, so the game never shows a window) and no Rockstar sign-in
     # the camera's window and card by command line (2026-11-16), so the PC's own GTA settings (settings.xml: the
     # user's 4K borderless on card 0) stay as they are: a 1280x720 window on DXGI adapter 1, the RTX 5060 Ti 8 GB
-    subprocess.Popen([steam_exe(), "-applaunch", "271590", "-nobattleye", "-noBE", "-scOffline",
+    subprocess.Popen(creationflags=NO_WINDOW, args=[steam_exe(), "-applaunch", "271590", "-nobattleye", "-noBE", "-scOffline",
                       "-windowed", "-width", "1280", "-height", "720", "-adapter", os.environ.get("CAMERA_ADAPTER", "1")])
     moved, t0, landed, low_since = set(), time.time(), False, None
     while time.time() - t0 < 1800:   # the launcher, then the game window (loading takes minutes)
@@ -197,7 +202,7 @@ def start(desk):
 def launcher_pids():
     """PlayGTAV.exe and the Rockstar Launcher stay after the game closes; while they run Steam takes GTA for running and
     a new start does nothing (2026-11-16). Only those of this GTA's install and of Rockstar Games."""
-    r = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True)
+    r = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, creationflags=NO_WINDOW)
     out = []
     for line in r.stdout.splitlines():
         f = line.strip('"').split('","')
@@ -210,13 +215,13 @@ def launcher_pids():
 def stop():
     pids = gta_pids()
     for pid in pids:
-        subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True, creationflags=NO_WINDOW)
     time.sleep(5)
     for pid in gta_pids():
-        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, creationflags=NO_WINDOW)
     lp = launcher_pids()
     for pid in lp:
-        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, creationflags=NO_WINDOW)
     print(f"stopped {len(pids)} GTA process(es) and {len(lp)} launcher process(es)")
     time.sleep(2)
     remove_mods()
