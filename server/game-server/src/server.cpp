@@ -297,7 +297,7 @@ void Server::OnPacket(ENetPeer *peer, const uint8_t *data, size_t size, uint8_t 
         case MsgType::GadgetState: {   // 2026-11-17: where GodEye's hacks on this player are (GodEye's map, the cameras)
             GadgetStateMsg m;
             if (!Get(r, m)) return malformed("GadgetState");
-            if (!c.authed || c.camera) return;
+            if (!c.authed) return;   // a camera client too (2026-11-17): its free-driving car
             c.gadgets = m.g;
             c.gadgetsMs = now;
             GadgetRelayMsg relay;
@@ -306,7 +306,7 @@ void Server::OnPacket(ENetPeer *peer, const uint8_t *data, size_t size, uint8_t 
             wire::Writer w;
             Put(w, relay);
             for (auto &kv : clients_)
-                if (kv.second.authed && kv.second.camera) Send(kv.first, w, kChanState, false);
+                if (kv.second.authed && kv.second.camera && kv.first != c.peer) Send(kv.first, w, kChanState, false);
             break;
         }
         case MsgType::PlayerState: {
@@ -799,7 +799,10 @@ bool Server::GodEyeCommand(const std::string &v, const std::string &line) {
         return true;
     }
     Client *c = ByNetId((uint16_t)std::atoi(arg.c_str()));
-    if (!c || !c->haveState) return false;   // the actions need the player in the world (YOU, not story mode)
+    // free driving (2026-11-17): "rcbomb <camera netId> 120" / "taxis <camera netId> 120" put the car in the camera's
+    // own GTA, for a GodEye user to drive with nobody online. Everything else needs a player in the world.
+    bool freeDrive = c && c->camera && (v == "rcbomb" || v == "taxis");
+    if (!c || (!c->haveState && !freeDrive)) return false;   // the actions need the player in the world (YOU, not story mode)
     GodEyeActionMsg m;
     if (v == "wanted") {
         int now = c->state.wanted, want;
@@ -887,7 +890,7 @@ bool Server::SteerCommand(const std::string &line) {
     if (std::sscanf(line.c_str(), "%*s %d %d %d %d %d %d", &id, &kind, &x, &y, &z, &b) != 6) return false;
     if (kind < kGeDrone || kind > kGeTaxis || x < -100 || x > 100 || y < -100 || y > 100 || z < -100 || z > 100 || b < 0 || b > 3) return false;
     Client *c = ByNetId((uint16_t)id);
-    if (!c || c->camera || !c->haveState) return false;
+    if (!c || (c->camera ? kind == kGeDrone : !c->haveState)) return false;   // a camera: its free RC car / Knoway
     GodEyeSteerMsg m{(uint8_t)kind, (int8_t)x, (int8_t)y, (int8_t)z, (uint8_t)b};
     wire::Writer w;
     Put(w, m);

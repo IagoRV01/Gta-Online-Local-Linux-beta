@@ -243,6 +243,14 @@ function upsertGadgets(p, now) {
   for (const [key, e] of gadgets) if (e.owner === p.id && Number(key.split(":")[1]) >= list.length) gadgets.delete(key);
 }
 function dropGadgets(owner) { for (const [key, e] of gadgets) if (e.owner === owner) gadgets.delete(key); }
+// free driving (2026-11-17): a camera client's own car, drawn like the hacks (the camera's netId is the owner)
+let camOwners = new Set();
+function cameraGadgets(cams, now) {
+  const ids = new Set(cams.map((c) => c.id));
+  for (const id of camOwners) if (!ids.has(id)) dropGadgets(id);
+  for (const c of cams) upsertGadgets({ id: c.id, playing: true, gadgets: c.gadgets || [] }, now);
+  camOwners = ids;
+}
 // the hack this page drives (control.js sets `driving`): the driven one of that kind on that player, else the first
 let driving = null;
 function drivenGadget() {
@@ -429,6 +437,7 @@ function connect() {
       renderWorld(m.world);
       listDirty = false;
       renderList();
+      cameraGadgets(m.cameras || [], now);
       if (typeof onCameras === "function") onCameras(m.cameras || [], m.cctv || []);
       if (typeof onGameEvent === "function") onGameEvent(m.gameEvent || null);
     } else if (m.t === "tel") {
@@ -436,6 +445,7 @@ function connect() {
       for (const p of m.players) upsert(p, now);
       for (const id of m.gone) { players.delete(id); dropGadgets(id); if (selected === id) selected = follow = null; }
       if (m.world) renderWorld(m.world);
+      if (m.cameras) cameraGadgets(m.cameras, now);
       if (m.cameras && typeof onCameras === "function") onCameras(m.cameras, null);
       if (m.players.length || m.gone.length) listDirty = true;
     } else if (m.t === "event" && typeof onGodEyeEvent === "function") onGodEyeEvent(m.entry);

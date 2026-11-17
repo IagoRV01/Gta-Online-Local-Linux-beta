@@ -6,6 +6,7 @@
 #include "common/log.h"
 #include "engine/gta.h"
 #include "engine/shv.h"
+#include "game/godeye.h"
 #include "game/net_client.h"
 #include "game/remote.h"
 #include "game/world_sync.h"
@@ -28,6 +29,7 @@ Vec3 g_lastTarget;
 float g_lastHeading = 0;
 int g_interior = 0;                 // the interior the target is in (2026-11-17), 0 outside
 int g_nextRoom = 0;
+int g_freeKind = 0;                 // 2026-11-17: the free-driving car this camera follows (godeye::FreeCar), 0 none
 
 // ---- GodEye's hacks (2026-11-17): the hacked player's game reports its drone / RC car / taxis ~10 a second; the camera
 // draws a copy of each (frozen, no collision) gliding between the reports, so the video can show them and follow them
@@ -166,6 +168,21 @@ void HideSelf() {
 // where the camera should be this frame, for the current mode
 bool Desired(Vec3 &pos, Vec3 &look, float &fov, int now) {
     fov = g_cam.fov;
+    Vec3 fc;
+    float fh = 0;
+    int fk = 0;
+    bool free = godeye::FreeCar(fc, fh, fk);
+    if (free != (g_freeKind != 0)) g_snap = true;   // a cut to the car and back to the shot GodEye had
+    g_freeKind = free ? fk : 0;
+    if (free) {   // free driving (2026-11-17): a chase shot behind the car while it lasts, whatever the mode
+        Vec3 f = Fwd(fh), up{0, 0, 1};
+        float back = fk == kGeRcBomb ? 3.6f : 7.5f, high = fk == kGeRcBomb ? 1.3f : 2.6f;
+        pos = Add(Add(fc, Mul(f, -back)), Mul(up, high));
+        look = Add(Add(fc, Mul(f, 6.f)), Mul(up, 0.4f));
+        fov = 62.f;
+        g_interior = 0;
+        return true;
+    }
     if (g_cam.mode == kCamCctv || g_cam.mode == kCamFree) {
         pos = {g_cam.pos.x, g_cam.pos.y, g_cam.pos.z};
         look = LookFromRot(pos, {g_cam.rot.x, g_cam.rot.y, g_cam.rot.z});
@@ -256,7 +273,8 @@ void Overlay(int now) {
     std::snprintf(clock, sizeof clock, "%02d:%02d", hh, mm);
     gta::Rect(0.13f, 0.93f, 0.24f, 0.05f, gta::Color{0, 0, 0, 140});
     if ((now / 600) % 2) gta::Text("~r~REC", 0.012f, 0.912f, 0.32f, gta::kWhite, 1, 4);
-    gta::Text(g_cam.label + "   " + clock, 0.045f, 0.912f, 0.38f, gta::kWhite, 1, 4);
+    std::string label = g_freeKind == kGeRcBomb ? "GODEYE · RC BANDITO" : g_freeKind ? "GODEYE · KNOWAY" : g_cam.label;
+    gta::Text(label + "   " + clock, 0.045f, 0.912f, 0.38f, gta::kWhite, 1, 4);
 }
 
 }  // namespace
@@ -315,17 +333,23 @@ void Run(const Settings &s) {
         }
         int me = gta::PlayerPed();
         if (me != lastFrozenPed) { HideSelf(); lastFrozenPed = me; }   // the game can rebuild the player ped
-        if (net::Connected()) { remote::Frame(); world_sync::Frame(); }
+        if (net::Connected()) {
+            remote::Frame();
+            world_sync::Frame();
+            // free driving (2026-11-17): the RC Bandito / Knoway a GodEye user drives here, out on the road nearest to
+            // what the camera shows (the player it follows, else the point it looks at)
+            godeye::CameraFrame(g_lastTarget.x != 0 || g_lastTarget.y != 0 ? g_lastTarget : g_look);
+        }
         N(N_HIDE_HUD_AND_RADAR_THIS_FRAME);
         gta::DisableAllControls();
         GhostsTick(now);
 
         Vec3 pos, look;
         float fov = 55.f;
-        if (g_haveCam && Desired(pos, look, fov, now)) {
+        if ((g_haveCam || g_freeKind) && Desired(pos, look, fov, now)) {
             if (g_snap || Len(Vec3{pos.x - g_pos.x, pos.y - g_pos.y, pos.z - g_pos.z}) > 200.f) { g_pos = pos; g_look = look; g_snap = false; }
             else {
-                float k = g_cam.mode == kCamCctv || g_cam.mode == kCamFree ? 1.f : g_cam.mode == kCamGadget ? 0.25f : 0.12f;   // follow modes glide
+                float k = g_freeKind ? 0.3f : g_cam.mode == kCamCctv || g_cam.mode == kCamFree ? 1.f : g_cam.mode == kCamGadget ? 0.25f : 0.12f;   // follow modes glide
                 g_pos = Lerp(g_pos, pos, k);
                 g_look = Lerp(g_look, look, k * 1.5f > 1.f ? 1.f : k * 1.5f);
             }

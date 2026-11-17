@@ -170,6 +170,7 @@ private:
     void AdminApiLine(AdminConn &a, const std::string &line);
     void AdminTelemetry(AdminConn &a, bool full);
     std::string PlayerTelemetry(const Client &c) const;
+    std::string GadgetsTelemetry(const Client &c) const;   // ",\"gadgets\":[...]" while fresh, else ""
     std::string WorldTelemetry() const;
     uintptr_t adminListen_ = ~(uintptr_t)0;
     std::vector<AdminConn> admins_;

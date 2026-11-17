@@ -20,6 +20,9 @@ export const ACTIONS: Record<string, ActionDef> = {
   drone:     { roles: ["HACKER"], cooldownS: 60, label: "Taser drone", player: true },
   rcbomb:    { roles: ["HACKER"], cooldownS: 90, label: "RC Bandito with C4", player: true },
   taxis:     { roles: ["HACKER"], cooldownS: 60, label: "Hacked Knoway cars", player: true },   // the action keeps its old key
+  // free driving (2026-11-17): an RC Bandito / a Knoway in the camera client's own GTA, nobody online needed
+  freerc:      { roles: ["HACKER"], cooldownS: 30, label: "Drive an RC Bandito", player: false },
+  freeknoway:  { roles: ["HACKER"], cooldownS: 30, label: "Drive a Knoway", player: false },
 };
 
 export const WEATHERS = ["CLEAR", "EXTRASUNNY", "CLOUDS", "OVERCAST", "RAIN", "CLEARING", "THUNDER", "SMOG", "FOGGY", "XMAS", "SNOW", "SNOWLIGHT", "BLIZZARD", "HALLOWEEN", "NEUTRAL", "auto"];
@@ -30,8 +33,10 @@ export const CAMERA_MODES = ["cctv", "follow", "heli", "drone", "cinematic", "th
 // ---- driving a hack (2026-11-17): the buyer of a drone / RC Bandito / taxi hack drives it from the web for up to two
 // minutes. The stick comes over the WebSocket ~10 a second and becomes "steer <player> <kind> <x> <y> <z> <buttons>".
 export const DRIVE_SECONDS = 120;
-export const DRIVE_KINDS: Record<string, number> = { drone: 6, rcbomb: 7, taxis: 8 };   // protocol.h GodEyeKind
-export interface Drive { user: string; action: string; kind: number; target: number; targetName: string; until: number }
+export const DRIVE_KINDS: Record<string, number> = { drone: 6, rcbomb: 7, taxis: 8, freerc: 7, freeknoway: 8 };   // protocol.h GodEyeKind
+// free: the car is in the camera client `target`'s GTA, not on a player
+export interface Drive { user: string; action: string; kind: number; target: number; targetName: string; until: number; free?: boolean }
+export const FREE_ACTIONS = new Set(["freerc", "freeknoway"]);
 export function steerLine(d: Drive, m: any): string | null {
   const v = (k: string) => { const n = Math.round(Number(m?.[k] ?? 0)); return Number.isFinite(n) ? Math.max(-100, Math.min(100, n)) : 0; };
   const b = Math.round(Number(m?.b ?? 0));
@@ -50,7 +55,8 @@ export function cleanText(s: unknown): string {
 }
 
 // The server command for a request, or an error message. `playing(id)` says whether that player is in the world.
-export function toCommand(r: ActionRequest, playing: (id: number) => boolean): { line?: string; error?: string } {
+// `camera(id)` says whether that camera client is connected (free driving).
+export function toCommand(r: ActionRequest, playing: (id: number) => boolean, camera: (id: number) => boolean = () => false): { line?: string; error?: string } {
   const def = ACTIONS[r.action];
   if (!def) return { error: "unknown action" };
   let target = "";
@@ -71,6 +77,11 @@ export function toCommand(r: ActionRequest, playing: (id: number) => boolean): {
     case "drone": return { line: `drone ${target} ${DRIVE_SECONDS}` };
     case "rcbomb": return { line: `rcbomb ${target} ${DRIVE_SECONDS}` };
     case "taxis": return { line: `taxis ${target} ${DRIVE_SECONDS}` };
+    case "freerc": case "freeknoway": {   // on a camera client: the same server commands, aimed at the camera
+      const cam = Number(r.camera);
+      if (!Number.isInteger(cam) || !camera(cam)) return { error: "no camera client is connected: free driving needs the camera GTA" };
+      return { line: `${r.action === "freerc" ? "rcbomb" : "taxis"} ${cam} ${DRIVE_SECONDS}` };
+    }
     case "traffic": {
       const v = String(r.value ?? "");
       if (!TRAFFIC.includes(v)) return { error: "traffic: red, green, random or normal" };

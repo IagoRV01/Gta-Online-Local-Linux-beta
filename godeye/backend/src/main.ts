@@ -12,7 +12,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGzip, gzipSync } from "node:zlib";
-import { ACTIONS, DRIVE_KINDS, DRIVE_SECONDS, Limits, allowed, steerLine, toCommand, type ActionRequest, type Drive } from "./actions.ts";
+import { ACTIONS, DRIVE_KINDS, DRIVE_SECONDS, FREE_ACTIONS, Limits, allowed, steerLine, toCommand, type ActionRequest, type Drive } from "./actions.ts";
 import { AdminLink } from "./admin.ts";
 import { LoginLimiter, ROLES, Sessions, SignupLimiter, Users, type Role } from "./auth.ts";
 import { EVENTS, GAME_DEFAULTS, Game, eventLines, type GameConfig } from "./game.ts";
@@ -166,7 +166,8 @@ const drives = new Map<string, Drive>();
 function driveOf(user: string): Drive | null {
   const d = drives.get(user.toLowerCase());
   if (!d) return null;
-  if (d.until < Date.now() || !players.get(d.target)?.playing) { drives.delete(user.toLowerCase()); return null; }
+  const there = d.free ? cameras.some((c) => c.id === d.target) : !!players.get(d.target)?.playing;
+  if (d.until < Date.now() || !there) { drives.delete(user.toLowerCase()); return null; }
   return d;
 }
 
@@ -322,7 +323,12 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
     const r = body as ActionRequest & { puzzle?: { id?: unknown; answer?: unknown } };
     const action = String(r.action ?? "");
     if (!allowed(s.role, action) || (action === "event" && !game)) { json(403, { error: `${s.role} cannot use ${action || "that"}` }); return; }
-    const cmd = toCommand(r, (id) => !!players.get(id)?.playing);
+    if (FREE_ACTIONS.has(action)) {   // free driving (2026-11-17): the picked camera, else the first; one driver per camera
+      if (!cameras.some((c) => c.id === Number(r.camera))) r.camera = cameras[0]?.id;
+      const busy = [...drives.values()].find((d) => d.free && d.target === Number(r.camera) && d.user.toLowerCase() !== s.user.toLowerCase() && d.until > Date.now());
+      if (busy) { json(409, { error: `${busy.user} is driving on that camera: ${Math.ceil((busy.until - Date.now()) / 1000)} s left` }); return; }
+    }
+    const cmd = toCommand(r, (id) => !!players.get(id)?.playing, (id) => cameras.some((c) => c.id === id));
     if (!cmd.line) { json(400, { error: cmd.error }); return; }
     // an event: its own commands, one at a time
     let ev: { start: string[]; end: string[] } | null = null;
@@ -380,8 +386,12 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
     record(s.user, s.role, action, cmd.line, ok);
     log(ok ? "INFO" : "WARN", `action by ${s.user} (${s.role}): ${cmd.line}${price ? ` for ${price} credits` : ""} -> ${ok ? "ok" : "refused by the game server"}`);
     let drive: Drive | null = null;
-    if (ok && DRIVE_KINDS[action] && target != null) {   // the buyer drives it (2026-11-17)
+    if (ok && DRIVE_KINDS[action] && !FREE_ACTIONS.has(action) && target != null) {   // the buyer drives it (2026-11-17)
       drive = { user: s.user, action, kind: DRIVE_KINDS[action], target, targetName: players.get(target)?.name ?? "", until: Date.now() + DRIVE_SECONDS * 1000 };
+      drives.set(s.user.toLowerCase(), drive);
+    } else if (ok && FREE_ACTIONS.has(action)) {   // free driving: in the camera's GTA
+      const cam = Number(r.camera);
+      drive = { user: s.user, action, kind: DRIVE_KINDS[action], target: cam, targetName: cameras.find((c) => c.id === cam)?.name ?? "camera", until: Date.now() + DRIVE_SECONDS * 1000, free: true };
       drives.set(s.user.toLowerCase(), drive);
     }
     json(ok ? 200 : 409, ok ? { ok, cooldownUntil: until, credits: game?.balance(s.user), drive } : { error: "the game server refused it" });

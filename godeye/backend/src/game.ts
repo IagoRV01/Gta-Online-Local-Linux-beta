@@ -28,8 +28,8 @@ export const GAME_DEFAULTS: GameConfig = {
   startCredits: 500,
   dailyBonus: 250,
   incomePerMinute: 10,
-  prices: { traffic: 50, alert: 100, wanted: 150, roadblock: 250, blackout: 500, weather: 25, time: 25, notify: 10, camera: 0, drone: 400, rcbomb: 600, taxis: 350 },
-  daily: { blackout: 3, roadblock: 5, wanted: 10, traffic: 10, alert: 10, event: 5, drone: 5, rcbomb: 3, taxis: 5 },
+  prices: { traffic: 50, alert: 100, wanted: 150, roadblock: 250, blackout: 500, weather: 25, time: 25, notify: 10, camera: 0, drone: 400, rcbomb: 600, taxis: 350, freerc: 150, freeknoway: 100 },
+  daily: { blackout: 3, roadblock: 5, wanted: 10, traffic: 10, alert: 10, event: 5, drone: 5, rcbomb: 3, taxis: 5, freerc: 10, freeknoway: 10 },
   puzzles: {
     traffic: { kind: "sequence", level: 1 },
     wanted: { kind: "sequence", level: 2 },

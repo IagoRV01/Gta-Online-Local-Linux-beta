@@ -75,7 +75,8 @@ std::string Server::CamerasTelemetry() const {
         if (!c.authed || !c.camera) continue;
         char b[128];
         std::snprintf(b, sizeof b, "{\"id\":%u,\"mode\":\"%s\",\"target\":%u,", c.netId, kCameraModeNames[c.cam.mode <= kCamGadget ? c.cam.mode : 0], c.cam.target);
-        s += (s.size() > 1 ? "," : "") + std::string(b) + "\"name\":\"" + Esc(c.name) + "\",\"cctv\":\"" + Esc(c.cam.cameraId) + "\",\"label\":\"" + Esc(c.cam.label) + "\"}";
+        s += (s.size() > 1 ? "," : "") + std::string(b) + "\"name\":\"" + Esc(c.name) + "\",\"cctv\":\"" + Esc(c.cam.cameraId) + "\",\"label\":\"" + Esc(c.cam.label) + "\"" +
+             GadgetsTelemetry(c) + "}";   // its free-driving car (2026-11-17)
     }
     return s + "]";
 }
@@ -108,8 +109,13 @@ std::string Server::PlayerTelemetry(const Client &c) const {
         n += std::snprintf(b + n, sizeof b - n, ",\"veh\":{\"model\":%u,\"seat\":%d,\"driver\":%u}", s.veh.model, s.veh.seat, s.veh.driverNetId);
     else
         n += std::snprintf(b + n, sizeof b - n, ",\"veh\":null");
-    std::string out(b);
-    if (!c.gadgets.empty() && NowMs() - c.gadgetsMs < 1500) {   // GodEye's hacks on this player (2026-11-17), 0.5 m / 5 degrees
+    return std::string(b) + GadgetsTelemetry(c) + "}";
+}
+
+// GodEye's hacks on this player, or a camera's free-driving car (2026-11-17), 0.5 m / 5 degrees
+std::string Server::GadgetsTelemetry(const Client &c) const {
+    std::string out;
+    if (!c.gadgets.empty() && NowMs() - c.gadgetsMs < 1500) {
         out += ",\"gadgets\":[";
         for (size_t i = 0; i < c.gadgets.size(); ++i) {
             const GadgetPose &g = c.gadgets[i];
@@ -122,7 +128,7 @@ std::string Server::PlayerTelemetry(const Client &c) const {
         }
         out += "]";
     }
-    return out + "}";
+    return out;
 }
 
 void Server::AdminTelemetry(AdminConn &a, bool full) {

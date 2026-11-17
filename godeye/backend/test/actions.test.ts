@@ -80,3 +80,12 @@ test("a driven hack: the buyer's stick, clamped, and the hack lasts the drive", 
   assert.equal(steerLine(d, { b: 9 }), null);
   assert.equal(toCommand({ action: "camera", camera: "all", value: "gadget", target: 2 }, playing).line, "camera all gadget 2");
 });
+
+test("free driving: an RC Bandito / a Knoway on a camera client, nobody online needed", () => {
+  const nobody = () => false, cam = (id: number) => id === 9;
+  assert.equal(toCommand({ action: "freerc", camera: 9 }, nobody, cam).line, "rcbomb 9 120");
+  assert.equal(toCommand({ action: "freeknoway", camera: 9 }, nobody, cam).line, "taxis 9 120");
+  assert.ok(toCommand({ action: "freerc", camera: 4 }, nobody, cam).error);   // not a camera
+  assert.ok(toCommand({ action: "freeknoway" }, nobody, cam).error);
+  assert.ok(allowed("HACKER", "freerc") && !allowed("DISPATCH", "freeknoway"));
+});

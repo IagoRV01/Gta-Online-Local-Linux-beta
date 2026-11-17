@@ -94,11 +94,16 @@ $("loginCancel").onclick = () => $("loginDlg").close();
 
 // ---- actions
 const PLAYER_ACTIONS = new Set(["wanted", "alert", "roadblock", "drone", "rcbomb", "taxis"]);
+const FREE = new Set(["freerc", "freeknoway"]);
 
 async function act(payload) {
   if (PLAYER_ACTIONS.has(payload.action)) {
     if (selected == null || !players.get(selected)?.info.playing) { toast("Pick a player who is in the world first.", true); return; }
     payload.target = selected;
+  }
+  if (FREE.has(payload.action)) {   // free driving (2026-11-17): on the picked camera, else the server's first one
+    const cam = camTarget();
+    if (cam !== "all") payload.camera = cam;
   }
   let r = await api("api/action", payload);
   if (r.status === 202 && r.data.puzzle) {   // Phase 14: a hacking minigame first
@@ -115,7 +120,7 @@ async function act(payload) {
   if (r.data.drive) onDrive(r.data.drive);   // a drone / RC car / taxi: yours to drive for two minutes
   if (typeof loadGame === "function") loadGame();
   updateCooldowns();
-  if (payload.action === "camera" && $("videoBox").hidden) $("liveBtn").click();   // what the camera now shows, at once
+  if ((payload.action === "camera" || FREE.has(payload.action)) && $("videoBox").hidden) $("liveBtn").click();   // what the camera now shows, at once
 }
 
 // ---- driving a hack (2026-11-17): the buyer of a drone, RC Bandito or taxi hack drives it for two minutes. The stick
@@ -129,6 +134,8 @@ const DRIVE = {
   taxis: { name: "HACKED KNOWAY", action: "HORN", alt: false, boost: true,
     keys: "<kbd>W</kbd><kbd>S</kbd> throttle/reverse · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Shift</kbd> boost · <kbd>Space</kbd> horn" },
 };
+DRIVE.freerc = { ...DRIVE.rcbomb, name: "RC BANDITO" };     // free driving: in the camera's GTA, the camera follows it
+DRIVE.freeknoway = { ...DRIVE.taxis, name: "KNOWAY" };
 const KEYMAP = { KeyW: "up", ArrowUp: "up", KeyS: "down", ArrowDown: "down", KeyA: "left", ArrowLeft: "left", KeyD: "right", ArrowRight: "right",
   KeyR: "rise", PageUp: "rise", KeyF: "sink", PageDown: "sink", Space: "action", KeyE: "action", ShiftLeft: "boost", ShiftRight: "boost" };
 const held = new Set();
@@ -141,12 +148,12 @@ function onDrive(d) {
   if (!drive) return;
   const D = DRIVE[drive.action];
   $("dName").textContent = D.name;
-  $("dTarget").textContent = drive.targetName || `player ${drive.target}`;
+  $("dTarget").textContent = drive.free ? `free drive · ${drive.targetName || "camera"}` : drive.targetName || `player ${drive.target}`;
   $("dKeys").innerHTML = D.keys;
   $("dAction").textContent = D.action;
   $("dAlt").hidden = !D.alt;
   $("dBoost").hidden = !D.boost;
-  $("dCam").hidden = !auth.can?.includes("camera");
+  $("dCam").hidden = drive.free || !auth.can?.includes("camera");
 }
 function stick() {
   const h = (k) => held.has(k);
@@ -156,7 +163,7 @@ function stick() {
 setInterval(() => {
   if (!drive) return;
   const left = Math.ceil((drive.until - Date.now()) / 1000);
-  if (left <= 0) { onDrive(null); toast("Your two minutes are up: the hack is on its own now.", false); return; }
+  if (left <= 0) { const free = drive.free; onDrive(null); toast(free ? "Your two minutes are up." : "Your two minutes are up: the hack is on its own now.", false); return; }
   $("dLeft").textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
   if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "steer", csrf: auth.csrf, ...stick() }));
 }, 100);
@@ -178,7 +185,7 @@ for (const b of document.querySelectorAll("[data-d]")) {   // the touch pad
   b.addEventListener("pointercancel", up);
   b.addEventListener("lostpointercapture", up);
 }
-$("dStop").onclick = () => { onDrive(null); toast("Released: the hack's own AI drives it now.", false); };
+$("dStop").onclick = () => { const free = drive?.free; onDrive(null); toast(free ? "Released: it waits there until its time is up." : "Released: the hack's own AI drives it now.", false); };
 $("dCam").onclick = () => { if (drive) act({ action: "camera", camera: camTarget(), value: "gadget", target: drive.target }); };
 
 // ---- the camera client's power (ADMIN, 2026-11-16): the camera GTA on the server PC, on and off
@@ -232,7 +239,10 @@ setInterval(updateCooldowns, 500);
 
 // ---- cameras (Phase 12): which camera client, then a CCTV camera or a way to frame the selected player
 let camList = [], cctvList = [];
+let camIds = new Set();   // the camera clients' netIds (free driving shows up as their rcbomb / taxis)
+const isCam = (id) => camIds.has(Number(id));
 function onCameras(cams, cctv) {
+  camIds = new Set(cams.map((c) => c.id));
   camList = cams;
   if (cctv) {
     cctvList = cctv;
@@ -271,8 +281,8 @@ function describe(e) {
     case "alert": return `sent a police alert to ${name(a)}`;
     case "roadblock": return `set up a roadblock ahead of ${name(a)}`;
     case "drone": return `sent a taser drone after ${name(a)}`;
-    case "rcbomb": return `sent an RC Bandito packed with C4 at ${name(a)}`;
-    case "taxis": return `hacked the Knoway self-driving cars to ram ${name(a)}`;
+    case "rcbomb": return isCam(a) ? "took an RC Bandito for a drive" : `sent an RC Bandito packed with C4 at ${name(a)}`;
+    case "taxis": return isCam(a) ? "took a Knoway for a drive" : `hacked the Knoway self-driving cars to ram ${name(a)}`;
     case "traffic": return a === "normal" ? "put the traffic lights back to normal" : `turned every traffic light ${a.toUpperCase()}${rest[0] > 0 ? ` for ${rest[0]} s` : ""}`;
     case "blackout": return a === "on" ? "cut the city's power" : "turned the power back on";
     case "weather": return a === "auto" ? "let the weather run on its own" : `changed the weather to ${a}`;

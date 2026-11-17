@@ -361,6 +361,7 @@ struct Gadget {
     std::vector<int> stuck;       // per car: checks in a row that found it standing still far from the player
     std::vector<int> mode;        // per car: 0 not tasked yet, 1 ramming the player, 2 driving to where the player was
     std::vector<Vec3> gotoAt;     // per car in mode 2: where it drives to
+    int boomAt = 0;               // free driving: the RC car went off, gone at this time
 };
 std::vector<Gadget> g_gadgets;
 GodEyeSteerMsg g_steer[kGeTaxis + 1];   // the newest stick per hack kind
@@ -753,7 +754,88 @@ void GadgetsTick(int me) {
     ReportGadgets(p, now);
 }
 
+// ---- free driving (2026-11-17): with nobody online, GodEye's RC Bandito / Knoway lives in the camera client's own GTA.
+// It comes out on the road nearest to what the camera shows; a GodEye user drives it like the hacks (GTA's own driving),
+// with no stick it brakes and waits, and the camera follows it. One at a time: a new one replaces the old.
+void FreeStart(int kind, uint32_t durationMs, const Vec3 &around) {
+    for (auto &g : g_gadgets) GadgetRelease(g, true);
+    g_gadgets.clear();
+    Vec3 node;
+    float h = 0;
+    if (!RoadNodeAround(around, 0.f, 120.f, node, h)) { LOGW("godeye", "-", "free drive: no road near %.0f,%.0f", around.x, around.y); return; }
+    uint32_t m = kind == kGeRcBomb ? gta::Joaat("rcbandito") : HaveKnoway() ? KnowayModel() : gta::Joaat("taxi");
+    if (!gta::LoadModel(m)) { LOGW("godeye", "-", "free drive: model %08x not loaded", m); return; }
+    int v = SpawnCar(m, node, h);
+    gta::ReleaseModel(m);
+    if (!v) return;
+    Gadget g;
+    g.kind = kind;
+    g.vehs.push_back(v);
+    g.peds.push_back(HiddenDriver(v));
+    g.borrowed.push_back(0);
+    N(N_SET_VEHICLE_ENGINE_ON, v, 1, 1, 0);
+    N(N_SET_VEHICLE_DOORS_LOCKED, v, 2);
+    g.startMs = gta::GameTimeMs();
+    g.untilMs = g.startMs + (int)Lifetime(durationMs, 120000);
+    g_gadgets.push_back(g);
+    LOGI("godeye", "-", "free drive: %s at %.0f,%.0f,%.0f for %d s", kind == kGeRcBomb ? "RC Bandito" : m == KnowayModel() ? "Knoway" : "taxi",
+         node.x, node.y, node.z, (g.untilMs - g.startMs) / 1000);
+}
+
+void FreeTick() {
+    int now = gta::GameTimeMs();
+    Vec3 at{};
+    for (size_t i = 0; i < g_gadgets.size();) {
+        Gadget &g = g_gadgets[i];
+        int v = g.vehs.empty() ? 0 : g.vehs[0];
+        bool done = now > g.untilMs || !gta::Exists(v) || (g.boomAt && now >= g.boomAt);
+        if (!done && !g.boomAt) {
+            at = gta::Pos(v);
+            bool driven = now < g_steerUntil[g.kind];
+            GodEyeSteerMsg s = driven ? g_steer[g.kind] : GodEyeSteerMsg{(uint8_t)g.kind, 0, 0, 0, 0};   // no stick: it brakes and waits
+            if (driven && !g.told) { g.told = true; LOGI("godeye", "-", "free drive: driven from GodEye"); }
+            DriveCar(g, 0, s, g.kind == kGeTaxis && (s.buttons & kSteerBoost), now);
+            bool press = (s.buttons & kSteerAction) && !g.actionHeld;
+            g.actionHeld = (s.buttons & kSteerAction) != 0;
+            if (press && g.kind == kGeTaxis) N(N_START_VEHICLE_HORN, v, 1200, gta::Joaat("HELDDOWN"), 0);
+            if (press && g.kind == kGeRcBomb) {   // the C4: a bang where it is, and it is gone
+                N(N_ADD_EXPLOSION, at.x, at.y, at.z + 0.3f, 2, 1.f, 1, 0, 1.f, 0);
+                g.boomAt = now + 2500;
+                LOGI("godeye", "-", "free drive: the RC Bandito went off at %.0f,%.0f", at.x, at.y);
+            }
+        }
+        if (done) {
+            LOGI("godeye", "-", "free drive: over");
+            GadgetRelease(g, true);
+            g_gadgets.erase(g_gadgets.begin() + i);
+            continue;
+        }
+        ++i;
+    }
+    ReportGadgets(at, now);
+}
+
 }  // namespace
+
+void CameraFrame(const Vec3 &around) {
+    while (!g_queue.empty()) {
+        GodEyeActionMsg m = g_queue.front();
+        g_queue.pop_front();
+        if (m.kind == kGeRcBomb || m.kind == kGeTaxis) FreeStart(m.kind, m.durationMs, around);
+    }
+    FreeTick();
+}
+
+bool FreeCar(Vec3 &pos, float &heading, int &kind) {
+    for (const Gadget &g : g_gadgets) {
+        if (g.vehs.empty() || !gta::Exists(g.vehs[0])) continue;
+        pos = gta::Pos(g.vehs[0]);
+        heading = gta::Heading(g.vehs[0]);
+        kind = g.kind;
+        return true;
+    }
+    return false;
+}
 
 const char *TrafficModeName() {
     static const char *n[] = {"normal", "all red", "all green", "random"};

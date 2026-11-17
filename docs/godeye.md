@@ -478,6 +478,30 @@ that player's own game by LocalOnline (`godeye.cpp`, protocol `GodEyeAction` kin
     the hack: camera mode `gadget`.
   - These messages were added inside protocol v14: a client without them files them away unread, but an older server
     counts a `GadgetState` as malformed, so the server goes first.
+
+### Free driving: an RC Bandito or a Knoway with nobody online (2026-11-18)
+
+The hacks live in the hacked player's game, so with nobody online there was nothing to drive. Free driving puts the car
+in the **camera client's own GTA** instead: "Drive an RC Bandito" / "Drive a Knoway" (HACKER, 150 / 100 credits, 10 a
+day, 30 s cooldown) in the Hacks box, under "Free drive".
+
+- Backend: actions `freerc` / `freeknoway` on the picked camera (else the first one connected) become the same server
+  commands aimed at the camera's netId: `rcbomb <camera> 120`, `taxis <camera> 120`. The buyer drives it for 120 s
+  (`Drive.free`); one driver per camera at a time (409 with who and how long). The live video opens by itself.
+- Server: `rcbomb` / `taxis` and `steer` (not the drone) accept a camera client; a camera's `GadgetState` is stored and
+  shown in the telemetry's `cameras[].gadgets`, so the maps draw and follow it like a hack. It is not relayed back to
+  the camera itself.
+- Camera client (`godeye::CameraFrame`, `godeye::FreeCar`): the car comes out on the road nearest to what the camera
+  shows (the player it follows, else the point the CCTV camera looks at): `rcbandito`, or `knowayest` when the add-on is
+  in the game (it is on the server PC; a taxi otherwise), with a hidden driver. The stick drives it with the same
+  `TASK_VEHICLE_TEMP_ACTION`s as the hacks; with no stick it brakes and waits. The RC's action button sets the C4 off
+  (gone 2.5 s later), the Knoway's sounds the horn, Shift is the Knoway's boost. A new one replaces the old one.
+- While a free car exists the camera drops its shot for a chase view behind it (label `GODEYE · RC BANDITO` /
+  `GODEYE · KNOWAY`) and cuts back to the shot GodEye had when it is gone.
+- Verified on the live server at 00:15 with nobody online, through the admin API: a Knoway came out at 148,-907 (near
+  CAM_001 Legion Square), drove at up to 25 m/s with turns and reverse, and hit a bus stop; the video followed it. An
+  RC Bandito drove and went off on the action button ("free drive: the RC Bandito went off"), then the video went back
+  to CAM_001.
   - **Verified in game 2026-11-17** (test server, the BC-250 in the Del Perro Heights apartment, the camera on the PC,
     driven through the admin API exactly as the backend does; every stick accepted):
     - Drone: driven at once, circled and climbed as steered, the action zapped, the AI took it back when the stick
