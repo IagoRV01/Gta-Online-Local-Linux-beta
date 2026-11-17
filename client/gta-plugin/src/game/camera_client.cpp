@@ -37,7 +37,7 @@ struct Ghost {
     bool isObject = false;
     Vec3 from, to;
     float hFrom = 0, hTo = 0;
-    int atMs = 0, seenMs = 0;
+    int atMs = 0, seenMs = 0, retryAt = 0;
 };
 std::map<std::pair<uint16_t, int>, Ghost> g_ghosts;   // (owner netId, index in its report)
 
@@ -77,16 +77,17 @@ int GhostSpawn(const Ghost &g, bool &isObject) {
         for (const char *n : {"xs_prop_arena_drone_01", "xs_prop_arena_drone_02", "ba_prop_battle_drone_quad"})
             if (NB(N<int>(N_IS_MODEL_VALID, gta::Joaat(n)))) { m = gta::Joaat(n); break; }
     } else m = gta::Joaat(g.kind == kGeRcBomb ? "rcbandito" : "taxi");
-    if (!m || !gta::LoadModel(m, 3000)) return 0;
+    if (!m || !gta::LoadModel(m, 3000)) { LOGW("camera", "-", "hack copy (kind %d): model %08x not loaded", g.kind, m); return 0; }
     int e = isObject ? N<int>(N_CREATE_OBJECT, m, g.to.x, g.to.y, g.to.z, 0, 1, 0)
                      : N<int>(N_CREATE_VEHICLE, m, g.to.x, g.to.y, g.to.z, g.hTo, 0, 1, 0);
     gta::ReleaseModel(m);
-    if (!e) return 0;
+    if (!e) { LOGW("camera", "-", "hack copy (kind %d): not created", g.kind); return 0; }
     gta::MakeMission(e);
     gta::Freeze(e, true);
     gta::SetCollision(e, false);
     gta::SetInvincible(e, true);
     if (!isObject) { N(N_SET_VEHICLE_ENGINE_ON, e, 1, 1, 0); N(N_SET_VEHICLE_LIGHTS, e, 2); }
+    LOGI("camera", "-", "hack copy (kind %d) entity %d at %.0f,%.0f,%.0f", g.kind, e, g.to.x, g.to.y, g.to.z);
     return e;
 }
 
@@ -94,7 +95,10 @@ void GhostsTick(int now) {
     for (auto it = g_ghosts.begin(); it != g_ghosts.end();) {
         Ghost &g = it->second;
         if (now - g.seenMs > 2000) { GhostDelete(g); it = g_ghosts.erase(it); continue; }   // the player left, or the hack ended
-        if (!g.ent || !gta::Exists(g.ent)) g.ent = GhostSpawn(g, g.isObject);
+        if ((!g.ent || !gta::Exists(g.ent)) && now >= g.retryAt) {
+            g.ent = GhostSpawn(g, g.isObject);
+            if (!g.ent) g.retryAt = now + 5000;   // not every frame: a model load waits
+        }
         if (g.ent) {
             float h = 0;
             Vec3 p = GhostPos(g, now, &h);
@@ -162,7 +166,8 @@ bool Desired(Vec3 &pos, Vec3 &look, float &fov, int now) {
         if (const Ghost *gh = GhostOf(g_cam.target)) {
             float gh_h = 0;
             Vec3 at = GhostPos(*gh, now, &gh_h), f = Fwd(gh_h), up{0, 0, 1};
-            float back = gh->kind == kGeDrone ? 4.5f : gh->kind == kGeRcBomb ? 4.f : 7.5f, high = gh->kind == kGeDrone ? 1.6f : gh->kind == kGeRcBomb ? 1.5f : 2.6f;
+            // the Arena War drone is small (about 30 px from 4.5 m in the 2026-11-17 test): close behind it
+            float back = gh->kind == kGeDrone ? 2.3f : gh->kind == kGeRcBomb ? 3.2f : 7.5f, high = gh->kind == kGeDrone ? 0.7f : gh->kind == kGeRcBomb ? 1.2f : 2.6f;
             pos = Add(Add(at, Mul(f, -back)), Mul(up, high));
             look = Add(Add(at, Mul(f, 6.f)), Mul(up, gh->kind == kGeDrone ? -0.8f : 0.4f));
             g_lastTarget = at;

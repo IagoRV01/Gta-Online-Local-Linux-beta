@@ -516,7 +516,10 @@ void DriveCar(Gadget &g, int veh, const GodEyeSteerMsg &s, float top, float turn
     float dt = FrameS();
     if (!g.aiStopped) {   // the hidden driver lets go of the wheel
         if (!g.peds.empty() && gta::Exists(g.peds[0])) N(N_CLEAR_PED_TASKS, g.peds[0]);
-        g.speed = N<NVec3>(N_GET_ENTITY_SPEED_VECTOR, veh, 1).y;
+        g.speed = std::min(N<NVec3>(N_GET_ENTITY_SPEED_VECTOR, veh, 1).y, top);
+        // its driver's crashes do not wreck it (an RC Bandito lost 600 health on one wall at speed in the 2026-11-17
+        // test); bullets, fire and explosions still do, so the player can still destroy it
+        N(N_SET_ENTITY_PROOFS, veh, 0, 0, 0, 1, 0, 0, 0, 0);
         g.aiStopped = true;
     }
     if (!NB(N<int>(N_IS_VEHICLE_ON_ALL_WHEELS, veh))) { g.speed = N<NVec3>(N_GET_ENTITY_SPEED_VECTOR, veh, 1).y; return; }   // in the air
@@ -603,11 +606,14 @@ void GadgetsTick(int me) {
             if (!gta::Exists(v)) done = true;
             else {
                 Vec3 c = gta::Pos(v);
-                bool wrecked = NB(N<int>(N_IS_ENTITY_DEAD, v)) || gta::Health(v) < 700;
                 bool driven = now < g_steerUntil[kGeRcBomb];
+                // destroyed: a driven one takes the knocks of its driver's own crashes (one wall at speed went under 700
+                // within 2 s in the 2026-11-17 test) and only goes when it is really wrecked
+                bool wrecked = NB(N<int>(N_IS_ENTITY_DEAD, v)) || gta::Health(v) < (driven || g.told ? 250 : 700);   // told: it was driven at some point
                 const GodEyeSteerMsg &s = g_steer[kGeRcBomb];
                 bool press = driven && (s.buttons & kSteerAction) && !g.actionHeld;
                 g.actionHeld = driven && (s.buttons & kSteerAction);
+                if (wrecked) LOGI("godeye", "-", "rc wrecked: dead %d health %d", (int)NB(N<int>(N_IS_ENTITY_DEAD, v)), gta::Health(v));
                 if (wrecked || press || Dist2(c, p) < 4.5f * 4.5f) {   // boom: on the player, by remote, or where it was stopped
                     N(N_ADD_EXPLOSION, c.x, c.y, c.z + 0.3f, 2, 1.f, 1, 0, 1.f, 0);
                     LOGI("godeye", "-", "rc bomb %s", wrecked ? "destroyed before it arrived" : press ? "set off from GodEye" : "went off at the player");
@@ -615,7 +621,13 @@ void GadgetsTick(int me) {
                     done = true;
                 } else if (driven) {   // a GodEye user drives it; the action button sets it off
                     if (!g.told) { g.told = true; gta::Notify("~p~GodEye~s~  Someone on GodEye is ~r~driving the RC Bandito~s~ now."); LOGI("godeye", "-", "rc bomb driven from GodEye"); }
-                    DriveCar(g, v, s, 27.f, 130.f);
+                    DriveCar(g, v, s, 22.f, 120.f);
+                    if (now >= g.nextMs) {   // trace (2026-11-17): how a driven RC car holds up
+                        g.nextMs = now + 2000;
+                        LOGI("godeye", "-", "rc driven: health %d body %.0f engine %.0f speed %.1f wheels %d", gta::Health(v),
+                             N<float>(N_GET_VEHICLE_BODY_HEALTH, v), N<float>(N_GET_VEHICLE_ENGINE_HEALTH, v), g.speed,
+                             (int)NB(N<int>(N_IS_VEHICLE_ON_ALL_WHEELS, v)));
+                    }
                 } else if (g.aiStopped) {   // the user let go: the AI takes it back at once
                     g.aiStopped = false;
                     g.retaskMs = 0;

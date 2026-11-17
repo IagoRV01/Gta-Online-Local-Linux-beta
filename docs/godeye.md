@@ -458,10 +458,19 @@ that player's own game by LocalOnline (`godeye.cpp`, protocol `GodEyeAction` kin
     the hack: camera mode `gadget`.
   - These messages were added inside protocol v14: a client without them files them away unread, but an older server
     counts a `GadgetState` as malformed, so the server goes first.
-  - **Verified 2026-11-17:** builds, 2297 unit tests, GodEye backend 28; live server and camera run the new versions;
-    the pad sends the right stick (W + D + Shift: x 100, y 100, boost) and the backend refuses a page without a drive.
-    **Not yet in game:** driving and the interior camera. The BC-250 overheated (k10temp 95 C) on the restart that was
-    to load the new client and had to be rebooted.
+  - **Verified in game 2026-11-17** (test server, the BC-250 in the Del Perro Heights apartment, the camera on the PC,
+    driven through the admin API exactly as the backend does; every stick accepted):
+    - Drone: driven at once, circled and climbed as steered, the action zapped, the AI took it back when the stick
+      stopped.
+    - RC Bandito: the first run went "destroyed" 2 s into the drive (it inherited the AI's 27 m/s, bounced, and one wall
+      took 600 health). Now a driven car is collision-proof (bullets, fire and explosions still wreck it), the RC tops
+      out at 22 m/s and starts from at most that. 30 s of circles and 14 s of reverse at 9 m/s, health 1000 throughout,
+      set off from GodEye.
+    - Taxi: driven straight at 31 m/s and turned, about 250 m; the second taxi stayed AI.
+    - Interior camera: "inside: interior 80642" and the follow shot showed Alex from behind inside the building.
+    - Hack cam: behind the drone over Del Perro; its copy is drawn (in the middle of the frame, but only ~30 px from
+      4.5 m, so the drone shot is now 2.3 m behind, 0.7 m up).
+  - The web pad was checked in the browser (W + D + Shift sends x 100, y 100, boost).
 - **Not verified in game yet:** built and unit-tested (2290 tests, GodEye backend 27). The in-game run on the test
   server was stopped when the user wanted the BC-250.
 
