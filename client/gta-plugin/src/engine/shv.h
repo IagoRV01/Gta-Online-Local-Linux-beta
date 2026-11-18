@@ -20,6 +20,9 @@ extern void (*nativePush64)(uint64_t);
 extern uint64_t *(*nativeCall)();
 extern void (*keyboardRegister)(KeyboardHandler);
 extern void (*keyboardUnregister)(KeyboardHandler);
+// every ped / vehicle the game has (v15 shared population); null if this ScriptHookV lacks them
+extern int (*worldGetAllPeds)(int *arr, int arrSize);
+extern int (*worldGetAllVehicles)(int *arr, int arrSize);
 
 bool Bind();   // false if ScriptHookV.dll is missing or an export was not found
 

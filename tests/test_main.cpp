@@ -573,6 +573,40 @@ static void TestWorld() {
         CameraSetMsg d;
         CHECK(GetHeader(rc, h) && Get(rc, d) && d.mode == kCamGadget && d.target == 7);
     }
+    {   // v15 shared population: role, a ped with its look and gun, a car with its plate, the relay
+        Header h;
+        wire::Writer wr; Put(wr, PopRoleMsg{kPopViewer, kPopRoleMission, 3, 0});
+        wire::Reader rr(wr.Bytes().data(), wr.Size()); PopRoleMsg ro;
+        CHECK(GetHeader(rr, h) && h.type == MsgType::PopRole && Get(rr, ro) && ro.mode == kPopViewer && ro.authority == 3 && ro.flags == kPopRoleMission);
+        PopStateMsg st; st.seq = 77;
+        PopEntity v; v.id = 5; v.kind = kPopVehicle; v.flags = kPopHasDesc; v.model = 0x12345678; v.pos = {-1200.5f, -800.25f, 20.f}; v.vel = {12.34f, -3.21f, 0.5f};
+        v.rot = {0.f, 0.f, 0.70710678f, 0.70710678f}; v.angZ = 0.25f; v.vflags = kVehEngine | kVehLights; v.body = 240; v.engine = 200; v.color1 = 27; v.color2 = 112; v.plate = "46EEK572";
+        PopEntity p; p.id = 6; p.kind = kPopPed; p.flags = kPopHasDesc | kPopInVehicle | kPopArmed | kPopShooting | kPopHostile; p.model = 0x9abcdef0;
+        p.pos = {-1200.f, -800.f, 21.f}; p.heading = 271.f; p.move = (uint8_t)Move::Run; p.health = 175; p.vehId = 5; p.seat = -1; p.weapon = 0x1B06D571; p.aim = {1.f, 2.f, 3.f};
+        p.comp[3][0] = 4; p.comp[3][1] = 2; p.prop[0][0] = 255;
+        st.e = {v, p};
+        wire::Writer ws; Put(ws, st);
+        CHECK(ws.Size() < 200);
+        wire::Reader rs(ws.Bytes().data(), ws.Size()); PopStateMsg so;
+        CHECK(GetHeader(rs, h) && h.type == MsgType::PopState && Get(rs, so) && so.seq == 77 && so.e.size() == 2);
+        const PopEntity &a = so.e[0], &b = so.e[1];
+        CHECK(a.kind == kPopVehicle && a.id == 5 && a.model == 0x12345678 && a.pos.x == -1200.5f && std::fabs(a.vel.x - 12.34f) < 0.011f && std::fabs(a.rot.z - 0.7071f) < 0.001f);
+        CHECK(a.plate == "46EEK572" && a.color2 == 112 && a.body == 240 && a.vflags == (kVehEngine | kVehLights) && std::fabs(a.angZ - 0.25f) < 0.002f);
+        CHECK(b.kind == kPopPed && b.vehId == 5 && b.seat == -1 && b.weapon == 0x1B06D571 && b.aim.z == 3.f && b.health == 175 && b.comp[3][0] == 4 && b.comp[3][1] == 2 && b.prop[0][0] == 255);
+        CHECK(std::fabs(b.heading - 271.f) < 0.01f && b.move == (uint8_t)Move::Run);
+        PopRelayMsg rl; rl.authority = 3; rl.serverMs = 123456; rl.seq = 77; rl.e = so.e;
+        wire::Writer wl; Put(wl, rl);
+        wire::Reader rlr(wl.Bytes().data(), wl.Size()); PopRelayMsg rlo;
+        CHECK(GetHeader(rlr, h) && h.type == MsgType::PopRelay && Get(rlr, rlo) && rlo.authority == 3 && rlo.serverMs == 123456 && rlo.e.size() == 2 && rlo.e[1].weapon == 0x1B06D571);
+        st.e[1].kind = 9;   // unknown kind: the whole packet is refused
+        wire::Writer wb; Put(wb, st);
+        wire::Reader rb(wb.Bytes().data(), wb.Size());
+        CHECK(GetHeader(rb, h) && !Get(rb, so));
+        st.e[1].kind = kPopPed; st.e[1].pos.x = 1e9f;
+        wire::Writer wb2; Put(wb2, st);
+        wire::Reader rb2(wb2.Bytes().data(), wb2.Size());
+        CHECK(GetHeader(rb2, h) && !Get(rb2, so));
+    }
     // Maze Bank transaction log
     {   // co-op jobs (v9)
         wire::Writer jw;

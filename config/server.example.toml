@@ -10,7 +10,7 @@ game_port = 4499          # UDP. Clients use this PC's LAN IP (ipconfig), ideall
 max_players = 8
 tick_rate = 20            # Hz: server tick + snapshot rate
 timeout_ms = 30000
-max_packets_per_second = 120
+max_packets_per_second = 240   # v15: the shared NPC and traffic stream adds ~60 a second
 
 [accounts]
 # LAN mode: a new name gets an account and a random token on its first login; the client keeps the

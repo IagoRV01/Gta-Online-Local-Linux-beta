@@ -111,6 +111,16 @@ everyone can seat them in the right car.
 
 Sent on login, every 10 s, and immediately on any change (weather cycle, admin command).
 
+### Shared NPCs and traffic (v15, 2026-11-18)
+
+| Type | Dir | Payload |
+|---|---|---|
+| 46 PopRole | S→C | u8 mode (0 own world, 1 authority, 2 viewer), u8 flags (1 mission: mission entities too), u16 authority, u8 viewers |
+| 47 PopState | C→S | u32 seq, u8 count (≤ 40), count × PopEntity — the authority's NPCs and cars, 8 Hz, channel 1, ≤ ~1.1 KB a packet |
+| 48 PopRelay | S→C | u16 authority, u32 serverMs, u32 seq, u8 count, count × PopEntity — to that authority's viewers only |
+
+PopEntity: u16 id, u8 kind (1 ped, 2 vehicle), u16 flags, u32 model, vec3 pos, 3 × i16 velocity (cm/s); a ped adds u16 heading, u8 gait, u8 health, [u16 vehId, u8 seat], [u32 weapon], [vec3 aim], [12 × (drawable, texture), 2 × (prop, texture)]; a vehicle adds 4 × i16 quaternion, i16 yaw rate (mrad/s), u8 vflags, u8 body/4, u8 engine/4, [u8 colour1, colour2, pearl, wheel, livery, str plate ≤ 8]. The server drops PopState from a game that is not an authority. Viewer → authority events and NPC damage travel as player messages `lo.pe` / `lo.nd` (see docs/multiplayer.md).
+
 ### Economy (Phase 8, channel 2)
 
 | Type | Dir | Payload | Server rules |
@@ -143,7 +153,7 @@ measured 208 on a ped).
 ## Safety rules (server side)
 
 - Size cap before parsing. **Every** read is bounds-checked (`wire::Reader`). A truncated packet, trailing garbage, non-finite floats or bad enums reject the **whole** message. Nothing is ever partially applied.
-- A per-peer rate limit applies (`max_packets_per_second`, default 120). Excess packets are dropped and counted. More than 500 malformed packets disconnects the peer.
+- A per-peer rate limit applies (`max_packets_per_second`, default 240 since v15). Excess packets are dropped and counted. More than 500 malformed packets disconnects the peer.
 - `PlayerState` before `Auth` is ignored. The same name can't log in twice. A server-full reject still lets the client receive the reason.
 - Replay/staleness: unreliable state uses `seq` (older = dropped). Reliable writes (profile) use `revision` (stale = refused).
 - Peer timeout: ENet `timeout_ms` (10 s).

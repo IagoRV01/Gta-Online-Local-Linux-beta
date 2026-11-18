@@ -46,7 +46,8 @@ static void Pump() {
                 continue;
             }
             if (h.type == MsgType::Snapshot || h.type == MsgType::PlayerJoined || h.type == MsgType::PlayerLeft || h.type == MsgType::PlayerAppearance ||
-                h.type == MsgType::ShotRelay || h.type == MsgType::DamageApply || h.type == MsgType::KillFeed || h.type == MsgType::WorldState || h.type == MsgType::GodEyeAction || h.type == MsgType::CameraSet || h.type == MsgType::GodEyeSteer || h.type == MsgType::GadgetRelay || h.type == MsgType::MoneyResult || h.type == MsgType::Ledger || h.type == MsgType::VehicleList || h.type == MsgType::VehicleResult || h.type == MsgType::JobList || h.type == MsgType::JobState || h.type == MsgType::RaceStandings || h.type == MsgType::PlayerMessageRelay) {
+                h.type == MsgType::ShotRelay || h.type == MsgType::DamageApply || h.type == MsgType::KillFeed || h.type == MsgType::WorldState || h.type == MsgType::GodEyeAction || h.type == MsgType::CameraSet || h.type == MsgType::GodEyeSteer || h.type == MsgType::GadgetRelay || h.type == MsgType::MoneyResult || h.type == MsgType::Ledger || h.type == MsgType::VehicleList || h.type == MsgType::VehicleResult || h.type == MsgType::JobList || h.type == MsgType::JobState || h.type == MsgType::RaceStandings || h.type == MsgType::PlayerMessageRelay ||
+                h.type == MsgType::PopRole || h.type == MsgType::PopRelay) {   // v15 shared population
                 if (g_onGame) g_onGame(h.type, r);
                 continue;
             }

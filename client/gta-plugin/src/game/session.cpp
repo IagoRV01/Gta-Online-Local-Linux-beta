@@ -14,6 +14,7 @@
 #include "game/sync.h"
 #include "game/net_client.h"
 #include "game/remote.h"
+#include "game/population.h"
 #include "game/godeye.h"
 #include "game/combat.h"
 #include "game/economy.h"
@@ -616,6 +617,7 @@ void MultiplayerFrame(int me) {
     godeye::Frame(me);
     garage::Frame();
     remote::Frame();
+    population::Frame();   // v15: shared NPCs and traffic
 }
 
 // ---------------------------------------------------------------- per-frame

@@ -18,6 +18,7 @@
 #include "game/garage.h"
 #include "game/world_sync.h"
 #include "game/net_client.h"
+#include "game/population.h"
 
 namespace remote {
 
@@ -287,6 +288,16 @@ void OnMessage(MsgType type, wire::Reader &r) {
             if (Get(r, m)) camera_client::OnGadgets(m);
             break;
         }
+        case MsgType::PopRole: {
+            PopRoleMsg m;
+            if (Get(r, m)) population::OnRole(m);
+            break;
+        }
+        case MsgType::PopRelay: {
+            PopRelayMsg m;
+            if (Get(r, m)) population::OnRelay(m);
+            break;
+        }
         case MsgType::KillFeed: {
             KillFeedMsg m;
             if (Get(r, m)) combat::OnKillFeed(m);
@@ -315,6 +326,7 @@ void Spawn(Player &p, const interp::Sample &s) {
     N(N_SET_PED_SUFFERS_CRITICAL_HITS, p.ped, 1);
     p.weapon = 0;
     N(N_SET_PED_KEEP_TASK, p.ped, 1);
+    N(N_SET_PED_RELATIONSHIP_GROUP_HASH, p.ped, gta::Joaat("LO_REMOTE"));   // v15: a mission's enemies fight it (population.cpp Groups)
     appearance::ApplyLook(p.ped, look);
     p.lookDirty = false;
     p.blip = N<int>(N_ADD_BLIP_FOR_ENTITY, p.ped);
@@ -585,6 +597,9 @@ bool PuppetCombat(Player &p, const interp::Result &r) {
             Put(w, d);
             net::SendEvent(w);
             LOGI("remote", p.name.c_str(), "we hit it: %d pvp damage (base %.0f, bone %d, local drop %d)", dmg, base, bone, measured);
+        } else if (population::StreamsFor(p.ped) && (NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ANY_PED, p.ped)) || NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ANY_VEHICLE, p.ped)))) {
+            // v15: our NPCs (we run that player's world) hurt its puppet: its game takes the damage
+            population::ReportNpcDamage(p.netId, kPuppetHealth - hp, 0);
         }
         N(N_SET_ENTITY_HEALTH, p.ped, kPuppetHealth, 0, 0);
         N(N_CLEAR_ENTITY_LAST_DAMAGE_ENTITY, p.ped);
@@ -698,6 +713,11 @@ std::string PlayersText() {
     return out;
 }
 
+bool IsPuppetEntity(int e) {
+    if (!e) return false;
+    for (auto &kv : g_players) if (kv.second.ped == e || kv.second.veh == e) return true;
+    return false;
+}
 uint16_t NetIdOfPed(int ped) {
     for (auto &kv : g_players)
         if (kv.second.ped == ped) return kv.first;
@@ -793,6 +813,7 @@ void Frame() {
 }
 
 void Clear() {
+    population::Clear();
     StopSpectate();
     for (auto &kv : g_players) DeletePuppet(kv.second);
     g_players.clear();

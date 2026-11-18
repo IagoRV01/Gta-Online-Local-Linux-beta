@@ -80,6 +80,7 @@ void Server::Run(volatile bool &stop) {
             BroadcastSnapshot();
             AdminApiPoll(now);
             if (tick_ % 20 == 0) AfterJobTick(NowMs());
+            if (tick_ % 10 == 0) PopTick();
             next += tickMs;
             if (now - next > 1000) next = now;   // we fell far behind (debugger, sleep): don't spiral
         }
@@ -316,6 +317,12 @@ void Server::OnPacket(ENetPeer *peer, const uint8_t *data, size_t size, uint8_t 
             Put(w, relay);
             for (auto &kv : clients_)
                 if (kv.second.authed && kv.second.camera && kv.first != c.peer) Send(kv.first, w, kChanState, false);
+            break;
+        }
+        case MsgType::PopState: {   // v15: the authority's NPCs and traffic, for its viewers
+            PopStateMsg m;
+            if (!Get(r, m)) return malformed("PopState");
+            if (c.authed && !c.camera) HandlePopState(c, m);
             break;
         }
         case MsgType::PlayerState: {
@@ -612,6 +619,119 @@ void Server::HandleProfileSave(Client &c, const ProfileSaveMsg &m) {
 static float Dist(const Vec3 &a, const Vec3 &b) {
     float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
     return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// ---------------------------------------------------------------- shared population (v15, 2026-11-18)
+// Every 500 ms: the players near each other (same session, linked within 250 m, kept together up to 350 m) form a
+// group, and one game of the group (the one that already had it, else the lowest netId) runs GTA's NPCs and traffic for
+// all of them. A co-op mission's host does it for its crew, mission entities included. A camera client joins the
+// group of the player nearest to what it shows (a lone player then streams for the camera).
+static float Dist2(const Vec3 &a, const Vec3 &b) { float x = a.x - b.x, y = a.y - b.y, z = a.z - b.z; return x * x + y * y + z * z; }
+
+void Server::PopTick() {
+    std::vector<Client *> pl;
+    for (auto &kv : clients_)
+        if (kv.second.authed && !kv.second.camera && kv.second.haveState) pl.push_back(&kv.second);
+    std::map<uint16_t, uint16_t> auth;   // netId -> its authority
+    std::map<uint16_t, uint8_t> flags;
+    for (auto &kv : jobs_) {   // a co-op mission: the host runs the world, its enemies included
+        const Job &j = kv.second;
+        if (j.status != kJobRunning || j.kind != kJobMission) continue;
+        Client *h = ByNetId(j.host);
+        if (!h || !h->authed || !h->haveState || h->camera) continue;
+        flags[h->netId] = kPopRoleMission;   // also when only a camera watches it
+        for (uint16_t m : j.members) {
+            Client *mc = ByNetId(m);
+            if (!mc || !mc->haveState || mc->session != h->session) continue;
+            float keep = mc->pop.authority == h->netId ? 700.f : 500.f;
+            if (Dist2(mc->state.pos, h->state.pos) > keep * keep) continue;
+            auth[m] = h->netId; flags[m] = kPopRoleMission;
+            auth[h->netId] = h->netId; flags[h->netId] = kPopRoleMission;
+        }
+    }
+    // the others: single-link groups per session
+    std::vector<Client *> rest;
+    for (Client *c : pl) if (!auth.count(c->netId)) rest.push_back(c);
+    std::vector<int> grp(rest.size());
+    for (size_t i = 0; i < rest.size(); ++i) grp[i] = (int)i;
+    std::function<int(int)> root = [&](int i) { return grp[i] == i ? i : grp[i] = root(grp[i]); };
+    for (size_t i = 0; i < rest.size(); ++i)
+        for (size_t k = i + 1; k < rest.size(); ++k) {
+            if (rest[i]->session != rest[k]->session) continue;
+            bool were = rest[i]->pop.authority && rest[i]->pop.authority == rest[k]->pop.authority;
+            float link = were ? 350.f : 250.f;
+            if (Dist2(rest[i]->state.pos, rest[k]->state.pos) <= link * link) grp[root((int)i)] = root((int)k);
+        }
+    std::map<int, std::vector<Client *>> groups;
+    for (size_t i = 0; i < rest.size(); ++i) groups[root((int)i)].push_back(rest[i]);
+    for (auto &g : groups) {
+        if (g.second.size() < 2) continue;
+        Client *a = nullptr;
+        for (Client *c : g.second) if (c->pop.mode == kPopAuthority && (!a || c->netId < a->netId)) a = c;   // keep the one that has it
+        if (!a) for (Client *c : g.second) if (!a || c->netId < a->netId) a = c;
+        for (Client *c : g.second) auth[c->netId] = a->netId;
+    }
+    // camera clients: the group of the player nearest to what they show
+    std::map<uint16_t, uint16_t> camAuth;
+    for (auto &kv : clients_) {
+        Client &cam = kv.second;
+        if (!cam.authed || !cam.camera || cam.onFree) continue;   // on its own free-driving car: its own world
+        Vec3 at = cam.cam.pos;
+        if (cam.cam.mode != kCamCctv && cam.cam.mode != kCamFree) {
+            Client *t = ByNetId(cam.cam.target);
+            if (!t || t->camera || !t->haveState) continue;
+            at = t->state.pos;
+        }
+        Client *best = nullptr; float bd = 300.f * 300.f;
+        for (Client *c : pl) { float d = Dist2(c->state.pos, at); if (d < bd) { bd = d; best = c; } }
+        if (!best) continue;
+        uint16_t a = auth.count(best->netId) ? auth[best->netId] : best->netId;
+        auth[a] = a;   // a lone player streams for the camera
+        camAuth[cam.netId] = a;
+    }
+    std::map<uint16_t, int> viewers;
+    for (auto &kv : auth) if (kv.first != kv.second) ++viewers[kv.second];
+    for (auto &kv : camAuth) ++viewers[kv.second];
+    for (auto &kv : clients_) {
+        Client &c = kv.second;
+        if (!c.authed) continue;
+        PopRoleMsg r;
+        auto it = c.camera ? camAuth.find(c.netId) : auth.find(c.netId);
+        uint16_t a = it != (c.camera ? camAuth.end() : auth.end()) ? it->second : 0;
+        if (a && a == c.netId && viewers[a] > 0) { r.mode = kPopAuthority; r.authority = a; r.viewers = (uint8_t)std::min(viewers[a], 255); }
+        else if (a && a != c.netId) { r.mode = kPopViewer; r.authority = a; }
+        if (r.mode != kPopOwn) {
+            auto f = flags.find(c.camera ? a : c.netId);
+            if (f == flags.end()) f = flags.find(a);
+            r.flags = f != flags.end() ? f->second : 0;
+        }
+        if (r.mode == c.pop.mode && r.authority == c.pop.authority && r.flags == c.pop.flags && r.viewers == c.pop.viewers) continue;
+        if (r.mode != c.pop.mode || r.authority != c.pop.authority) {
+            Client *ac = r.authority ? ByNetId(r.authority) : nullptr;
+            LOGI("pop", c.name.c_str(), "%s%s%s", r.mode == kPopOwn ? "own world" : r.mode == kPopAuthority ? "runs the NPCs and traffic for " : "sees the NPCs and traffic of ",
+                 r.mode == kPopAuthority ? (std::to_string(r.viewers) + " game(s)").c_str() : r.mode == kPopViewer && ac ? ac->name.c_str() : "",
+                 r.flags & kPopRoleMission ? " (mission)" : "");
+        }
+        c.pop = r;
+        wire::Writer w;
+        Put(w, r);
+        Send(kv.first, w, kChanControl, true);
+    }
+}
+
+void Server::HandlePopState(Client &c, const PopStateMsg &m) {
+    if (c.pop.mode != kPopAuthority) return;   // late packets after the role moved on
+    PopRelayMsg relay;
+    relay.authority = c.netId;
+    relay.serverMs = (uint32_t)NowMs();
+    relay.seq = m.seq;
+    relay.e = m.e;
+    wire::Writer w;
+    Put(w, relay);
+    for (auto &kv : clients_) {
+        const Client &o = kv.second;
+        if (o.authed && o.pop.mode == kPopViewer && o.pop.authority == c.netId) Send(kv.first, w, kChanState, false);
+    }
 }
 
 Server::Client *Server::ByNetId(uint16_t id) {

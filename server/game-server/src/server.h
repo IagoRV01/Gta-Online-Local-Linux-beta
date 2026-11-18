@@ -20,7 +20,7 @@ struct ServerConfig {
     int maxPlayers = 8;
     int tickRate = 20;            // simulation + snapshot rate (Hz)
     int timeoutMs = 10000;        // peer considered gone after this long without acks
-    int maxPacketsPerSecond = 120;   // per peer; extra packets are dropped and counted
+    int maxPacketsPerSecond = 240;   // per peer; extra packets are dropped and counted (v15: the population stream needs ~60)
     bool allowRegistration = true;   // unknown names get an account + token on first login (LAN)
     int minProfileSaveIntervalMs = 500;
     // combat (Phase 6)
@@ -82,6 +82,9 @@ private:
         proto::PlayerStateMsg state;
         std::vector<proto::GadgetPose> gadgets;   // 2026-11-17: GodEye's hacks on this player, as its game reports them
         int gadgetsMs = -100000;
+        // v15 shared population: what the server told this game to do with its NPCs and traffic
+        proto::PopRoleMsg pop;
+        int popPackets = 0, popWindowMs = 0;   // PopState packets in the current second (the authority's stream)
         int windowStartMs = 0, windowPackets = 0, dropped = 0, malformed = 0;
     };
 
@@ -151,6 +154,8 @@ private:
     bool CameraCommand(const std::string &line);
     bool SteerCommand(const std::string &line);
     void SendCamera(Client &c);
+    void PopTick();                          // v15: who runs the NPCs and traffic for whom, every 500 ms
+    void HandlePopState(Client &c, const proto::PopStateMsg &m);
     proto::CameraSetMsg DefaultCamera() const;
     std::string CamerasTelemetry() const;
     void SendGodEye(Client &c, const proto::GodEyeActionMsg &m);

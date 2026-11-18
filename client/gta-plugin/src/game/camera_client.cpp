@@ -7,6 +7,7 @@
 #include "engine/gta.h"
 #include "engine/shv.h"
 #include "game/godeye.h"
+#include "game/population.h"
 #include "game/net_client.h"
 #include "game/remote.h"
 #include "game/world_sync.h"
@@ -350,6 +351,7 @@ void Run(const Settings &s) {
         if (me != lastFrozenPed) { HideSelf(); lastFrozenPed = me; }   // the game can rebuild the player ped
         if (net::Connected()) {
             remote::Frame();
+            population::Frame();   // v15: the NPCs and traffic of the player it watches
             world_sync::Frame();
             // free driving (2026-11-17): the RC Bandito / Knoway a GodEye user drives here, out on the road nearest to
             // what the camera shows (the player it follows, else the point it looks at)
