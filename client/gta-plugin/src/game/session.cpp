@@ -1006,6 +1006,11 @@ bool HandleCommand(const std::string &line) {
         else { profile_store::Delete(); g_haveChar = false; LOGI("devcmd", "-", "local profile cache deleted"); }
     }
     else if (v == "menu") g_menuRequested = true;
+    else if (v == "pop") {   // v16 shared NPCs test commands: pop status | pop take | pop shoot <n> | pop goto <id-owner>
+        std::string rest;
+        std::getline(in, rest);
+        population::DevCommand(rest);
+    }
     else if (v == "where" || v == "status") {
         int me = gta::PlayerPed();
         gta::Vec3 p = gta::Pos(me);

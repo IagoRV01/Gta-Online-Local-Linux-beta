@@ -111,15 +111,15 @@ everyone can seat them in the right car.
 
 Sent on login, every 10 s, and immediately on any change (weather cycle, admin command).
 
-### Shared NPCs and traffic (v15, 2026-11-18)
+### Shared NPCs and traffic (v15; v16 per-entity owners, 2026-11-18)
 
 | Type | Dir | Payload |
 |---|---|---|
-| 46 PopRole | S→C | u8 mode (0 own world, 1 authority, 2 viewer), u8 flags (1 mission: mission entities too), u16 authority, u8 viewers |
-| 47 PopState | C→S | u32 seq, u8 count (≤ 40), count × PopEntity — the authority's NPCs and cars, 8 Hz, channel 1, ≤ ~1.1 KB a packet |
-| 48 PopRelay | S→C | u16 authority, u32 serverMs, u32 seq, u8 count, count × PopEntity — to that authority's viewers only |
+| 46 PopRole | S→C | u8 mode (0 own world, 1 shared: we own our part and stream it, 2 viewer: a camera that only draws), u8 flags (1 a co-op mission or survival runs), u16 host (owns the job's entities), u8 viewers, u8 n (≤ 16), n × u16 peers (the games of our group; a camera: the games it draws) |
+| 47 PopState | C→S | u32 seq, u8 count (≤ 40), count × PopEntity — the NPCs and cars this game owns, 8 Hz, channel 1, ≤ ~1.1 KB a packet |
+| 48 PopRelay | S→C | u16 owner, u32 serverMs, u32 seq, u8 count, count × PopEntity — to every game whose peers list has that owner |
 
-PopEntity: u16 id, u8 kind (1 ped, 2 vehicle), u16 flags, u32 model, vec3 pos, 3 × i16 velocity (cm/s); a ped adds u16 heading, u8 gait, u8 health, [u16 vehId, u8 seat], [u32 weapon], [vec3 aim], [12 × (drawable, texture), 2 × (prop, texture)]; a vehicle adds 4 × i16 quaternion, i16 yaw rate (mrad/s), u8 vflags, u8 body/4, u8 engine/4, [u8 colour1, colour2, pearl, wheel, livery, str plate ≤ 8]. The server drops PopState from a game that is not an authority. Viewer → authority events and NPC damage travel as player messages `lo.pe` / `lo.nd` (see docs/multiplayer.md).
+PopEntity: u16 id, u8 kind (1 ped, 2 vehicle), u16 flags, u32 model, vec3 pos, 3 × i16 velocity (cm/s), [u16 fromOwner, u16 fromId: kPopMigrated, v16]; a ped adds u16 heading, u8 gait, u8 health, [u16 vehId, u8 seat: in it or walking up to it], [u32 weapon], [vec3 aim], [u8 act, u8 actArg: v16 cover/crouch/reload/climb/jump/hands up/cower], [12 × (drawable, texture), 2 × (prop, texture)]; a vehicle adds 4 × i16 quaternion, i16 yaw rate (mrad/s), u8 vflags, u8 body/4, u8 engine/4, [u8 colour1, colour2, pearl, wheel, livery, str plate ≤ 8]. Flags: 1 look, 2 dead, 4 ragdoll, 8 scenario, 16 in vehicle, 32 shooting, 64 mission entity, 128 hostile, 256 armed, 512 action, 1024 entering a vehicle, 2048 police, 4096 migrated. The server drops PopState from a game that is not shared. Between games, as player messages (see docs/multiplayer.md): `lo.pe` events to an entity's owner, `lo.nd` NPC damage to a player, `lo.pm` hand-overs. The server lets a client send 90 `lo.` messages a second (30 for a mod's kinds).
 
 ### Economy (Phase 8, channel 2)
 

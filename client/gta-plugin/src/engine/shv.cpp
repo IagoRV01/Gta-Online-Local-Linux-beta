@@ -12,6 +12,7 @@ void (*keyboardRegister)(KeyboardHandler);
 void (*keyboardUnregister)(KeyboardHandler);
 int (*worldGetAllPeds)(int *, int);
 int (*worldGetAllVehicles)(int *, int);
+BYTE *(*getScriptHandleBaseAddress)(int);
 
 bool Bind() {
     HMODULE h = GetModuleHandleA("ScriptHookV.dll");
@@ -29,6 +30,7 @@ bool Bind() {
 #undef BIND
     worldGetAllPeds = reinterpret_cast<decltype(worldGetAllPeds)>(GetProcAddress(h, "?worldGetAllPeds@@YAHPEAHH@Z"));
     worldGetAllVehicles = reinterpret_cast<decltype(worldGetAllVehicles)>(GetProcAddress(h, "?worldGetAllVehicles@@YAHPEAHH@Z"));
+    getScriptHandleBaseAddress = reinterpret_cast<decltype(getScriptHandleBaseAddress)>(GetProcAddress(h, "?getScriptHandleBaseAddress@@YAPEAEH@Z"));
     return true;
 }
 

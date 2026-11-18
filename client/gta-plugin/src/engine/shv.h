@@ -23,6 +23,8 @@ extern void (*keyboardUnregister)(KeyboardHandler);
 // every ped / vehicle the game has (v15 shared population); null if this ScriptHookV lacks them
 extern int (*worldGetAllPeds)(int *arr, int arrSize);
 extern int (*worldGetAllVehicles)(int *arr, int arrSize);
+// the entity behind a script handle (v16: ambient entities get new handles now and then, the address stays); may be null
+extern BYTE *(*getScriptHandleBaseAddress)(int handle);
 
 bool Bind();   // false if ScriptHookV.dll is missing or an export was not found
 

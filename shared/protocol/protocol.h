@@ -22,7 +22,7 @@
 namespace proto {
 
 constexpr uint8_t kMagic = 0x4C;
-constexpr uint8_t kProtocolVersion = 15;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions; v13 camera clients; v14 player messages; v15 shared population (NPCs + traffic)
+constexpr uint8_t kProtocolVersion = 16;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions; v13 camera clients; v14 player messages; v15 shared population (NPCs + traffic); v16 per-entity population owners
 constexpr uint8_t kChanControl = 0, kChanState = 1, kChanEvents = 2, kNumChannels = 3;
 constexpr size_t kMaxPacket = 64 * 1024;       // anything bigger is dropped before parsing
 constexpr size_t kMaxProfileJson = 48 * 1024;
@@ -61,9 +61,9 @@ enum class MsgType : uint16_t {
     GadgetState = 44,    // C  {u8 count, count x GadgetPose}             the hacks on this player, ~10 Hz, unreliable
     GadgetRelay = 45,    // S  {u16 owner, u8 count, count x GadgetPose}  to camera clients: they draw copies
     // v15 shared population (2026-11-18): one game per group of nearby players runs the NPCs and the traffic
-    PopRole = 46,        // S  {u8 mode, u8 flags, u16 authority, u8 viewers}   what our game does with its population
-    PopState = 47,       // C  {u32 seq, u8 count, count x PopEntity}           the authority's NPCs and vehicles, ~8 Hz, unreliable
-    PopRelay = 48,       // S  {u16 authority, u32 serverMs, u32 seq, u8 count, count x PopEntity}  to its viewers
+    PopRole = 46,        // S  {u8 mode, u8 flags, u16 host, u8 viewers, u8 n, n x u16 peers}   our population role (v16 peers)
+    PopState = 47,       // C  {u32 seq, u8 count, count x PopEntity}           the NPCs and vehicles we own, ~8 Hz, unreliable
+    PopRelay = 48,       // S  {u16 authority, u32 serverMs, u32 seq, u8 count, count x PopEntity}  to the owner's peers and cameras
     // economy (channel 2) — Phase 8: the server owns every balance
     MoneyChange = 50,    // C  {u32 requestId, u8 account, i64 delta, str reason}   account: 0 wallet, 1 bank, 2 deposit (wallet->bank; negative = withdraw)
     MoneyResult = 51,    // S  {u32 requestId, u8 ok, i64 wallet, i64 bank, str reason}
@@ -466,15 +466,37 @@ inline bool Get(wire::Reader &r, GadgetStateMsg &m) { return GetPoses(r, m.g) &&
 inline void Put(wire::Writer &w, const GadgetRelayMsg &m) { PutHeader(w, MsgType::GadgetRelay); w.U16(m.owner); PutPoses(w, m.g); }
 inline bool Get(wire::Reader &r, GadgetRelayMsg &m) { m.owner = r.U16(); return GetPoses(r, m.g) && r.Done(); }
 
-// ---- shared population (v15, 2026-11-18) --------------------------------------------------------------------
-// The server groups the players who are near each other (a co-op mission: its host and crew). One game of each group,
-// the authority, keeps GTA's own NPCs and traffic and streams them (PopState); the others (viewers) switch their own
-// population off and draw puppets of the authority's (PopRelay). Alone, a game keeps its own world (kPopOwn).
-enum PopMode : uint8_t { kPopOwn = 0, kPopAuthority = 1, kPopViewer = 2 };
-enum PopRoleFlags : uint8_t { kPopRoleMission = 1 };   // the authority also streams its script (mission) entities: a mission's host
-struct PopRoleMsg { uint8_t mode = kPopOwn, flags = 0; uint16_t authority = 0; uint8_t viewers = 0; };
-inline void Put(wire::Writer &w, const PopRoleMsg &m) { PutHeader(w, MsgType::PopRole); w.U8(m.mode); w.U8(m.flags); w.U16(m.authority); w.U8(m.viewers); }
-inline bool Get(wire::Reader &r, PopRoleMsg &m) { m.mode = r.U8(); m.flags = r.U8(); m.authority = r.U16(); m.viewers = r.U8(); return r.Done() && m.mode <= kPopViewer; }
+// ---- shared population (v15 2026-11-18, v16 per-entity owners 2026-11-18) --------------------------------------
+// Like GTA Online: every NPC and vehicle has ONE owner game, the one whose player it is nearest to. The server groups the
+// players who are near each other (a co-op mission or survival: its host and crew) and tells each game its peers
+// (PopRole). Every game of a group keeps GTA's own population around its player and streams what it owns (PopState); the
+// other games of the group draw puppets of it (PopRelay). An entity that ends up nearer another player is handed over to
+// that player's game ("lo.pm"): its puppet there becomes the real one and the old real one becomes a puppet, with no pop.
+// A mission's host owns the mission's entities (enemies, targets) for its whole crew. Police are streamed by the game
+// whose wanted level brought them, never handed over. Camera clients only draw (kPopViewer).
+enum PopMode : uint8_t { kPopOwn = 0, kPopShared = 1, kPopViewer = 2 };
+enum PopRoleFlags : uint8_t { kPopRoleMission = 1 };   // a co-op mission / survival runs: `host` owns its entities
+constexpr size_t kMaxPopPeers = 16;
+struct PopRoleMsg {
+    uint8_t mode = kPopOwn, flags = 0;
+    uint16_t host = 0;                 // kPopRoleMission: the game that owns the mission's entities
+    uint8_t viewers = 0;               // games that draw our stream (peers + cameras)
+    std::vector<uint16_t> peers;       // the other games of our group (a camera: the games it draws)
+};
+inline void Put(wire::Writer &w, const PopRoleMsg &m) {
+    PutHeader(w, MsgType::PopRole); w.U8(m.mode); w.U8(m.flags); w.U16(m.host); w.U8(m.viewers);
+    size_t n = m.peers.size() < kMaxPopPeers ? m.peers.size() : kMaxPopPeers;
+    w.U8((uint8_t)n);
+    for (size_t i = 0; i < n; ++i) w.U16(m.peers[i]);
+}
+inline bool Get(wire::Reader &r, PopRoleMsg &m) {
+    m.mode = r.U8(); m.flags = r.U8(); m.host = r.U16(); m.viewers = r.U8();
+    size_t n = r.U8();
+    if (!r.ok() || n > kMaxPopPeers) return false;
+    m.peers.resize(n);
+    for (auto &p : m.peers) p = r.U16();
+    return r.Done() && m.mode <= kPopViewer;
+}
 
 enum PopKind : uint8_t { kPopPed = 1, kPopVehicle = 2 };
 enum PopFlags : uint16_t {
@@ -484,10 +506,18 @@ enum PopFlags : uint16_t {
     kPopScenario = 1 << 3,    // a ped in a scenario (bench, smoking...): the viewer takes the nearest scenario point
     kPopInVehicle = 1 << 4,   // ped: vehId + seat follow
     kPopShooting = 1 << 5,    // ped: weapon + aim follow
-    kPopMissionEnt = 1 << 6,  // a mission's entity (not ambient): its vehicle cannot be taken
+    kPopMissionEnt = 1 << 6,  // a mission's entity (not ambient)
     kPopHostile = 1 << 7,     // ped hates the players (a mission's enemy): red blip
     kPopArmed = 1 << 8,       // ped: weapon follows (also without shooting)
+    kPopAction = 1 << 9,      // v16 ped: act + actArg follow (cover, crouch, reload, climb...)
+    kPopEntering = 1 << 10,   // v16 ped: getting into a vehicle, vehId + seat follow
+    kPopPolice = 1 << 11,     // v16 police (never handed over)
+    kPopMigrated = 1 << 12,   // v16 just handed over to this owner: fromOwner + fromId follow (the others re-key their puppet)
 };
+// v16 what a ped is doing, for the puppets' animations (PopEntity::act)
+enum PopAct : uint8_t { kActNone = 0, kActCover = 1, kActCrouch = 2, kActReload = 3, kActClimb = 4, kActJump = 5, kActHandsUp = 6, kActCower = 7,
+                        kActLadder = 8, kActMax = 8 };
+enum PopActArg : uint8_t { kActCoverLeft = 1, kActCoverAiming = 2 };
 constexpr size_t kMaxPopPerPacket = 40;   // keeps a PopState under ~1.4 KB: one UDP datagram, never an ENet reliable fragment
 constexpr size_t kPopComps = 12, kPopProps = 2;
 struct PopEntity {
@@ -496,14 +526,16 @@ struct PopEntity {
     uint16_t flags = 0;
     uint32_t model = 0;
     Vec3 pos, vel;
+    uint16_t fromOwner = 0, fromId = 0;   // kPopMigrated
     // ped
     float heading = 0;
     uint8_t move = 0;          // proto::Move
     uint8_t health = 0;        // GET_ENTITY_HEALTH clamped to 0..255
-    uint16_t vehId = 0;        // kPopInVehicle
+    uint16_t vehId = 0;        // kPopInVehicle / kPopEntering
     int8_t seat = -1;
     uint32_t weapon = 0;       // kPopArmed / kPopShooting
     Vec3 aim;                  // kPopShooting
+    uint8_t act = 0, actArg = 0;       // kPopAction
     uint8_t comp[kPopComps][2] = {};   // kPopHasDesc: drawable, texture
     uint8_t prop[kPopProps][2] = {};   // kPopHasDesc: drawable (255 none), texture
     // vehicle
@@ -515,18 +547,20 @@ struct PopEntity {
     std::string plate;                                                      // kPopHasDesc
 };
 struct PopStateMsg { uint32_t seq = 0; std::vector<PopEntity> e; };
-struct PopRelayMsg { uint16_t authority = 0; uint32_t serverMs = 0, seq = 0; std::vector<PopEntity> e; };
+struct PopRelayMsg { uint16_t authority = 0; uint32_t serverMs = 0, seq = 0; std::vector<PopEntity> e; };   // authority = the owner
 
 inline int16_t PopQ(float v, float scale) { float q = v * scale; return (int16_t)(q > 32767.f ? 32767.f : q < -32767.f ? -32767.f : q); }
 inline void PutPopEntity(wire::Writer &w, const PopEntity &e) {
     w.U16(e.id); w.U8(e.kind); w.U16(e.flags); w.U32(e.model);
     PutVec(w, e.pos);
     w.I16(PopQ(e.vel.x, 100.f)); w.I16(PopQ(e.vel.y, 100.f)); w.I16(PopQ(e.vel.z, 100.f));
+    if (e.flags & kPopMigrated) { w.U16(e.fromOwner); w.U16(e.fromId); }
     if (e.kind == kPopPed) {
         w.U16(PackHeading(e.heading)); w.U8(e.move); w.U8(e.health);
-        if (e.flags & kPopInVehicle) { w.U16(e.vehId); w.U8((uint8_t)e.seat); }
+        if (e.flags & (kPopInVehicle | kPopEntering)) { w.U16(e.vehId); w.U8((uint8_t)e.seat); }
         if (e.flags & (kPopArmed | kPopShooting)) w.U32(e.weapon);
         if (e.flags & kPopShooting) PutVec(w, e.aim);
+        if (e.flags & kPopAction) { w.U8(e.act); w.U8(e.actArg); }
         if (e.flags & kPopHasDesc) { for (auto &c : e.comp) { w.U8(c[0]); w.U8(c[1]); } for (auto &p : e.prop) { w.U8(p[0]); w.U8(p[1]); } }
     } else {
         w.I16(PopQ(e.rot.x, 32767.f)); w.I16(PopQ(e.rot.y, 32767.f)); w.I16(PopQ(e.rot.z, 32767.f)); w.I16(PopQ(e.rot.w, 32767.f));
@@ -538,11 +572,13 @@ inline bool GetPopEntity(wire::Reader &r, PopEntity &e) {
     e.id = r.U16(); e.kind = r.U8(); e.flags = r.U16(); e.model = r.U32();
     e.pos = GetVec(r);
     e.vel.x = r.I16() / 100.f; e.vel.y = r.I16() / 100.f; e.vel.z = r.I16() / 100.f;
+    if (e.flags & kPopMigrated) { e.fromOwner = r.U16(); e.fromId = r.U16(); }
     if (e.kind == kPopPed) {
         e.heading = UnpackHeading(r.U16()); e.move = r.U8(); e.health = r.U8();
-        if (e.flags & kPopInVehicle) { e.vehId = r.U16(); e.seat = (int8_t)r.U8(); }
+        if (e.flags & (kPopInVehicle | kPopEntering)) { e.vehId = r.U16(); e.seat = (int8_t)r.U8(); }
         if (e.flags & (kPopArmed | kPopShooting)) e.weapon = r.U32();
         if (e.flags & kPopShooting) e.aim = GetVec(r);
+        if (e.flags & kPopAction) { e.act = r.U8(); e.actArg = r.U8(); }
         if (e.flags & kPopHasDesc) { for (auto &c : e.comp) { c[0] = r.U8(); c[1] = r.U8(); } for (auto &p : e.prop) { p[0] = r.U8(); p[1] = r.U8(); } }
     } else if (e.kind == kPopVehicle) {
         e.rot.x = r.I16() / 32767.f; e.rot.y = r.I16() / 32767.f; e.rot.z = r.I16() / 32767.f; e.rot.w = r.I16() / 32767.f;
@@ -550,7 +586,7 @@ inline bool GetPopEntity(wire::Reader &r, PopEntity &e) {
         if (e.flags & kPopHasDesc) { e.color1 = r.U8(); e.color2 = r.U8(); e.pearl = r.U8(); e.wheel = r.U8(); e.livery = r.U8(); e.plate = r.Str(8); }
     } else return false;
     return r.ok() && e.id != 0 && e.model != 0 && std::fabs(e.pos.x) < 20000.f && std::fabs(e.pos.y) < 20000.f && std::fabs(e.pos.z) < 5000.f &&
-           e.move <= (uint8_t)Move::Air && e.seat >= -1 && e.seat <= 15;
+           e.move <= (uint8_t)Move::Air && e.seat >= -1 && e.seat <= 15 && e.act <= kActMax && (!(e.flags & kPopMigrated) || (e.fromOwner && e.fromId));
 }
 inline void PutPopList(wire::Writer &w, const std::vector<PopEntity> &e) {
     size_t n = e.size() < kMaxPopPerPacket ? e.size() : kMaxPopPerPacket;
@@ -568,12 +604,15 @@ inline void Put(wire::Writer &w, const PopStateMsg &m) { PutHeader(w, MsgType::P
 inline bool Get(wire::Reader &r, PopStateMsg &m) { m.seq = r.U32(); return GetPopList(r, m.e); }
 inline void Put(wire::Writer &w, const PopRelayMsg &m) { PutHeader(w, MsgType::PopRelay); w.U16(m.authority); w.U32(m.serverMs); w.U32(m.seq); PutPopList(w, m.e); }
 inline bool Get(wire::Reader &r, PopRelayMsg &m) { m.authority = r.U16(); m.serverMs = r.U32(); m.seq = r.U32(); return GetPopList(r, m.e); }
-// Player messages between the games of one group (kind "lo.", never a mod's):
-//   "lo.pe" viewer -> authority: what the viewer did to a puppet, "d|id|amount|weapon" (ped damage), "k|id|weapon" (it killed it),
-//           "v|id|body|engine|explosion" (vehicle damage), "c|id" (the viewer takes that car: the authority lets it go)
-//   "lo.nd" authority -> a viewer: its NPCs hurt that player's puppet, "amount|weapon"
+// Player messages between the games of one group (kind "lo.", never a mod's), items separated by ';':
+//   "lo.pe" to an entity's owner: what we did to its puppet, "d|id|amount|weapon" (ped damage), "k|id|weapon" (we killed it),
+//           "v|id|body|engine|explosion" (vehicle damage), "c|id" (we take that car: the owner gives it to us)
+//   "lo.nd" an owner -> a player: its NPCs hurt that player's puppet, "amount|weapon"
+//   "lo.pm" hand-over (v16): "o|id" the owner offers an entity (a vehicle with the people in it), "a|id|newId|old:new,..." the
+//           peer took it (its new ids, the vehicle's people after the '|'), "n|id" the peer could not
 constexpr const char *kMsgPopEvent = "lo.pe";
 constexpr const char *kMsgNpcDamage = "lo.nd";
+constexpr const char *kMsgPopMigrate = "lo.pm";
 
 // ---- economy (Phase 8) -------------------------------------------------------------------------------
 constexpr size_t kMaxMoneyReason = 40;

@@ -19,6 +19,7 @@
 #include "game/world_sync.h"
 #include "ui/startup.h"
 #include "game/camera_client.h"
+#include "game/population.h"
 
 #define LOCALONLINE_VERSION "0.1.0"
 
@@ -130,7 +131,15 @@ extern "C" __declspec(dllexport) void LocalOnline_RaceProgress(int checkpoints, 
     jobs::RaceProgress((uint16_t)(checkpoints < 0 ? 0 : checkpoints), finishMs == -1 ? proto::kJobWatching : finishMs > 0 ? (uint32_t)finishMs : 0);
 }
 extern "C" __declspec(dllexport) int LocalOnline_GetRaceStandings(char *buf, int cap) { return CopyOut(jobs::StandingsText(), buf, cap); }
-extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 15; }
+extern "C" __declspec(dllexport) int LocalOnline_ApiVersion() { return 16; }
+// API v16: the shared NPCs (protocol v16). PopMode: 0 our own world, 1 our game owns the job's NPCs for its crew (the host),
+// 2 the host's game owns them and we draw them (a member: spawn no enemies of your own). PopHostiles: the host's hostile
+// mission NPCs alive here. PopKills: how many of the host's mission NPCs our player killed (a counter). PopShown: one of
+// our NPCs/vehicles that the other players already draw (swap or delete it and they see it vanish).
+extern "C" __declspec(dllexport) int LocalOnline_PopMode() { return population::GoriMode(); }
+extern "C" __declspec(dllexport) int LocalOnline_PopHostiles() { return population::Hostiles(); }
+extern "C" __declspec(dllexport) int LocalOnline_PopKills() { return population::MissionKills(); }
+extern "C" __declspec(dllexport) bool LocalOnline_PopShown(int entity) { return population::Shown(entity); }
 // API v14: vehicle damage sync: the player (netId, 0 nobody) whose weapons last damaged the vehicle we drive, within that many ms
 extern "C" __declspec(dllexport) unsigned LocalOnline_LastVehicleAttacker(int withinMs) { return combat::LastVehicleAttacker(withinMs); }
 // API v11: a job's respawn point instead of the nearest hospital (validMs from now), and how many times YOU has respawned

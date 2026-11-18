@@ -63,7 +63,7 @@ bool SendPlayerMessage(uint16_t to, const std::string &kind, const std::string &
 void OnPlayerMessage(const proto::PlayerMessageRelayMsg &m) {
     if (m.kind.compare(0, 3, proto::kMsgClientPrefix) == 0) {   // the client's own (vehicle damage): not a mod's
         if (m.kind == proto::kMsgVehicleDamage) combat::OnVehicleDamage(m.from, m.text);
-        else if (m.kind == proto::kMsgPopEvent || m.kind == proto::kMsgNpcDamage) population::OnPlayerMessage(m.from, m.kind, m.text);
+        else if (m.kind == proto::kMsgPopEvent || m.kind == proto::kMsgNpcDamage || m.kind == proto::kMsgPopMigrate) population::OnPlayerMessage(m.from, m.kind, m.text);
         return;
     }
     auto clean = [](std::string s) { for (char &ch : s) if (ch == '\t' || ch == '\n' || ch == '\r') ch = ' '; return s; };

@@ -76,7 +76,7 @@ The target is 2–4 players on a LAN. Sync quality matters more than player coun
 - **Admin:** `D:\GTALocalOnline\server.cmd` — `time H M`, `freeze on|off`, `weather NAME|auto`,
   `blackout on|off`; validated, logged, stored in `events`, pushed at once. Verified with netprobe:
   `time 22 30`, `weather rain`, `blackout on` arrived immediately, `weather LAVA` rejected.
-- **Not yet:** shared police. NPCs and traffic: see "Shared NPCs and traffic" (protocol v15, 2026-11-18).
+- **Police, NPCs and traffic:** shared since protocol v16 (2026-11-18): see "Shared NPCs and traffic". The wanted level itself stays each player's own.
 
 ## Phase 8 as implemented (2026-10-09)
 
@@ -447,7 +447,7 @@ GTA Online-style races, solo or online, with GTA Online's look: countdown, check
   - 15 s break between waves (health, armor and ammo refilled). Pistol, SMG, pump shotgun and carbine given at the start and removed at the end.
 - **Solo** works without GTA Local Online: dying ends it, cash $50,000 × waves / 10 plus RP.
 - **Online:** the host opens a kind-3 job ("S|loc|wave" in the job text), the others join from Jobs until the countdown ends.
-  - The waves stay each player's own (Survival is not a kind-0 mission): every player fights them on their own game, side by side. The ambient NPCs and traffic round them are shared ("Shared NPCs and traffic").
+  - With LocalOnline v16 (API 16) the waves are the host's, the same for everyone ("Shared NPCs and traffic", Survival). With an older LocalOnline every player fights them on their own game, side by side.
   - Each client reports RaceProgress: checkpoints = its kills, finishMs = waves survived | 0x10000 while down.
   - A player who dies is down until the next wave. The host announces wave n+1 once every player has cleared wave n or is down (2 min grace for stragglers), and passes the job after wave 10 or when everyone is down.
   - The server pays each player payout × their waves / 10 ("Survival: " in the ledger); standings by kills, then waves.
@@ -833,35 +833,60 @@ it rides on player messages and three spare bits of the vehicle flags.
   is undone. After an explosion of yours the fire you left keeps taking about 60 body a second off the puppet for some
   20 s, and that is reported too.
 
-## Shared NPCs and traffic (protocol v15, 2026-11-18)
+## Shared NPCs and traffic (protocol v15, v16 per-entity owners, 2026-11-18)
 
-Every player of a group sees the same pedestrians and the same cars, in freemode and in missions.
+Every player of a group sees the same pedestrians, the same cars and the same police, in freemode, missions and survivals.
+
+### How GTA Online does it (what v16 copies)
+
+GTA Online makes every ped, vehicle and object a *network object* with exactly one owner machine. The owner runs its AI
+and physics and sends its state to the others in sync trees (creation, movement, orientation, health, game state, task
+tree, appearance...). The other machines hold *clones* that are only moved by that data; their tasks are clone tasks
+that play the owner's animation (cover, entering a car, reloading...). What a machine does to a clone (a hit, a kill)
+is sent to the owner as an event, and the owner applies it. Every machine runs GTA's population around its own player,
+and an object migrates to another player's machine when that player is clearly nearer (proximity migration) or when
+its owner leaves; a player who gets into a car asks for control of it and becomes its owner. FiveM's OneSync, which is
+built on the same code, does the same with the server in the middle: a 424-unit culling radius, a 150-unit world grid
+whose cell owners populate it, migration to the nearest player when an owner leaves an entity's range, and ambient
+entities nobody is near deleted.
+
+### What we do
+
 - **Groups (server, `PopTick` every 500 ms).**
   - Players of the same session within 250 m of each other form a group (single link). The group stays together up to 350 m.
-  - A co-op mission (job kind 0, running) puts its host and the members within 500 m in one group (kept up to 700 m), led by the host.
-  - A camera client joins the group of the player nearest to what it shows (within 300 m). A lone player then streams for the camera.
-  - One game per group is the **authority**: the one that already had the role, else the lowest netId (a mission: its host). A game alone keeps its own world.
-  - The server sends `PopRole {mode, flags, authority, viewers}` when it changes, and logs `[pop] ... runs the NPCs and traffic for N game(s)` / `sees the NPCs and traffic of X`.
-- **Authority (`game/population.cpp`).** Its GTA keeps its own population and streams it 8 times a second (`PopState`, at most ~1.1 KB a packet; the server relays it to the viewers as `PopRelay` with its clock).
-  - Ambient peds within 180 m (at most 90) and vehicles within 300 m (at most 70), nearest first. Peds in a streamed vehicle go with it.
+  - A running co-op mission (job kind 0) or survival (kind 3) puts its host and the members within 500 m in one group (kept up to 700 m); the host owns the job's entities.
+  - A camera client draws the group of the player nearest to what it shows (within 300 m). A lone player then streams for the camera.
+  - The server sends `PopRole {mode, flags, host, viewers, peers}` when it changes and logs `[pop] X shares the NPCs and traffic with A, B (mission entities: H)`.
+- **Owners (`game/population.cpp`).** Every game of a group is an owner: its GTA keeps its own population and streams what it owns 8 times a second (`PopState`, at most ~1.1 KB a packet). The server relays each owner's stream to the rest of its group and to the cameras that draw it (`PopRelay`).
+  - Ambient peds within 180 m (at most 90) and vehicles within 300 m (at most 70), nearest first. Peds in a streamed vehicle go with it. Police and their cars are streamed too (flag `kPopPolice`).
   - A mission's host also streams its mission entities (enemies, targets, allies) within 400 m.
-  - Never streamed: players, other players' puppets and cars, our own car and last car, hidden entities, trains, police (each game keeps its own police, as before).
-  - Per entity: model, position, velocity, heading or rotation, gait, health, seat, weapon, aim and shooting, ragdoll, scenario, dead; vehicles add engine, lights, siren, horn, body and engine health. The look (ped clothes and props, vehicle colours, livery, plate) comes in the first three frames and then every 2 s.
-- **Viewers.** Their own population is switched off (density 0 every frame, population budgets 0, no random boats or garbage trucks), and their own ambient peds and cars are removed (not the player's car or last car, police, trains or mission entities).
-  - Puppets of the authority's entities are drawn 150 ms in the past through the same interpolation as players. Cars follow by velocity with a pull, parked cars are put in place. Peds walk with tasks, sit in their seats, and take the nearest scenario point when the authority's ped is in a scenario. Shooting NPCs aim and fire tracers without damage.
-  - A puppet that is not refreshed for 1.5 s (a car: 2.5 s) is removed.
+  - Never streamed: players, other players' puppets and cars, our own car and last car, hidden entities, trains.
+  - Per entity: model, position, velocity, heading or rotation, gait, health, seat, weapon, aim and shooting, ragdoll, scenario, dead, and what the ped is doing (`act`: cover with its side and peeking, crouching, reloading, climbing or vaulting, jumping, hands up, cowering; walking up to a car with the car and seat). Vehicles add engine, lights, siren, horn, body and engine health. The look comes in the first three frames and then every 2 s.
+- **Our part of the world.** An entity is ours if it is nearer our player than any peer's. GTA fills only our part, at its usual density: the density multipliers are our share of the 150 m round us (the part nearer us than any peer, sampled on 64 points, at least 20%). A new entity of ours that GTA put clearly in a peer's part (nearer that peer by 15%) and off our screen is removed before anybody saw it: that peer's game fills that place.
+- **Puppets.** The peers' entities are drawn 150 ms in the past through the same interpolation as players. Cars follow by velocity with a pull, parked cars are put in place. Peds walk with tasks, sit in their seats or walk to them (`TASK_ENTER_VEHICLE`), take the nearest scenario point, go into cover on the owner's side (`TASK_PUT_PED_DIRECTLY_INTO_COVER`) and stand to aim when the owner's peeks out, crouch (stealth movement), reload, climb, jump, put their hands up and cower. Shooting NPCs aim and fire tracers without damage. A puppet that is not refreshed for 1.5 s (a car: 2.5 s) is removed.
+- **Hand-over (proximity migration, `lo.pm`).** Every 500 ms an owner offers (`o|id`) to the nearest peer an ambient entity that is clearly nearer that peer (under 60% of our distance, and more than 40 m from us) or that is leaving our range while still in the peer's. A vehicle goes with its people. The peer takes it if it draws all of it: its puppet becomes the real NPC or car there (collision and fire proofs off, a wandering or driving task from where it is, given back to GTA's population) under a new id, and it answers `a|id|newId|old:new,...`. The old owner turns its real entity into a puppet of the new owner's: the same entity on every game, so nothing pops. The new owner's stream says `kPopMigrated` with the old owner and id for 2.5 s, and the other games move their puppet to the new id. Police and mission entities never move.
+- **Ids.** Ids follow the entity, not its script handle: GTA hands ambient entities a new script handle now and then (~20 of ~100 a frame), so the owner keys its entities by their address (ScriptHookV `getScriptHandleBaseAddress`). A puppet that goes quiet where a new id of the same model and owner shows up still moves over (`Adopt`).
 - **Interaction.**
-  - Hits on a puppet by the viewer (its weapons or its car) go to the authority as `lo.pe` player messages: `d|id|amount|weapon`, `k|id|weapon`, `v|id|body|engine|explosion`. The authority applies them to the real NPC or car, and the result streams back.
-  - A viewer who gets into an ambient puppet car sends `c|id`. The authority pulls its occupants out and removes its car, and the car becomes the viewer's own (seen by the others as that player's car). Mission vehicles are locked.
-  - The authority's NPCs reach the viewers through their puppets on its game. Remote players' puppets are in the `LO_REMOTE` relationship group, which Gori's `GORI_HOSTILE` enemies hate. Damage from NPCs to such a puppet goes to that player as `lo.nd amount|weapon`, and its game applies it.
-- **Ids.** GTA hands out script handles for ambient entities on demand and frees them again, so the same pedestrian or car gets a new handle now and then (~20 of ~100 a frame were changing). The authority gives a stream id to every entity in range. A handle the pools stop listing goes to a "lost" list for 1.5 s, and a new handle of the same model within 3 m of where a lost one should be keeps its id. A viewer that still gets a new id where a puppet of the same model went quiet moves that puppet over (`Adopt`) instead of spawning a second one. What is left is GTA's own turnover: about 12-15 new entities a second at the edge of the range.
-- **Verified in game 2026-11-18** (BC-250 as the authority, the GodEye camera GTA on the PC as its viewer, live server v15):
-  - The groups and roles come up as expected: `[pop] Alex runs the NPCs and traffic for 1 game(s)` / `GodEye Camera 1 sees the NPCs and traffic of Alex`. The authority streams 15-60 peds and 60-70 vehicles. The viewer removed its own population (about 100-160 entities) and draws the authority's.
-  - The same shot on both games: CCTV CAM_001 on the camera, and the same pose as a TrailerDirector camera on the BC-250, in Legion Square in rain and in sun. Both games showed the same cars in the same places.
-  - Mission: Gerald's "Death Metal" (Gori `cm 0 2`) on the BC-250. The authority streamed in mission mode, and the camera drew all 8 mission peds (5-6 hostile, the dead ones dead) within about 1 m of where the BC-250 had them.
-  - Not tested yet: a viewer that is a real player (its hits, taking a car, NPC damage coming back), because that needs two players' GTAs.
-- **Limits.** A viewer far from its authority (200-350 m) sees a thinner world, because GTA only populates round the authority. Mission entities are the host's: members cannot drive a mission's target car. Survival waves stay each player's own. Puppets copy movement, aim and shots, but not cover or other special animations: an enemy crouching in cover on the authority stands on the viewer.
-- **Protocol v15.** PopRole 46, PopState 47, PopRelay 48. Server `network.max_packets_per_second` is 240 (was 120).
+  - Hits on a puppet (our weapons or our car) go to its owner as `lo.pe`: `d|id|amount|weapon`, `k|id|weapon`, `v|id|body|engine|explosion`. The owner applies them to the real NPC or car, and the result streams back.
+  - A player who gets into the driver's seat of a peer's car sends `c|id` (mission cars too). The owner pulls its people out (they flee), and gives the very entity to remote.cpp as that player's car (`ClaimVehicle`): it is not deleted and no second car is spawned. A mission car keeps its handle in the host's mission script, which therefore sees it go where the member drives it; when the member leaves it, the host keeps it (`KeepVehicle`) until it shows up in that player's stream.
+  - The owners' NPCs reach the other players through their puppets. Remote players' puppets are in the `LO_REMOTE` relationship group, which Gori's `GORI_HOSTILE` enemies hate. Damage from an owner's NPCs to such a puppet goes to that player as `lo.nd amount|weapon`, and its game applies it.
+- **Survival (Gori `Survival.inc`, LocalOnline API v16).** The host's game spawns the waves for everyone (its enemies fight the whole crew: `TASK_COMBAT_HATED_TARGETS_AROUND_PED`). A member (`LocalOnline_PopMode() == 2`) spawns none: its kills of the host's enemies come from `LocalOnline_PopKills`, its "enemies left" from `LocalOnline_PopHostiles`, and the host's job text `S|loc|wave|c` tells it the wave is cleared. A host who goes down keeps the wave running for its crew. Gori's traffic variety never swaps a car the other players already draw (`LocalOnline_PopShown`).
+- **Leaving a group.** When a peer leaves the group (or the game), its puppets within 250 m of us become ours where they are; the rest, and the mission ones, go.
+- **GTA re-creates entities.** Far ambient entities are now and then replaced by a new object (a new address and a new handle) of the same model where the old one would be (seen 2026-11-18: 0.2-2.3 m from where one vanished 125 ms before). An entity that vanishes is kept 10 s (`g_gone`): the same address coming back, or a new one of the same model within 6 m of where it should be (its position plus its velocity, gone at most 2.5 s), keeps its id and is never treated as new. A puppet that goes quiet for 100 ms where a new id of the same owner and model shows up within 6 m also moves over (`Adopt`).
+- **Test commands** (LocalOnline.cmd): `pop status` (what we own, the peers' puppets, the no-spawn zones), `pop take` (walk to the nearest peer's car within 40 m and take it as its driver), `pop shoot <n>` (a real bullet into the n nearest peds of the peers).
+- **Verified in game 2026-11-18** (test server 4498; the BC-250 as "Alex" and this PC's GTA as a second player "PCTest", both v16):
+  - Freeroam, 100 m apart in Legion Square: each game owns about 75% of the world round it and draws 75-140 puppets of the other's. Hand-overs in both directions (up to 75 in 30 s while the players moved). After the re-creation fix the BC-250 had 82 new ids in 30 s (246 found again) and the PC drew it with 6 adoptions.
+  - `pop shoot`: the BC-250 applied "PCTest killed ped ...". `pop take` at 11 m: "took our vehicle 2586: theirs now", and remote.cpp used that very car as PCTest's ("no new one spawned").
+  - Police: PCTest at 3 stars was chased by the PC's police, and the BC-250 drew them round PCTest (puppets).
+  - Survival (Lost MC Clubhouse): the member spawned none (0/10), its HUD showed the host's 6 enemies, its kills of them counted (2), and both cleared waves 1 and 2 together.
+  - Contact mission "Death Metal" with PCTest as a member: 8 mission peds drawn on the PC, all hostile, 6 of them in cover like on the host.
+- **Limits.**
+  - A fast PC keeps far more population than it streams (70 vehicles, 90 peds): the new ones its GTA puts in a peer's part are removed before anybody sees them (up to ~25 a second on the PC 100 m from the BC-250), even with the no-spawn spheres. It costs that PC a little CPU, nothing visible.
+  - The wanted level stays each player's own (each game's police chase its own player, and the others see them).
+  - Trains are each game's own.
+  - Melee moves and ladder climbing are not copied (the puppet only follows the position).
+  - A member's kills of a survival's enemies are counted by the member's game (LocalOnline PopKills), the host counts its own.
+- **Protocol v16.** PopRole carries the peers (16 at most) and the mission host; PopEntity adds the hand-over origin, the action and the entering car (docs/protocol.md). LocalOnline API v16: `LocalOnline_PopMode`, `PopHostiles`, `PopKills`, `PopShown`. The server lets a client send 90 `lo.` player messages a second.
 
 ## The apartment buzzer (Gori `Buzzer.inc`, protocol v14 player messages)
 

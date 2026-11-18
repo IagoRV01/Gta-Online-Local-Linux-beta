@@ -124,6 +124,7 @@ static void TrafficTick() {
         float d = Dist(Pos(v), mp);
         if (d < 55.f || d > 230.f) continue;
         if (NB(N<int>(N_IS_ENTITY_ON_SCREEN, v)) || NB(N<int>(N_IS_ENTITY_A_MISSION_ENTITY, v))) continue;
+        if (LO().popShown && LO().popShown(v)) continue;   // the other players already see it (LocalOnline's shared NPCs): a swap would pop there
         g_tSeen.insert(v);
         int cls = N<int>(N_GET_VEHICLE_CLASS, v);
         bool bike = cls == 8;

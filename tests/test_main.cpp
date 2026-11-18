@@ -573,11 +573,30 @@ static void TestWorld() {
         CameraSetMsg d;
         CHECK(GetHeader(rc, h) && Get(rc, d) && d.mode == kCamGadget && d.target == 7);
     }
-    {   // v15 shared population: role, a ped with its look and gun, a car with its plate, the relay
+    {   // v15/v16 shared population: role with peers, a ped with its look and gun, a car with its plate, the relay
         Header h;
-        wire::Writer wr; Put(wr, PopRoleMsg{kPopViewer, kPopRoleMission, 3, 0});
+        PopRoleMsg rm; rm.mode = kPopShared; rm.flags = kPopRoleMission; rm.host = 3; rm.viewers = 2; rm.peers = {3, 9};
+        wire::Writer wr; Put(wr, rm);
         wire::Reader rr(wr.Bytes().data(), wr.Size()); PopRoleMsg ro;
-        CHECK(GetHeader(rr, h) && h.type == MsgType::PopRole && Get(rr, ro) && ro.mode == kPopViewer && ro.authority == 3 && ro.flags == kPopRoleMission);
+        CHECK(GetHeader(rr, h) && h.type == MsgType::PopRole && Get(rr, ro) && ro.mode == kPopShared && ro.host == 3 && ro.flags == kPopRoleMission && ro.viewers == 2 &&
+              ro.peers == std::vector<uint16_t>({3, 9}));
+        rm.peers.assign(kMaxPopPeers + 1, 4);   // too many peers: cut on the way out
+        wire::Writer wr2; Put(wr2, rm);
+        wire::Reader rr2(wr2.Bytes().data(), wr2.Size());
+        CHECK(GetHeader(rr2, h) && Get(rr2, ro) && ro.peers.size() == kMaxPopPeers);
+        {   // v16: a ped in cover walking up to a car, handed over from another owner
+            PopEntity c; c.id = 8; c.kind = kPopPed; c.model = 0x11; c.flags = kPopAction | kPopEntering | kPopMigrated | kPopPolice;
+            c.act = kActCover; c.actArg = kActCoverLeft | kActCoverAiming; c.vehId = 5; c.seat = 0; c.fromOwner = 2; c.fromId = 77;
+            PopStateMsg cs; cs.e = {c};
+            wire::Writer wc; Put(wc, cs);
+            wire::Reader rc(wc.Bytes().data(), wc.Size()); PopStateMsg co;
+            CHECK(GetHeader(rc, h) && Get(rc, co) && co.e.size() == 1 && co.e[0].act == kActCover && co.e[0].actArg == (kActCoverLeft | kActCoverAiming) &&
+                  co.e[0].vehId == 5 && co.e[0].seat == 0 && co.e[0].fromOwner == 2 && co.e[0].fromId == 77 && (co.e[0].flags & kPopPolice));
+            cs.e[0].act = 200;   // an unknown action: refused
+            wire::Writer wc2; Put(wc2, cs);
+            wire::Reader rc2(wc2.Bytes().data(), wc2.Size());
+            CHECK(GetHeader(rc2, h) && !Get(rc2, co));
+        }
         PopStateMsg st; st.seq = 77;
         PopEntity v; v.id = 5; v.kind = kPopVehicle; v.flags = kPopHasDesc; v.model = 0x12345678; v.pos = {-1200.5f, -800.25f, 20.f}; v.vel = {12.34f, -3.21f, 0.5f};
         v.rot = {0.f, 0.f, 0.70710678f, 0.70710678f}; v.angZ = 0.25f; v.vflags = kVehEngine | kVehLights; v.body = 240; v.engine = 200; v.color1 = 27; v.color2 = 112; v.plate = "46EEK572";

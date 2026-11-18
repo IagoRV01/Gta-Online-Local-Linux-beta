@@ -1,10 +1,13 @@
 // ---------------------------------------------------------------- Survival (GTA Local Online, job kind 3; solo without it)
 // GTA Online-style survivals: ten waves of enemies at one spot, armed men on foot, then cars full of them and
 // attack helicopters. The host picks the place, the others join from Jobs while it is in its lobby or countdown.
-// LocalOnline does not sync NPCs, so every player fights the waves on their own game, side by side: the host
-// moves everyone to the next wave once all the players have cleared the current one or are down. A player who
-// dies is down until the next wave; when everyone is down it is over. Each player reports kills and waves
-// (RaceProgress: checkpoints = kills, finishMs = waves | SV_DOWN) and the server pays payout * waves / 10.
+// With LocalOnline's shared NPCs (API v16, PopMode 2 on the members) everyone fights the SAME waves, as in GTA Online:
+// the host's game spawns them and the members draw them; a member's kills come from LocalOnline (PopKills) and the
+// host's "|c" in its job text tells them the wave is cleared. Without it every player fights the waves on their own
+// game, side by side. Either way the host moves everyone to the next wave once all the players have cleared the
+// current one or are down. A player who dies is down until the next wave; when everyone is down it is over. Each
+// player reports kills and waves (RaceProgress: checkpoints = kills, finishMs = waves | SV_DOWN) and the server pays
+// payout * waves / 10.
 enum { SV_LIST = 296, SV_LOC };
 struct SvLoc { const char *name; float x, y, z, r; };
 static const SvLoc SV_LOCS[] = {
@@ -21,6 +24,8 @@ struct SvRun {
     int phase = SVP_NONE, loc = 0, wave = 0, cleared = 0, kills = 0, spawned = 0, total = 0, payout = SV_PAYOUT;
     int startAt = 0, waveAt = 0, breakUntil = 0, resultsUntil = 0, outside = 0, nextSpawn = 0, hostClearedAt = 0, lastV = -1, lastK = -1;
     bool host = false, solo = false, ended = false, heli = false;
+    int popKills = 0;   // a member's LocalOnline PopKills when the wave started (its kills of the host's enemies)
+    bool downShared = false;   // the shared host is down but keeps the wave going for its crew
     bool voting = false;   // the next job vote is up (NextJob.inc): it cleans the survival up
     std::vector<int> peds, blips, cars;
     std::vector<int> pedBorn;
@@ -48,12 +53,15 @@ static std::vector<SvScore> SvScores() {
     return out;
 }
 static void SvReport() {
-    int v = g_sv.cleared | (g_sv.phase == SVP_DOWN ? SV_DOWN : 0);
+    int v = g_sv.cleared | (g_sv.phase == SVP_DOWN || g_sv.downShared ? SV_DOWN : 0);
     if (g_sv.solo || !LO().raceProgress || (v == g_sv.lastV && g_sv.kills == g_sv.lastK)) return;
     LO().raceProgress(g_sv.kills, v);
     g_sv.lastV = v; g_sv.lastK = g_sv.kills;
 }
-static std::string SvText(int wave) { return "S|" + std::to_string(g_sv.loc) + "|" + std::to_string(wave); }
+static std::string SvText(int wave, bool cleared = false) { return "S|" + std::to_string(g_sv.loc) + "|" + std::to_string(wave) + (cleared ? "|c" : ""); }
+// shared NPCs: the host's game owns the enemies (members spawn none and fight the host's)
+static bool SvMember() { return !g_sv.solo && !g_sv.host && LO().popMode && LO().popMode() == 2; }
+static bool SvSharedHost() { return !g_sv.solo && g_sv.host && LO().popMode && LO().popMode() == 1; }
 
 // ---- the enemies
 struct SvTier { const char *model, *weapon; int armor, accuracy; };
@@ -77,7 +85,8 @@ static void SvArm(int ped, const SvTier &t) {
     N(N_SET_PED_COMBAT_ATTRIBUTES, ped, 46, 1);
     N(N_SET_PED_FLEE_ATTRIBUTES, ped, 0, 0);
     N(N_SET_PED_DROPS_WEAPONS_WHEN_DEAD, ped, 0);
-    N(N_TASK_COMBAT_PED, ped, Me(), 0, 16);
+    if (SvSharedHost()) N(N_TASK_COMBAT_HATED_TARGETS_AROUND_PED, ped, 300.f, 0);   // the whole crew (LocalOnline's shared NPCs)
+    else N(N_TASK_COMBAT_PED, ped, Me(), 0, 16);
     N(N_SET_PED_KEEP_TASK, ped, 1);
     int b = N<int>(N_ADD_BLIP_FOR_ENTITY, ped);
     N(N_SET_BLIP_COLOUR, b, 1); N(N_SET_BLIP_SCALE, b, 0.7f);
@@ -190,7 +199,8 @@ static void SvPlaceInArea() {
 }
 static void SvStartWave(int wave) {
     const SvLoc &l = SV_LOCS[g_sv.loc];
-    if (g_sv.phase == SVP_DOWN) {   // back in for the next wave
+    g_sv.downShared = false;
+    if (g_sv.phase == SVP_DOWN || Dead(Me())) {   // back in for the next wave
         N(N_DO_SCREEN_FADE_OUT, 400); Wait(450);
         N(N_REQUEST_COLLISION_AT_COORD, l.x, l.y, l.z);
         SvPlaceInArea();
@@ -201,6 +211,7 @@ static void SvStartWave(int wave) {
     SvLoadout();
     g_sv.wave = wave; g_sv.phase = SVP_WAVE; g_sv.waveAt = Now();
     g_sv.total = 8 + 2 * wave; g_sv.spawned = 0; g_sv.nextSpawn = 0; g_sv.heli = false; g_sv.hostClearedAt = 0;
+    if (LO().popKills) g_sv.popKills = LO().popKills();
     N(N_CLEAR_AREA_OF_PEDS, l.x, l.y, l.z, l.r + 40.f, 1);
     N(N_CLEAR_AREA_OF_COPS, l.x, l.y, l.z, l.r + 80.f, 0);
     HostileGroup();
@@ -277,10 +288,12 @@ static void SvHostStart() {
     LO().jobUpdate(COOP_RUNNING, 1, l.x, l.y, l.z, SvText(1).c_str());
     g_sv.phase = SVP_NONE;   // SvFollowJob picks up the start time
 }
-static int SvCoopWave() {   // the wave the host has announced ("S|loc|wave")
-    size_t a = g_coop.text.rfind('|');
-    return g_coop.text.compare(0, 2, "S|") || a == std::string::npos ? 0 : std::atoi(g_coop.text.c_str() + a + 1);
+static int SvCoopWave() {   // the wave the host has announced ("S|loc|wave", "|c" once it is cleared)
+    if (g_coop.text.compare(0, 2, "S|")) return 0;
+    size_t a = g_coop.text.find('|', 2);
+    return a == std::string::npos ? 0 : std::atoi(g_coop.text.c_str() + a + 1);
 }
+static bool SvCoopCleared() { return g_coop.text.size() > 2 && g_coop.text.compare(g_coop.text.size() - 2, 2, "|c") == 0; }
 static void SvFollowJob() {
     if (g_sv.phase != SVP_NONE || !g_coop.id || g_coop.kind != 3) return;
     if (g_coop.status != COOP_RUNNING || g_coop.startsIn <= 0 || g_coop.text.compare(0, 2, "S|")) return;
@@ -290,9 +303,9 @@ static void SvFollowJob() {
     g_sv.payout = g_coop.payout ? g_coop.payout : SV_PAYOUT;
     SvBegin((int)g_coop.startsIn);
 }
-static void SvHostAnnounce(int wave) {
+static void SvHostAnnounce(int wave, bool cleared = false) {
     const SvLoc &l = SV_LOCS[g_sv.loc];
-    if (LO().jobUpdate) LO().jobUpdate(COOP_RUNNING, wave, l.x, l.y, l.z, SvText(wave).c_str());
+    if (LO().jobUpdate) LO().jobUpdate(COOP_RUNNING, wave, l.x, l.y, l.z, SvText(wave, cleared).c_str());
 }
 static void SvHostEnd() {
     if (g_sv.ended) return;
@@ -324,7 +337,7 @@ static void SvHostReferee() {
 static void SvHud() {
     int row = 0;
     if (g_sv.phase == SVP_BREAK && g_sv.breakUntil) RaceBar(row++, "NEXT WAVE", RaceTime(std::max(0, g_sv.breakUntil - Now())).substr(0, 5));
-    int left = std::max(0, g_sv.total - g_sv.spawned) + (int)g_sv.peds.size();
+    int left = SvMember() ? LO().popHostiles() : std::max(0, g_sv.total - g_sv.spawned) + (int)g_sv.peds.size();
     if (g_sv.phase == SVP_WAVE) RaceBar(row++, "ENEMIES", std::to_string(left));
     RaceBar(row++, "KILLS", std::to_string(g_sv.kills));
     if (!g_sv.solo) {
@@ -349,7 +362,25 @@ static void SvResults() {
 }
 
 // ---- each frame
+static void SvWaveCleared() {
+    g_sv.cleared = g_sv.wave;
+    g_sv.phase = SVP_BREAK; g_sv.hostClearedAt = Now(); g_sv.breakUntil = 0;
+    for (int &c : g_sv.cars) N(N_SET_VEHICLE_AS_NO_LONGER_NEEDED, &c);
+    g_sv.cars.clear();
+    SvLoadout();
+    Shard("~g~WAVE " + std::to_string(g_sv.wave) + " SURVIVED", g_sv.wave >= SV_WAVES ? "" : (g_sv.solo ? "Next wave in 15 seconds." : "Waiting for the other players."));
+    Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET");
+    if (SvSharedHost()) SvHostAnnounce(g_sv.wave, true);   // the members' wave is over too
+    SvReport();
+}
+static void SvMemberWaveTick() {   // the host's game owns the enemies: count our kills of them, wait for its "cleared"
+    if (!g_sv.peds.empty() || !g_sv.cars.empty()) SvClearEnemies();   // spawned before the shared NPCs came up
+    int k = LO().popKills();
+    if (k > g_sv.popKills) { g_sv.kills += k - g_sv.popKills; g_sv.popKills = k; SvReport(); }
+    if (SvCoopWave() == g_sv.wave && SvCoopCleared()) SvWaveCleared();
+}
 static void SvWaveTick() {
+    if (SvMember()) { SvMemberWaveTick(); return; }
     const SvLoc &l = SV_LOCS[g_sv.loc];
     int me = Me();
     // the dead: kills (ours when we were the source), blips off; stragglers far away or stuck for long are dropped
@@ -375,14 +406,13 @@ static void SvWaveTick() {
         g_sv.nextSpawn = Now() + 2500;
     }
     if (g_sv.spawned >= g_sv.total && g_sv.peds.empty()) {   // wave cleared
-        g_sv.cleared = g_sv.wave;
-        g_sv.phase = SVP_BREAK; g_sv.hostClearedAt = Now(); g_sv.breakUntil = 0;
-        for (int &c : g_sv.cars) N(N_SET_VEHICLE_AS_NO_LONGER_NEEDED, &c);
-        g_sv.cars.clear();
-        SvLoadout();
-        Shard("~g~WAVE " + std::to_string(g_sv.wave) + " SURVIVED", g_sv.wave >= SV_WAVES ? "" : (g_sv.solo ? "Next wave in 15 seconds." : "Waiting for the other players."));
-        Sound("CHECKPOINT_PERFECT", "HUD_MINI_GAME_SOUNDSET");
-        SvReport();
+        if (g_sv.downShared) {   // for the crew: they go on, we are back for the next wave
+            int keep = g_sv.cleared;
+            SvWaveCleared();
+            g_sv.cleared = keep;
+            g_sv.phase = SVP_DOWN;
+            SvReport();
+        } else SvWaveCleared();
     }
 }
 static void SvTick() {
@@ -428,7 +458,11 @@ static void SvTick() {
         if (Now() >= nextAt) { const SvLoc &l = SV_LOCS[g_sv.loc]; LO().setRespawnPoint(l.x, l.y, l.z + 0.5f, 0.f, 8000); nextAt = Now() + 3000; }
     }
     if (g_sv.phase == SVP_WAVE || g_sv.phase == SVP_BREAK) {
-        if (Dead(me)) {   // down until the next wave (solo: over)
+        if (Dead(me) && SvSharedHost() && g_sv.phase == SVP_WAVE) {   // down, but our game runs the crew's enemies: the wave goes on
+            if (!g_sv.ended) { static int said = 0; if (Now() - said > 30000) { Notify("~r~You're down.~s~ Your crew fights on."); said = Now(); } }
+            g_sv.downShared = true;
+            SvReport();
+        } else if (Dead(me)) {   // down until the next wave (solo: over)
             SvClearEnemies();
             g_sv.phase = SVP_DOWN;
             SvReport();

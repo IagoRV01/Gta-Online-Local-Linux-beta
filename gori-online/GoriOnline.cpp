@@ -757,6 +757,10 @@ struct LocalOnlineApi {
     bool (*sendPlayerMessage)(unsigned, const char *, const char *) = nullptr;   // API v9: player messages (Buzzer.inc)
     int (*takePlayerMessages)(char *, int) = nullptr;
     void (*setWorldHold)(int) = nullptr;                           // API v10: the server's clock and weather held off (a race's own)
+    int (*popMode)() = nullptr;                                    // API v16: shared NPCs (0 own world, 1 we own the job's NPCs, 2 the host's game does)
+    int (*popHostiles)() = nullptr;
+    int (*popKills)() = nullptr;
+    bool (*popShown)(int) = nullptr;
     bool tried = false;
 };
 static LocalOnlineApi &LO() {
@@ -807,6 +811,11 @@ static LocalOnlineApi &LO() {
             api.takePlayerMessages = (int (*)(char *, int))GetProcAddress(h, "LocalOnline_TakePlayerMessages");
             if (!api.sendPlayerMessage || !api.takePlayerMessages) api.sendPlayerMessage = nullptr, api.takePlayerMessages = nullptr;
             api.setWorldHold = (void (*)(int))GetProcAddress(h, "LocalOnline_SetWorldHold");
+            api.popMode = (int (*)())GetProcAddress(h, "LocalOnline_PopMode");
+            api.popHostiles = (int (*)())GetProcAddress(h, "LocalOnline_PopHostiles");
+            api.popKills = (int (*)())GetProcAddress(h, "LocalOnline_PopKills");
+            api.popShown = (bool (*)(int))GetProcAddress(h, "LocalOnline_PopShown");
+            if (!api.popMode || !api.popHostiles || !api.popKills) api.popMode = nullptr;
         }
     }
     return api;

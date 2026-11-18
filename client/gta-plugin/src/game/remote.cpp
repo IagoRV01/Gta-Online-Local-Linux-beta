@@ -89,7 +89,8 @@ int g_infoSentRank = -1, g_infoSentFlags = -1;
 double LocalSeconds() { return (double)GetTickCount64() / 1000.0; }
 
 void DeleteVehicle(Player &p) {
-    if (gta::Exists(p.veh)) { gta::MakeMission(p.veh); N(N_DELETE_VEHICLE, &p.veh); }
+    // v16: a mission car they took from our NPCs stays (the mission's script still has it), see population::KeepVehicle
+    if (gta::Exists(p.veh) && !population::KeepVehicle(p.veh, p.netId)) { gta::MakeMission(p.veh); N(N_DELETE_VEHICLE, &p.veh); }
     p.veh = 0;
     p.vehModel = 0;
     p.appliedVFlags = 0xFF;
@@ -411,9 +412,12 @@ void Drive(Player &p, const interp::Result &r) {
 
 void SpawnVehicle(Player &p, const interp::Sample &s) {
     const VehicleBlock &vb = p.lastVeh;
-    if (!gta::LoadModel(vb.model, 3000)) { LOGW("remote", p.name.c_str(), "vehicle model 0x%08X not available", vb.model); return; }
-    p.veh = N<int>(N_CREATE_VEHICLE, vb.model, s.pos.x, s.pos.y, s.pos.z, YawFromQuat(s.rot), 0, 1, 0);
-    gta::ReleaseModel(vb.model);
+    p.veh = population::ClaimVehicle(p.netId, vb.model, s.pos.x, s.pos.y, s.pos.z);   // v16: a car of ours they got into: that very one
+    if (!p.veh) {
+        if (!gta::LoadModel(vb.model, 3000)) { LOGW("remote", p.name.c_str(), "vehicle model 0x%08X not available", vb.model); return; }
+        p.veh = N<int>(N_CREATE_VEHICLE, vb.model, s.pos.x, s.pos.y, s.pos.z, YawFromQuat(s.rot), 0, 1, 0);
+        gta::ReleaseModel(vb.model);
+    }
     if (!p.veh) return;
     p.vehModel = vb.model;
     gta::MakeMission(p.veh);
@@ -598,7 +602,7 @@ bool PuppetCombat(Player &p, const interp::Result &r) {
             net::SendEvent(w);
             LOGI("remote", p.name.c_str(), "we hit it: %d pvp damage (base %.0f, bone %d, local drop %d)", dmg, base, bone, measured);
         } else if (population::StreamsFor(p.ped) && (NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ANY_PED, p.ped)) || NB(N<int>(N_HAS_ENTITY_BEEN_DAMAGED_BY_ANY_VEHICLE, p.ped)))) {
-            // v15: our NPCs (we run that player's world) hurt its puppet: its game takes the damage
+            // v15/v16: our NPCs (we share that player's world) hurt its puppet: its game takes the damage
             population::ReportNpcDamage(p.netId, kPuppetHealth - hp, 0);
         }
         N(N_SET_ENTITY_HEALTH, p.ped, kPuppetHealth, 0, 0);
