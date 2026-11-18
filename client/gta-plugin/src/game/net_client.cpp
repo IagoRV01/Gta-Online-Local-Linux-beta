@@ -112,7 +112,7 @@ LoginResult Login(const std::string &hostName, int port, const std::string &name
     g_connected = true;
 
     wire::Writer hello;
-    Put(hello, HelloMsg{3889, "LocalOnline-0.2"});
+    Put(hello, HelloMsg{3889, "LocalOnline-0.3"});
     Send(hello, kChanControl, true);
     std::vector<uint8_t> pkt;
     RejectMsg rej;

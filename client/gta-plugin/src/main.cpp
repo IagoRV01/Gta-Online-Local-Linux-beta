@@ -21,7 +21,7 @@
 #include "game/camera_client.h"
 #include "game/population.h"
 
-#define LOCALONLINE_VERSION "0.1.0"
+#define LOCALONLINE_VERSION "0.3.0"
 
 static std::string g_dir;
 static session::Config g_cfg;
