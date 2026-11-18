@@ -65,6 +65,7 @@ struct Player {
     Vec3 aim;                         // newest aim point
     bool shownDead = false;
     uint8_t wanted = 0, shownWanted = 0;   // Phase 7: stars on the name tag, flashing red blip
+    int relWanted = -1;               // v17: the relationship group set for its wanted level (LO_WANTED: the police hate it)
     uint16_t rank = 0;                // v11
     uint8_t infoFlags = 0;
     uint32_t session = 0;
@@ -328,6 +329,7 @@ void Spawn(Player &p, const interp::Sample &s) {
     p.weapon = 0;
     N(N_SET_PED_KEEP_TASK, p.ped, 1);
     N(N_SET_PED_RELATIONSHIP_GROUP_HASH, p.ped, gta::Joaat("LO_REMOTE"));   // v15: a mission's enemies fight it (population.cpp Groups)
+    p.relWanted = -1;
     appearance::ApplyLook(p.ped, look);
     p.lookDirty = false;
     p.blip = N<int>(N_ADD_BLIP_FOR_ENTITY, p.ped);
@@ -717,6 +719,11 @@ std::string PlayersText() {
     return out;
 }
 
+std::vector<int> WantedPuppets() {
+    std::vector<int> out;
+    for (auto &kv : g_players) if (kv.second.wanted && kv.second.ped && (kv.second.session == g_mySession || g_allSessions)) out.push_back(kv.second.ped);
+    return out;
+}
 bool IsPuppetEntity(int e) {
     if (!e) return false;
     for (auto &kv : g_players) if (kv.second.ped == e || kv.second.veh == e) return true;
@@ -803,6 +810,12 @@ void Frame() {
             DeleteVehicle(p);
         }
         WantedBlip(p);
+        if ((int)(p.wanted > 0) != p.relWanted) {   // v17: wanted, every game's police go for it (population.cpp Groups / CopsOnWanted)
+            N(N_SET_PED_RELATIONSHIP_GROUP_HASH, p.ped, gta::Joaat(p.wanted ? "LO_WANTED" : "LO_REMOTE"));
+            p.relWanted = p.wanted > 0;
+            if (p.wanted) LOGI("remote", p.name.c_str(), "wanted (%d): our police go for it too", (int)p.wanted);
+            else LOGI("remote", p.name.c_str(), "no longer wanted");
+        }
         NameTag(p);
         int now = gta::GameTimeMs();
         if (now - g_lastMetric > 2000) {   // sync quality: how far the puppet is from where it should be

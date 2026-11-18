@@ -668,10 +668,14 @@ void Server::PopTick() {
     for (auto &g : groups) {
         uint16_t host = 0;   // the group's mission host (one per group: the first found)
         for (uint16_t n : g.second) if (hostOf.count(n) && !host) host = hostOf[n];
+        // v17: one game runs GTA's trains for the group (the one that already did, else the lowest netId)
+        uint16_t trains = 0;
+        for (uint16_t n : g.second) { Client *c = ByNetId(n); if (c && c->pop.trains == n && g.second.size() > 1) trains = n; }
+        if (!trains && g.second.size() > 1) trains = *std::min_element(g.second.begin(), g.second.end());
         for (uint16_t n : g.second) {
             PopRoleMsg &r = roles[n];
             for (uint16_t o : g.second) if (o != n) r.peers.push_back(o);
-            if (!r.peers.empty()) r.mode = kPopShared;
+            if (!r.peers.empty()) { r.mode = kPopShared; r.trains = trains; }
             if (host && (hostOf.count(n) || n == host)) { r.flags = kPopRoleMission; r.host = host; }
         }
     }
@@ -694,6 +698,8 @@ void Server::PopTick() {
         r.peers.push_back(best->netId);
         for (uint16_t o : roles[best->netId].peers) r.peers.push_back(o);
         r.flags = roles[best->netId].flags; r.host = roles[best->netId].host;
+        r.trains = roles[best->netId].trains ? roles[best->netId].trains : best->netId;   // a lone player runs the trains the camera draws
+        if (!roles[best->netId].trains) roles[best->netId].trains = best->netId;
         for (uint16_t o : r.peers) {   // the games it draws stream for it (a lone player too)
             PopRoleMsg &orl = roles[o];
             orl.mode = kPopShared;
@@ -709,14 +715,16 @@ void Server::PopTick() {
         if (c.camera) { auto it = camRoles.find(c.netId); if (it != camRoles.end()) r = it->second; }
         else { auto it = roles.find(c.netId); if (it != roles.end()) r = it->second; }
         if (r.mode == kPopShared && r.peers.empty() && !r.viewers) r.mode = kPopOwn;
-        if (r.mode == kPopOwn) { r.flags = 0; r.host = 0; }
+        if (r.mode == kPopOwn) { r.flags = 0; r.host = 0; r.trains = 0; }
         std::sort(r.peers.begin(), r.peers.end());
-        if (r.mode == c.pop.mode && r.host == c.pop.host && r.flags == c.pop.flags && r.viewers == c.pop.viewers && r.peers == c.pop.peers) continue;
-        if (r.mode != c.pop.mode || r.peers != c.pop.peers || r.host != c.pop.host) {
+        if (r.mode == c.pop.mode && r.host == c.pop.host && r.flags == c.pop.flags && r.viewers == c.pop.viewers && r.peers == c.pop.peers && r.trains == c.pop.trains) continue;
+        if (r.mode != c.pop.mode || r.peers != c.pop.peers || r.host != c.pop.host || r.trains != c.pop.trains) {
             std::string names;
             for (uint16_t o : r.peers) { Client *oc = ByNetId(o); names += (names.empty() ? "" : ", ") + (oc ? oc->name : std::to_string(o)); }
             Client *hc = r.host ? ByNetId(r.host) : nullptr;
             std::string tail = hc ? " (mission entities: " + hc->name + ")" : "";
+            Client *tc = r.trains ? ByNetId(r.trains) : nullptr;
+            if (tc) tail += " (trains: " + tc->name + ")";
             LOGI("pop", c.name.c_str(), "%s%s%s", r.mode == kPopOwn ? "own world" : r.mode == kPopShared ? "shares the NPCs and traffic with " : "draws the NPCs and traffic of ",
                  r.mode == kPopShared && r.peers.empty() ? "its camera(s) only" : names.c_str(), tail.c_str());
         }

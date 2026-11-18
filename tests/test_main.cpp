@@ -575,11 +575,22 @@ static void TestWorld() {
     }
     {   // v15/v16 shared population: role with peers, a ped with its look and gun, a car with its plate, the relay
         Header h;
-        PopRoleMsg rm; rm.mode = kPopShared; rm.flags = kPopRoleMission; rm.host = 3; rm.viewers = 2; rm.peers = {3, 9};
+        PopRoleMsg rm; rm.mode = kPopShared; rm.flags = kPopRoleMission; rm.host = 3; rm.viewers = 2; rm.peers = {3, 9}; rm.trains = 9;
         wire::Writer wr; Put(wr, rm);
         wire::Reader rr(wr.Bytes().data(), wr.Size()); PopRoleMsg ro;
         CHECK(GetHeader(rr, h) && h.type == MsgType::PopRole && Get(rr, ro) && ro.mode == kPopShared && ro.host == 3 && ro.flags == kPopRoleMission && ro.viewers == 2 &&
-              ro.peers == std::vector<uint16_t>({3, 9}));
+              ro.peers == std::vector<uint16_t>({3, 9}) && ro.trains == 9);
+        {   // v17: a train (its engine): config, signed speed; an unknown config is refused
+            PopEntity tr; tr.id = 12; tr.kind = kPopTrain; tr.model = 0x3D6AAA9B; tr.pos = {2600.f, 1700.f, 27.f}; tr.rot = {0.f, 0.f, 0.f, 1.f}; tr.speed = -12.34f; tr.config = 28;
+            PopStateMsg ts; ts.e = {tr};
+            wire::Writer wt; Put(wt, ts);
+            wire::Reader rt(wt.Bytes().data(), wt.Size()); PopStateMsg to;
+            CHECK(GetHeader(rt, h) && Get(rt, to) && to.e.size() == 1 && to.e[0].kind == kPopTrain && to.e[0].config == 28 && std::fabs(to.e[0].speed + 12.34f) < 0.011f);
+            ts.e[0].config = kTrainConfigs;
+            wire::Writer wt2; Put(wt2, ts);
+            wire::Reader rt2(wt2.Bytes().data(), wt2.Size());
+            CHECK(GetHeader(rt2, h) && !Get(rt2, to));
+        }
         rm.peers.assign(kMaxPopPeers + 1, 4);   // too many peers: cut on the way out
         wire::Writer wr2; Put(wr2, rm);
         wire::Reader rr2(wr2.Bytes().data(), wr2.Size());

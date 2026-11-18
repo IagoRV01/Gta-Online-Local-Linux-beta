@@ -22,7 +22,7 @@
 namespace proto {
 
 constexpr uint8_t kMagic = 0x4C;
-constexpr uint8_t kProtocolVersion = 16;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions; v13 camera clients; v14 player messages; v15 shared population (NPCs + traffic); v16 per-entity population owners
+constexpr uint8_t kProtocolVersion = 17;  // v2 vehicle; v3 aim+combat; v4 wanted+world; v5 economy; v6 vehicles; v7 bank; v8 ledger; v9 co-op jobs; v10 races; v11 player info + sessions; v12 GodEye actions; v13 camera clients; v14 player messages; v15 shared population (NPCs + traffic); v16 per-entity population owners; v17 shared trains
 constexpr uint8_t kChanControl = 0, kChanState = 1, kChanEvents = 2, kNumChannels = 3;
 constexpr size_t kMaxPacket = 64 * 1024;       // anything bigger is dropped before parsing
 constexpr size_t kMaxProfileJson = 48 * 1024;
@@ -61,7 +61,7 @@ enum class MsgType : uint16_t {
     GadgetState = 44,    // C  {u8 count, count x GadgetPose}             the hacks on this player, ~10 Hz, unreliable
     GadgetRelay = 45,    // S  {u16 owner, u8 count, count x GadgetPose}  to camera clients: they draw copies
     // v15 shared population (2026-11-18): one game per group of nearby players runs the NPCs and the traffic
-    PopRole = 46,        // S  {u8 mode, u8 flags, u16 host, u8 viewers, u8 n, n x u16 peers}   our population role (v16 peers)
+    PopRole = 46,        // S  {u8 mode, u8 flags, u16 host, u8 viewers, u8 n, n x u16 peers, u16 trains}   our population role (v16 peers, v17 trains)
     PopState = 47,       // C  {u32 seq, u8 count, count x PopEntity}           the NPCs and vehicles we own, ~8 Hz, unreliable
     PopRelay = 48,       // S  {u16 authority, u32 serverMs, u32 seq, u8 count, count x PopEntity}  to the owner's peers and cameras
     // economy (channel 2) — Phase 8: the server owns every balance
@@ -482,12 +482,14 @@ struct PopRoleMsg {
     uint16_t host = 0;                 // kPopRoleMission: the game that owns the mission's entities
     uint8_t viewers = 0;               // games that draw our stream (peers + cameras)
     std::vector<uint16_t> peers;       // the other games of our group (a camera: the games it draws)
+    uint16_t trains = 0;               // v17: the game of the group that runs GTA's trains for all (0: each game its own)
 };
 inline void Put(wire::Writer &w, const PopRoleMsg &m) {
     PutHeader(w, MsgType::PopRole); w.U8(m.mode); w.U8(m.flags); w.U16(m.host); w.U8(m.viewers);
     size_t n = m.peers.size() < kMaxPopPeers ? m.peers.size() : kMaxPopPeers;
     w.U8((uint8_t)n);
     for (size_t i = 0; i < n; ++i) w.U16(m.peers[i]);
+    w.U16(m.trains);
 }
 inline bool Get(wire::Reader &r, PopRoleMsg &m) {
     m.mode = r.U8(); m.flags = r.U8(); m.host = r.U16(); m.viewers = r.U8();
@@ -495,10 +497,13 @@ inline bool Get(wire::Reader &r, PopRoleMsg &m) {
     if (!r.ok() || n > kMaxPopPeers) return false;
     m.peers.resize(n);
     for (auto &p : m.peers) p = r.U16();
+    m.trains = r.U16();
     return r.Done() && m.mode <= kPopViewer;
 }
 
-enum PopKind : uint8_t { kPopPed = 1, kPopVehicle = 2 };
+// v17 kPopTrain: a whole train (its engine): the others run the same train config on the same track
+enum PopKind : uint8_t { kPopPed = 1, kPopVehicle = 2, kPopTrain = 3 };
+constexpr uint8_t kTrainConfigs = 29;   // trains.xml (build 3889): freight_config0..27, metro_config0 = 28
 enum PopFlags : uint16_t {
     kPopHasDesc = 1 << 0,     // the look follows (ped clothes / vehicle colours and plate): sent now and then, needed to spawn
     kPopDead = 1 << 1,        // ped dead / vehicle wrecked
@@ -543,6 +548,8 @@ struct PopEntity {
     float angZ = 0;            // yaw rate, rad/s (cosmetic wheel angle)
     uint8_t vflags = 0;        // proto::VehicleFlags (engine, lights, siren, horn...)
     uint8_t body = 250, engine = 250;   // health / 4
+    float speed = 0;           // train: signed, along its engine's forward (m/s)
+    uint8_t config = 0;        // train: trains.xml config index (CREATE_MISSION_TRAIN variation)
     uint8_t color1 = 0, color2 = 0, pearl = 0, wheel = 0, livery = 255;   // kPopHasDesc
     std::string plate;                                                      // kPopHasDesc
 };
@@ -562,6 +569,9 @@ inline void PutPopEntity(wire::Writer &w, const PopEntity &e) {
         if (e.flags & kPopShooting) PutVec(w, e.aim);
         if (e.flags & kPopAction) { w.U8(e.act); w.U8(e.actArg); }
         if (e.flags & kPopHasDesc) { for (auto &c : e.comp) { w.U8(c[0]); w.U8(c[1]); } for (auto &p : e.prop) { w.U8(p[0]); w.U8(p[1]); } }
+    } else if (e.kind == kPopTrain) {
+        w.I16(PopQ(e.rot.x, 32767.f)); w.I16(PopQ(e.rot.y, 32767.f)); w.I16(PopQ(e.rot.z, 32767.f)); w.I16(PopQ(e.rot.w, 32767.f));
+        w.I16(PopQ(e.speed, 100.f)); w.U8(e.config);
     } else {
         w.I16(PopQ(e.rot.x, 32767.f)); w.I16(PopQ(e.rot.y, 32767.f)); w.I16(PopQ(e.rot.z, 32767.f)); w.I16(PopQ(e.rot.w, 32767.f));
         w.I16(PopQ(e.angZ, 1000.f)); w.U8(e.vflags); w.U8(e.body); w.U8(e.engine);
@@ -580,6 +590,10 @@ inline bool GetPopEntity(wire::Reader &r, PopEntity &e) {
         if (e.flags & kPopShooting) e.aim = GetVec(r);
         if (e.flags & kPopAction) { e.act = r.U8(); e.actArg = r.U8(); }
         if (e.flags & kPopHasDesc) { for (auto &c : e.comp) { c[0] = r.U8(); c[1] = r.U8(); } for (auto &p : e.prop) { p[0] = r.U8(); p[1] = r.U8(); } }
+    } else if (e.kind == kPopTrain) {
+        e.rot.x = r.I16() / 32767.f; e.rot.y = r.I16() / 32767.f; e.rot.z = r.I16() / 32767.f; e.rot.w = r.I16() / 32767.f;
+        e.speed = r.I16() / 100.f; e.config = r.U8();
+        if (e.config >= kTrainConfigs) return false;
     } else if (e.kind == kPopVehicle) {
         e.rot.x = r.I16() / 32767.f; e.rot.y = r.I16() / 32767.f; e.rot.z = r.I16() / 32767.f; e.rot.w = r.I16() / 32767.f;
         e.angZ = r.I16() / 1000.f; e.vflags = r.U8(); e.body = r.U8(); e.engine = r.U8();

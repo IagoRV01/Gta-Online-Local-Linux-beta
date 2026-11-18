@@ -424,6 +424,8 @@ void DropOwnedEntity(int h, bool ped) {   // one of ours goes (a new one in a pe
     Delete(x, ped);
 }
 void HandOver();
+void StreamTrains(std::vector<PopEntity> &out, const gta::Vec3 &at);   // v17 trains
+unsigned g_trainsStreamed = 0, g_trainsUnknown = 0, g_copsSent = 0;
 
 // ---------------------------------------------------------------- the stream
 void Stream() {
@@ -522,6 +524,7 @@ void Stream() {
         if ((e.flags & kPopInVehicle) && !e.vehId) continue;
         finish(it->second, e);
     }
+    StreamTrains(out, at);
     g_sentPeds = (int)peds.size(); g_sentVehs = (int)vehs.size();
     // vehicles first: the others seat the peds in them
     ++g_seq;
@@ -565,6 +568,9 @@ void Stream() {
              host ? " (mission host)" : "", g_sentPeds, g_sentVehs, g_srcNew, g_srcBack, (int)g_src.size(), g_share * 100.f);
         LOGI("pop", "-", "hand-over: %u offered, %u handed to peers, %u taken from peers; %u new ones in a peer's part removed (%u peds) (%d no-spawn zone(s))", g_offered, g_handedOut,
              g_handedIn, g_culled, g_culledPeds, (int)g_zones.size());
+        if (g_trainsStreamed || g_trainsUnknown) LOGI("pop", "-", "trains: %u engine states streamed, %u of an unknown config", g_trainsStreamed, g_trainsUnknown);
+        if (g_copsSent) LOGI("pop", "-", "wanted players: %u police sent after them", g_copsSent);
+        g_trainsStreamed = g_trainsUnknown = g_copsSent = 0;
         g_srcNew = g_srcBack = g_culledPeds = g_culled = g_offered = g_handedOut = g_handedIn = 0;
     }
 }
@@ -1236,6 +1242,216 @@ void TakeCars() {
     g_pups.erase(key);
 }
 
+// ================================================================ trains (v17)
+// One game of a group (PopRole.trains) runs GTA's random trains and streams each one as its engine: the trains.xml config
+// (which carriages), where its engine is, and its speed. The other games switch their own trains off and run the very
+// same config as a mission train on the same track, held to the stream by its speed and, when it drifts, its place.
+const char *kTrainCfgText[kTrainConfigs] = {
+    "freight:1 freightcar:2",   // 0 freight_config0
+    "freight:1 freightcar:8",   // 1 freight_config1
+    "freight:1 freightcont2:1 freightcont1:1 freightgrain:1 tankercar:1 freightcar:1",   // 2 freight_config2
+    "freight:1 freightcar:1 tankercar:3 freightcar:2 tankercar:2",   // 3 freight_config3
+    "freight:1 freightgrain:2 freightcar:1 freightgrain:1 freightcar:3 freightgrain:2",   // 4 freight_config4
+    "freight:1 freightcar:4 freightgrain:1 freightcar:1",   // 5 freight_config5
+    "freight:1 freightcont1:2 freightcar:1 tankercar:1",   // 6 freight_config6
+    "freight:1 freightcar:3 freightcont2:3 freightcar:2",   // 7 freight_config7
+    "freight:1 freightcont2:2 freightcar:1 freightcont2:2 freightcar:1 tankercar:1",   // 8 freight_config8
+    "freight:1 freightcar:1 freightgrain:2 freightcar:2 freightgrain:1",   // 9 freight_config9
+    "freight:1 freightcont1:3 freightcont2:2 freightcar:3",   // 10 freight_config10
+    "freight:1 freightcont1:1 freightcar:1 freightcont1:5",   // 11 freight_config11
+    "freight:1 freightgrain:3 freightcar:1 freightgrain:2",   // 12 freight_config12
+    "freight:1 freightcar:2 tankercar:3 freightcar:3",   // 13 freight_config13
+    "freight:1 freightcont1:1 freightcar:2 freightcont1:3 freightcar:1 freightcont1:1",   // 14 freight_config14
+    "freight:1 freightgrain:3 freightcar:1 freightcont1:2 freightgrain:1 freightcar:1",   // 15 freight_config15
+    "freight:1 freightcar:1 tankercar:3 freightcar:1 tankercar:2",   // 16 freight_config16
+    "freight:1 freightcont2:40",   // 17 freight_config17
+    "freight:1",   // 18 freight_config18
+    "freight:1 tankercar:2",   // 19 freight_config19
+    "freight:1 freightcont2:3",   // 20 freight_config20
+    "metrotrain:1",   // 21 freight_config21
+    "freight:1 freightcar:12",   // 22 freight_config22
+    "freight:1 freightcar:1 freightcont1:1 freightcar:1 freightcont1:1 freightcar:1 freightcont1:1 freightcar:1 freightcont1:1 freightcar:1 freightcont1:1 freightcar:1 freightcont1:1 freightcar:1",   // 23 freight_config23
+    "freight:1 freightcar2:4 freightgrain:1 freightcar2:1",   // 24 freight_config24
+    "freight:1 freightgrain:1 freightcar2:1 tankercar:1 freightgrain:1 tankercar:1 freightcar2:1 freightgrain:1 freightcar2:1 tankercar:2 freightcar2:1 tankercar:1 freightcar2:1 freightgrain:1 tankercar:2",   // 25 freight_config25
+    "freight2:1 freightcar2:5",   // 26 freight_config26
+    "freight:1 freightcar3:6",   // 27 freight_config27
+    "metrotrain:1 metrotrain:1",   // 28 metro_config0
+};
+std::vector<std::vector<uint32_t>> g_trainCfg;   // config -> engine + carriage models, in order
+void TrainTable() {
+    if (!g_trainCfg.empty()) return;
+    g_trainCfg.resize(kTrainConfigs);
+    for (int i = 0; i < (int)kTrainConfigs; ++i) {
+        std::string t = kTrainCfgText[i];
+        size_t at = 0;
+        while (at < t.size()) {
+            size_t sp = t.find(' ', at), colon = t.find(':', at);
+            std::string name = t.substr(at, colon - at);
+            int n = std::atoi(t.c_str() + colon + 1);
+            for (int k = 0; k < n; ++k) g_trainCfg[i].push_back(gta::Joaat(name.c_str()));
+            at = sp == std::string::npos ? t.size() : sp + 1;
+        }
+    }
+}
+uint16_t g_trainsBy = 0;   // PopRole.trains
+bool TrainsOurs() { return !g_trainsBy || g_trainsBy == net::SelfNetId(); }
+std::set<int> g_trainCars;   // our train puppets' engines and carriages
+// the engines among the game's trains (a carriage is reachable from its engine with GET_TRAIN_CARRIAGE)
+std::vector<int> TrainEngines(bool puppetsToo) {
+    std::vector<int> trains;
+    int nv = AllVehicles();
+    for (int i = 0; i < nv; ++i) if (gta::Exists(g_vehs[i]) && Train(g_vehs[i]) && (puppetsToo || !g_trainCars.count(g_vehs[i]))) trains.push_back(g_vehs[i]);
+    std::set<int> cars;
+    for (int t : trains)
+        for (int i = 1; i < 80; ++i) { int c = N<int>(N_GET_TRAIN_CARRIAGE, t, i); if (!c || !gta::Exists(c)) break; cars.insert(c); }
+    std::vector<int> engines;
+    for (int t : trains) if (!cars.count(t)) engines.push_back(t);
+    return engines;
+}
+int TrainConfigOf(int engine) {
+    TrainTable();
+    std::vector<uint32_t> m{gta::ModelOf(engine)};
+    for (int i = 1; i < 80; ++i) { int c = N<int>(N_GET_TRAIN_CARRIAGE, engine, i); if (!c || !gta::Exists(c)) break; m.push_back(gta::ModelOf(c)); }
+    for (int i = 0; i < (int)kTrainConfigs; ++i) if (g_trainCfg[i] == m) return i;
+    return -1;
+}
+// the runner: our trains go out with the rest of our stream
+void StreamTrains(std::vector<PopEntity> &out, const gta::Vec3 &at) {
+    if (g_trainsBy != net::SelfNetId()) return;
+    for (int t : TrainEngines(false)) {
+        gta::Vec3 p = gta::Pos(t);
+        if (Dist2(p, at) > 800.f * 800.f) continue;
+        int cfg = TrainConfigOf(t);
+        if (cfg < 0) { ++g_trainsUnknown; continue; }   // a config we do not know (another game version)
+        Src &s = Track(t, false);
+        PopEntity e;
+        e.kind = kPopTrain; e.id = s.id; e.model = gta::ModelOf(t); e.config = (uint8_t)cfg;
+        e.pos = {p.x, p.y, p.z};
+        NVec3 v = N<NVec3>(N_GET_ENTITY_VELOCITY, t), f = N<NVec3>(N_GET_ENTITY_FORWARD_VECTOR, t);
+        e.vel = {v.x, v.y, v.z};
+        e.speed = v.x * f.x + v.y * f.y + v.z * f.z;
+        N(N_GET_ENTITY_QUATERNION, t, &e.rot.x, &e.rot.y, &e.rot.z, &e.rot.w);
+        out.push_back(e);
+        ++g_trainsStreamed;
+    }
+}
+struct TrainPup { PopEntity last; interp::Buffer buf; int h = 0; unsigned long long seenAt = 0; int tries = 0; };
+std::map<uint32_t, TrainPup> g_trainPups;
+unsigned g_trainSpawned = 0, g_trainSnaps = 0, g_ownTrainsRemoved = 0;
+unsigned long long g_lastTrainClean = 0;
+bool g_randomTrainsOff = false;
+void RandomTrains(bool on) {
+    if (on == !g_randomTrainsOff) return;
+    g_randomTrainsOff = !on;
+    N(N_SET_RANDOM_TRAINS, on ? 1 : 0);
+    LOGI("pop", "-", on ? "our own trains are back" : "our own trains are off: we run the group's");
+}
+void DeleteTrainPup(TrainPup &t) {
+    if (!t.h) return;
+    for (int i = 1; i < 80; ++i) { int c = N<int>(N_GET_TRAIN_CARRIAGE, t.h, i); if (!c) break; g_trainCars.erase(c); }
+    g_trainCars.erase(t.h);
+    if (gta::Exists(t.h)) { gta::MakeMission(t.h); N(N_DELETE_MISSION_TRAIN, &t.h); }
+    t.h = 0;
+}
+void ClearTrainPups() { for (auto &kv : g_trainPups) DeleteTrainPup(kv.second); g_trainPups.clear(); }
+float YawOf(const Quat &q) {
+    float yaw = std::atan2(2.f * (q.w * q.z + q.x * q.y), 1.f - 2.f * (q.y * q.y + q.z * q.z)) * 57.29578f;
+    return yaw < 0 ? yaw + 360.f : yaw;
+}
+// another game runs the trains: ours go, theirs run here
+void TrainsFrame() {
+    if (TrainsOurs()) { ClearTrainPups(); RandomTrains(true); return; }
+    RandomTrains(false);
+    unsigned long long now = Now();
+    if (now - g_lastTrainClean > 1000) {   // what GTA still had goes
+        g_lastTrainClean = now;
+        for (int t : TrainEngines(false)) {
+            int x = t;
+            gta::MakeMission(x);
+            N(N_DELETE_MISSION_TRAIN, &x);
+            ++g_ownTrainsRemoved;
+        }
+    }
+    if (!g_clock.Synced()) return;
+    double renderT = g_clock.ServerNow((double)now / 1000.0) - kDelay;
+    TrainTable();
+    for (auto it = g_trainPups.begin(); it != g_trainPups.end();) {
+        TrainPup &t = it->second;
+        if (now - t.seenAt > 4000) { DeleteTrainPup(t); it = g_trainPups.erase(it); continue; }
+        if (t.h && !gta::Exists(t.h)) { g_trainCars.erase(t.h); t.h = 0; }
+        interp::Result r = t.buf.At(renderT, 1.0);
+        if (!r.valid) { ++it; continue; }
+        if (!t.h) {
+            if (t.tries > 6) { ++it; continue; }   // never on a track here
+            bool ready = true;
+            for (uint32_t m : g_trainCfg[t.last.config]) { N(N_REQUEST_MODEL, m); if (!NB(N<int>(N_HAS_MODEL_LOADED, m))) ready = false; }
+            if (!ready) { ++it; continue; }
+            float want = YawOf(t.last.rot);
+            for (int dir = 1; dir >= 0 && !t.h; --dir) {   // the direction whose engine faces the owner's
+                int h = N<int>(N_CREATE_MISSION_TRAIN, (int)t.last.config, r.s.pos.x, r.s.pos.y, r.s.pos.z, dir, 0, 0);
+                if (!h) continue;
+                float d = std::fabs(std::fmod(gta::Heading(h) - want + 540.f, 360.f) - 180.f);
+                if (d > 90.f && dir == 1) { int x = h; N(N_DELETE_MISSION_TRAIN, &x); continue; }
+                t.h = h;
+            }
+            ++t.tries;
+            if (!t.h) { ++it; continue; }
+            g_trainCars.insert(t.h);
+            for (int i = 1; i < 80; ++i) { int c = N<int>(N_GET_TRAIN_CARRIAGE, t.h, i); if (!c) break; g_trainCars.insert(c); }
+            ++g_trainSpawned;
+            gta::Vec3 got = gta::Pos(t.h);
+            LOGI("pop", remote::NameOf(OwnerOf(it->first)).c_str(), "train config %u drawn at %.0f %.0f %.0f (theirs at %.0f %.0f %.0f), heading %.0f / %.0f", t.last.config, got.x, got.y,
+                 got.z, r.s.pos.x, r.s.pos.y, r.s.pos.z, gta::Heading(t.h), want);
+        }
+        // held to the stream: its speed, plus a pull along its track; a jump when it is far off
+        gta::Vec3 cur = gta::Pos(t.h);
+        NVec3 f = N<NVec3>(N_GET_ENTITY_FORWARD_VECTOR, t.h);
+        float ex = r.s.pos.x - cur.x, ey = r.s.pos.y - cur.y, ez = r.s.pos.z - cur.z;
+        float err = std::sqrt(ex * ex + ey * ey + ez * ez);
+        if (err > 15.f) { N(N_SET_MISSION_TRAIN_COORDS, t.h, r.s.pos.x, r.s.pos.y, r.s.pos.z); ++g_trainSnaps; }
+        float along = ex * f.x + ey * f.y + ez * f.z;
+        float speed = t.last.speed + std::clamp(along * 0.6f, -5.f, 5.f);
+        N(N_SET_TRAIN_SPEED, t.h, speed);
+        N(N_SET_TRAIN_CRUISE_SPEED, t.h, speed);
+        ++it;
+    }
+}
+void OnTrain(uint16_t owner, const PopEntity &e, double st) {
+    if (TrainsOurs() || owner != g_trainsBy) return;
+    TrainPup &t = g_trainPups[PupKey(owner, e.id)];
+    if (t.h && t.last.config != e.config) DeleteTrainPup(t);
+    t.last = e;
+    t.seenAt = Now();
+    interp::Sample s;
+    s.t = st;
+    s.pos = {e.pos.x, e.pos.y, e.pos.z};
+    s.vel = {e.vel.x, e.vel.y, e.vel.z};
+    t.buf.Push(s);
+}
+
+// ================================================================ wanted players (v17)
+// GTA Online's police chase every wanted player, whoever's game they belong to: a remote player with a wanted level is in
+// the LO_WANTED relationship group (remote.cpp), which the police hate, and our idle police near one go for them; what
+// they do to its puppet goes to that player as NPC damage ("lo.nd").
+unsigned long long g_lastCops = 0;
+void CopsOnWanted() {
+    unsigned long long now = Now();
+    if (now - g_lastCops < 1000) return;
+    g_lastCops = now;
+    std::vector<gta::Vec3> wanted;
+    for (int ped : remote::WantedPuppets()) if (gta::Exists(ped)) wanted.push_back(gta::Pos(ped));
+    if (wanted.empty()) return;
+    int np = AllPeds();
+    for (int i = 0; i < np; ++i) {
+        int p = g_peds[i];
+        if (!gta::Exists(p) || gta::Dead(p) || !PolicePed(p) || IsPuppet(p) || remote::IsPuppetEntity(p) || Mission(p)) continue;
+        if (NB(N<int>(N_IS_PED_IN_COMBAT, p, 0))) continue;
+        gta::Vec3 at = gta::Pos(p);
+        for (auto &w : wanted)
+            if (Dist2(at, w) < 90.f * 90.f) { N(N_TASK_COMBAT_HATED_TARGETS_AROUND_PED, p, 90.f, 0); ++g_copsSent; break; }
+    }
+}
+
 void DrawPuppets() {
     if (!g_clock.Synced()) return;
     unsigned long long now = Now();
@@ -1282,6 +1498,11 @@ void ViewStats() {
          owners.empty() ? "nobody" : owners.c_str(), mis, hos, cover);
     LOGI("pop", "-", "puppets: %u new ids (%u took over a puppet, %u re-keyed after a hand-over), %u relay packets in 30 s%s", g_newIds, g_adopted, g_rekeyed, g_relays,
          g_mode == kPopViewer ? (", " + std::to_string(g_removed) + " of our own removed").c_str() : "");
+    if (!g_trainPups.empty() || g_ownTrainsRemoved) {
+        int drawn = 0; for (auto &kv : g_trainPups) drawn += kv.second.h != 0;
+        LOGI("pop", "-", "trains: %d of %d drawn (%u spawned, %u put back on their place), %u of our own removed", drawn, (int)g_trainPups.size(), g_trainSpawned, g_trainSnaps, g_ownTrainsRemoved);
+        g_trainSpawned = g_trainSnaps = g_ownTrainsRemoved = 0;
+    }
     g_newIds = g_relays = g_adopted = g_rekeyed = 0;
 }
 
@@ -1296,6 +1517,7 @@ void View() {   // a camera: only the players' world
     g_myVeh = gta::InVehicle(g_me) ? N<int>(N_GET_VEHICLE_PED_IS_IN, g_me, 0) : 0;
     CleanOwn();
     DrawPuppets();
+    TrainsFrame();
     ViewStats();
 }
 
@@ -1312,6 +1534,8 @@ void Shared() {   // a player of a group: our part of the world is ours, the pee
     Stream();
     TakeCars();
     DrawPuppets();
+    TrainsFrame();
+    CopsOnWanted();
     FlushEvents();
     ViewStats();
     unsigned long long now = Now();   // NPC damage to the peers' puppets, at most ~7 a second each
@@ -1357,6 +1581,18 @@ void Groups() {
     N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 5, lo, hostile);
     N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 1, lo, player);
     N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 1, player, lo);
+    // v17: a wanted remote player (remote.cpp) is fair game for our police, like the player is for its own game's
+    uint32_t wanted = 0;
+    N(N_ADD_RELATIONSHIP_GROUP, "LO_WANTED", &wanted);
+    wanted = gta::Joaat("LO_WANTED");
+    for (const char *g : {"COP", "ARMY", "SECURITY_GUARD"}) {
+        N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 5, gta::Joaat(g), wanted);
+        N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 5, wanted, gta::Joaat(g));
+    }
+    N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 5, hostile, wanted);
+    N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 5, wanted, hostile);
+    N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 1, wanted, player);
+    N(N_SET_RELATIONSHIP_BETWEEN_GROUPS, 1, player, wanted);
 }
 
 void OnEvent(uint16_t from, const std::string &text) {   // "d|id|amount|weapon;k|id|weapon;v|id|body|engine|expl;c|id"
@@ -1455,7 +1691,8 @@ void OnRole(const PopRoleMsg &m) {
     bool newPeer = false;
     for (uint16_t n : peers) if (!IsPeer(n)) newPeer = true;
     if (newPeer) for (auto &kv : g_src) kv.second.streamed = false;   // a new peer: what is in their part goes, the rest they get
-    g_mode = m.mode; g_peers = peers; g_host = m.host; g_flags = m.flags; g_viewers = m.viewers;
+    if (m.trains != g_trainsBy) { ClearTrainPups(); LOGI("pop", "-", "trains: %s", !m.trains ? "each game its own" : m.trains == net::SelfNetId() ? "we run them for the group" : ("we draw " + remote::NameOf(m.trains) + "'s").c_str()); }
+    g_mode = m.mode; g_peers = peers; g_host = m.host; g_flags = m.flags; g_viewers = m.viewers; g_trainsBy = m.mode == kPopOwn ? 0 : m.trains;
     if (g_mode != kPopShared) { g_share = 1.f; g_src.clear(); g_srcById.clear(); g_gone.clear(); ClearZones(); }
     if (changed) g_lastStat = g_lastViewStat = 0;
 }
@@ -1468,6 +1705,7 @@ void OnRelay(const PopRelayMsg &m) {
     uint16_t self = net::SelfNetId();
     ++g_relays;
     for (const PopEntity &e : m.e) {
+        if (e.kind == kPopTrain) { OnTrain(m.authority, e, st); continue; }
         uint32_t key = PupKey(m.authority, e.id);
         if (e.flags & kPopMigrated) {
             if (e.fromOwner == self && (SrcById(e.fromId) || g_pending.count(e.fromId))) { BecomePuppet(e.fromId, m.authority, e.id); ++g_handedOut; }   // ours a moment ago (before their answer)
@@ -1528,10 +1766,14 @@ void Frame() {
     Groups();
     if (g_mode == kPopShared) Shared();
     else if (g_mode == kPopViewer) View();
+    else if (g_randomTrainsOff || !g_trainPups.empty()) TrainsFrame();   // back to our own trains
 }
 
 void Clear() {
     ClearPups();
+    ClearTrainPups();
+    g_trainsBy = 0;
+    RandomTrains(true);
     Suppress(false);
     g_src.clear(); g_srcById.clear();
     g_mode = kPopOwn; g_host = 0; g_flags = 0; g_viewers = 0; g_peers.clear(); g_share = 1.f;
@@ -1627,6 +1869,7 @@ void DevCommand(const std::string &args) {
         for (auto &kv : g_pups) if (kv.second.h) (kv.second.last.kind == kPopPed ? peds : vehs)[OwnerOf(kv.first)]++;
         LOGI("pop", "-", "status: %s", StatusLine().c_str());
         for (auto &kv : vehs) LOGI("pop", "-", "status: from %s %d vehicles, %d peds", remote::NameOf(kv.first).c_str(), kv.second, peds[kv.first]);
+        for (auto &kv : g_trainPups) LOGI("pop", "-", "status: train %u config %u %s, speed %.1f", IdOfKey(kv.first), kv.second.last.config, kv.second.h ? "drawn" : "not drawn", kv.second.last.speed);
         for (auto &z : g_zones) LOGI("pop", "-", "status: no-spawn zone for %s at %.0f %.0f r %.0f", remote::NameOf(z.peer).c_str(), z.at.x, z.at.y, z.r);
         return;
     }

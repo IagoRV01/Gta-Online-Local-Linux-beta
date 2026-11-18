@@ -17,7 +17,8 @@ int Count();
 bool Spectate(const std::string &namePrefix);
 void StopSpectate();
 uint16_t NetIdOfPed(int ped);      // remote player driving/owning this ped, 0 if none
-bool IsPuppetEntity(int e);        // a remote player's puppet ped or vehicle (v15: never streamed as population)
+bool IsPuppetEntity(int e);
+std::vector<int> WantedPuppets();  // v17: the puppets of the players who have a wanted level (our police go for them)        // a remote player's puppet ped or vehicle (v15: never streamed as population)
 std::string NameOf(uint16_t netId); // account name of a remote player ("player N" if unknown)
 double ServerNowMs();                // the server's clock (ms) as estimated from the snapshots, -1 before the first one
 int PedOf(const std::string &namePrefix);
