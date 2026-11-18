@@ -89,3 +89,10 @@ test("free driving: an RC Bandito / a Knoway on a camera client, nobody online n
   assert.ok(toCommand({ action: "freeknoway" }, nobody, cam).error);
   assert.ok(allowed("HACKER", "freerc") && !allowed("DISPATCH", "freeknoway"));
 });
+
+test("the cameras follow a free driver's car too", () => {
+  const nobody = () => false, cam = (id: number) => id === 9, car = (id: number) => (id === 9 ? "Alex 2!" : null);
+  assert.equal(toCommand({ action: "camera", camera: "all", value: "heli", target: 9 }, nobody, cam, car).line, "camera all heli 9 Iago2");
+  assert.equal(toCommand({ action: "camera", camera: 9, value: "chase", target: 9 }, nobody, cam, () => "").line, "camera 9 chase 9");
+  assert.ok(toCommand({ action: "camera", camera: "all", value: "follow", target: 9 }, nobody, cam).error);   // no car there
+});

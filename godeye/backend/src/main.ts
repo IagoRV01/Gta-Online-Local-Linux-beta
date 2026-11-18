@@ -171,6 +171,20 @@ function driveOf(user: string): Drive | null {
   return d;
 }
 
+// free driving (2026-11-18): each camera carries who drives its free car, for the page's list and the camera labels
+function withDrivers(cams: any[]): any[] {
+  const now = Date.now();
+  return cams.map((c) => {
+    const d = [...drives.values()].find((x) => x.free && x.target === c.id && x.until > now);
+    return d && c.gadgets?.length ? { ...c, driver: d.user, driveAction: d.action } : c;
+  });
+}
+// the camera a free car is in: "" or its driver's name; null when there is none
+const freeCar = (id: number): string | null => {
+  const c = cameras.find((x) => x.id === id && x.gadgets?.length);
+  return c ? String(c.driver ?? "") : null;
+};
+
 const browsers = new Set<WsClient>();
 function broadcast(msg: object): void {
   const text = JSON.stringify(msg);
@@ -196,7 +210,7 @@ admin.on("msg", (m: any) => {
   if (m.t !== "tel") return;
   if (m.full) players.clear();
   if (m.world) world = m.world;
-  if (m.cameras) cameras = m.cameras;
+  if (m.cameras) cameras = withDrivers(m.cameras);
   const changed: any[] = [];
   for (const p of m.players ?? []) { const e = enrich(p); players.set(p.id, e); changed.push(e); }
   for (const id of m.gone ?? []) players.delete(id);
@@ -207,7 +221,7 @@ admin.on("msg", (m: any) => {
     broadcast({ t: "event", entry });
   }
   if (m.full) broadcast(fullState());
-  else broadcast({ t: "tel", ms: m.ms, world: m.world, cameras: m.cameras, players: changed, gone: m.gone ?? [] });
+  else broadcast({ t: "tel", ms: m.ms, world: m.world, cameras: m.cameras ? cameras : undefined, players: changed, gone: m.gone ?? [] });
 });
 admin.start();
 
@@ -328,7 +342,7 @@ async function handlePost(req: IncomingMessage, res: ServerResponse, path: strin
       const busy = [...drives.values()].find((d) => d.free && d.target === Number(r.camera) && d.user.toLowerCase() !== s.user.toLowerCase() && d.until > Date.now());
       if (busy) { json(409, { error: `${busy.user} is driving on that camera: ${Math.ceil((busy.until - Date.now()) / 1000)} s left` }); return; }
     }
-    const cmd = toCommand(r, (id) => !!players.get(id)?.playing, (id) => cameras.some((c) => c.id === id));
+    const cmd = toCommand(r, (id) => !!players.get(id)?.playing, (id) => cameras.some((c) => c.id === id), freeCar);
     if (!cmd.line) { json(400, { error: cmd.error }); return; }
     // an event: its own commands, one at a time
     let ev: { start: string[]; end: string[] } | null = null;

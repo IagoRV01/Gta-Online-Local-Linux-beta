@@ -245,11 +245,19 @@ function upsertGadgets(p, now) {
 function dropGadgets(owner) { for (const [key, e] of gadgets) if (e.owner === owner) gadgets.delete(key); }
 // free driving (2026-11-17): a camera client's own car, drawn like the hacks (the camera's netId is the owner)
 let camOwners = new Set();
+// the free drivers (2026-11-18): camera netId -> { id, cam, driver, kind, g }, listed with the players so the cameras
+// can be put on them
+const freeCars = new Map();
 function cameraGadgets(cams, now) {
   const ids = new Set(cams.map((c) => c.id));
   for (const id of camOwners) if (!ids.has(id)) dropGadgets(id);
   for (const c of cams) upsertGadgets({ id: c.id, playing: true, gadgets: c.gadgets || [] }, now);
   camOwners = ids;
+  const had = freeCars.size;
+  freeCars.clear();
+  for (const c of cams) if (c.gadgets?.length) freeCars.set(c.id, { id: c.id, cam: c.name, driver: c.driver || "", kind: c.gadgets[0].kind, g: c.gadgets[0] });
+  if (selected != null && !players.has(selected) && !freeCars.has(selected)) selected = follow = null;   // that car is gone
+  if (had || freeCars.size) listDirty = true;
 }
 // the hack this page drives (control.js sets `driving`): the driven one of that kind on that player, else the first
 let driving = null;
@@ -356,9 +364,9 @@ const SEATS = (s) => s === -1 ? "driver" : `passenger ${s + 1}`;
 
 function renderList() {
   const list = $("list");
-  const arr = [...players.values()].sort((a, b) => a.info.id - b.info.id);
-  $("count").textContent = arr.length;
-  if (!arr.length) { list.innerHTML = `<div class="empty">${online ? "Nobody is connected." : "Waiting for the game server…"}</div>`; return; }
+  const arr = [...players.values()].sort((a, b) => a.info.id - b.info.id), cars = [...freeCars.values()];
+  $("count").textContent = arr.length + cars.length;
+  if (!arr.length && !cars.length) { list.innerHTML = `<div class="empty">${online ? "Nobody is connected." : "Waiting for the game server…"}</div>`; return; }
   list.innerHTML = arr.map(({ info: p }) => {
     const col = colorOf(p.id);
     let state;
@@ -386,7 +394,11 @@ function renderList() {
     return `<div class="card${selected === p.id ? " sel" : ""}" data-id="${p.id}">
       <div class="top"><span class="swatch" data-col="${col}"></span><span class="name">${esc(p.name)}</span><span class="rank">RANK ${p.rank}</span></div>
       <div class="state">${state}</div>${rows}</div>`;
-  }).join("");
+  }).join("") + cars.map((c) => `<div class="card free${selected === c.id ? " sel" : ""}" data-id="${c.id}">
+      <div class="top"><span class="swatch" data-col="${c.kind === 7 ? "#ff5a5a" : "#ffd23c"}"></span><span class="name">${esc(c.driver || "Free drive")}</span><span class="rank">${c.kind === 7 ? "RC BANDITO" : "KNOWAY"}</span></div>
+      <div class="state"><span class="live">Free drive</span> · ${esc(c.cam)} · ${c.g.left} s left</div>
+      <dl class="rows"><dt>Position</dt><dd>${c.g.x.toFixed(0)}, ${c.g.y.toFixed(0)}, ${c.g.z.toFixed(0)}</dd>
+        <dt>Heading</dt><dd>${c.g.h}° ${COMPASS[Math.round(c.g.h / 45) % 8]}</dd></dl></div>`).join("");
   // CSP forbids inline style attributes: widths and colours are set through the DOM
   for (const el of list.querySelectorAll("[data-w]")) el.style.width = Math.max(0, Math.min(100, +el.dataset.w)) + "%";
   for (const el of list.querySelectorAll("[data-col]")) el.style.background = el.dataset.col;
@@ -406,6 +418,9 @@ $("list").addEventListener("pointerdown", (ev) => {
     const e = players.get(id);
     if (e?.info.playing && view.s < 0.35) { view.s = 0.6; baseDirty = true; }
     if (e?.info.playing && is3d && view3d) view3d.focus(e.info.x, e.info.y, e.info.z, 350);
+    const car = freeCars.get(id);   // a free driver (2026-11-18): the map goes to the car
+    if (car && view.s < 0.35) { view.s = 0.6; baseDirty = true; }
+    if (car && is3d && view3d) view3d.focus(car.g.x, car.g.y, car.g.z, 350);
   }
   listDirty = true;
 });
@@ -521,7 +536,7 @@ function frame(now) {
     const dx = mine.drawn.x - view.cx, dy = mine.drawn.y - view.cy;
     if (Math.abs(dx) * view.s > 0.5 || Math.abs(dy) * view.s > 0.5) { view.cx += dx * 0.25; view.cy += dy * 0.25; baseDirty = true; }
   } else if (follow != null) {
-    const e = players.get(follow);
+    const e = players.get(follow) ?? gadgets.get(`${follow}:0`);   // a player, or a free driver's car (2026-11-18)
     if (e?.drawn) {
       const dx = e.drawn.x - view.cx, dy = e.drawn.y - view.cy;
       if (Math.abs(dx) * view.s > 0.5 || Math.abs(dy) * view.s > 0.5) { view.cx += dx * 0.2; view.cy += dy * 0.2; baseDirty = true; }

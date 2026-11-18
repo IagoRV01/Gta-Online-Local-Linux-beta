@@ -502,6 +502,15 @@ day, 30 s cooldown) in the Hacks box, under "Free drive".
   CAM_001 Legion Square), drove at up to 25 m/s with turns and reverse, and hit a bus stop; the video followed it. An
   RC Bandito drove and went off on the action button ("free drive: the RC Bandito went off"), then the video went back
   to CAM_001.
+- **The cameras on a free driver (2026-11-18).** Each free car is listed under the players as its driver (the backend
+  adds `driver` to `cameras[]` from its drives) and can be picked as the target of every camera mode: follow, third,
+  chase, heli, drone, cinematic, hack. The command is `camera <who> <mode> <camera netId> [driver]`; the server takes a
+  camera client with a fresh free car as a target and labels the shot `HELI Alex's KNOWAY`. The camera client that has
+  the car frames its own car, and another camera frames the copy it gets through `GadgetRelay`. An RC car's shots are
+  closer (x0.45). A new free car gets the automatic chase shot until GodEye picks a shot. When the car is gone, the
+  server puts every camera that was on it back on its shot from before (`camBeforeFree`).
+  Verified 01:07: a free Knoway in automatic chase, then heli, follow and cinematic on it, then back to CAM_001 by
+  itself ("the free-driving car is gone: back to CAM_001 Legion Square"). The list card was checked in the page.
   - **Verified in game 2026-11-17** (test server, the BC-250 in the Del Perro Heights apartment, the camera on the PC,
     driven through the admin API exactly as the backend does; every stick accepted):
     - Drone: driven at once, circled and climbed as steered, the action zapped, the AI took it back when the stick

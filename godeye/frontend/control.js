@@ -232,8 +232,9 @@ function updateCooldowns() {
     b.textContent = left > 0 ? `${b.dataset.label} · ${left}s` : b.dataset.label + (price ? ` ◈${price}` : "");
     b.title = typeof needsHack === "function" && needsHack(b.dataset.act, b.dataset.value) ? "Needs a hack first" : "";
   }
-  const p = selected != null ? players.get(selected)?.info : null;
-  $("targetName").textContent = p ? (p.playing ? p.name : `${p.name} (story mode)`) : "pick a player on the list";
+  const p = selected != null ? players.get(selected)?.info : null, car = selected != null ? freeCars.get(selected) : null;
+  $("targetName").textContent = car ? `${car.driver || "free drive"}'s ${car.kind === 7 ? "RC Bandito" : "Knoway"}`
+    : p ? (p.playing ? p.name : `${p.name} (story mode)`) : "pick a player on the list";
 }
 setInterval(updateCooldowns, 500);
 
@@ -257,7 +258,8 @@ function onCameras(cams, cctv) {
 const camTarget = () => ($("camPick").value === "all" ? "all" : Number($("camPick").value));
 for (const b of document.querySelectorAll("[data-cam]")) {
   b.addEventListener("click", () => {
-    if (selected == null || !players.get(selected)?.info.playing) { toast("Pick a player who is in the world first.", true); return; }
+    // a player in the world, or a free driver's car (2026-11-18)
+    if (selected == null || !(players.get(selected)?.info.playing || freeCars.has(selected))) { toast("Pick a player (or a free driver) first.", true); return; }
     act({ action: "camera", camera: camTarget(), value: b.dataset.cam, target: selected });
   });
 }
@@ -275,7 +277,7 @@ function onGodEyeEvent(e) {
 }
 function describe(e) {
   const [verb, a, ...rest] = e.line.split(" ");
-  const name = (id) => players.get(Number(id))?.info.name ?? `player ${id}`;
+  const name = (id) => players.get(Number(id))?.info.name ?? (freeCars.has(Number(id)) ? `${freeCars.get(Number(id)).driver || "a free driver"}'s car` : `player ${id}`);
   switch (verb) {
     case "wanted": return `set ${name(a)}'s wanted level ${rest[0]}`;
     case "alert": return `sent a police alert to ${name(a)}`;

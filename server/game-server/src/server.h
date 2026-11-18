@@ -76,6 +76,8 @@ private:
         uint32_t lastSeq = 0;
         bool camera = false;              // v13: a camera client (no character, unseen by the players)
         proto::CameraSetMsg cam;          // what it shows now
+        proto::CameraSetMsg camBeforeFree;   // 2026-11-18: the shot before it was put on a free-driving car (back when the car is gone)
+        bool onFree = false;              // its shot follows a free-driving car (a camera client's own car)
         bool haveState = false;
         proto::PlayerStateMsg state;
         std::vector<proto::GadgetPose> gadgets;   // 2026-11-17: GodEye's hacks on this player, as its game reports them

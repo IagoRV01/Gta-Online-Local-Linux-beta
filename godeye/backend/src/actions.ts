@@ -56,7 +56,9 @@ export function cleanText(s: unknown): string {
 
 // The server command for a request, or an error message. `playing(id)` says whether that player is in the world.
 // `camera(id)` says whether that camera client is connected (free driving).
-export function toCommand(r: ActionRequest, playing: (id: number) => boolean, camera: (id: number) => boolean = () => false): { line?: string; error?: string } {
+// `freeCar(id)`: a free-driving car in that camera client's GTA: its driver's name ("" unknown), else null (2026-11-18).
+export function toCommand(r: ActionRequest, playing: (id: number) => boolean, camera: (id: number) => boolean = () => false,
+                          freeCar: (id: number) => string | null = () => null): { line?: string; error?: string } {
   const def = ACTIONS[r.action];
   if (!def) return { error: "unknown action" };
   let target = "";
@@ -111,6 +113,8 @@ export function toCommand(r: ActionRequest, playing: (id: number) => boolean, ca
         return /^[A-Za-z0-9_]{1,15}$/.test(id) ? { line: `camera ${cam} cctv ${id}` } : { error: "camera: unknown CCTV camera" };
       }
       const id = Number(r.target);
+      const car = Number.isInteger(id) ? freeCar(id) : null;   // the cameras follow free drivers too (2026-11-18)
+      if (car !== null) return { line: `camera ${cam} ${mode} ${id}${car.replace(/[^A-Za-z0-9_-]/g, "") ? " " + car.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24) : ""}` };
       if (!Number.isInteger(id) || !playing(id)) return { error: "that player is not in the world" };
       return { line: `camera ${cam} ${mode} ${id}` };
     }

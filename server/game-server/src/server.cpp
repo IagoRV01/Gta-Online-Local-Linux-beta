@@ -298,6 +298,15 @@ void Server::OnPacket(ENetPeer *peer, const uint8_t *data, size_t size, uint8_t 
             GadgetStateMsg m;
             if (!Get(r, m)) return malformed("GadgetState");
             if (!c.authed) return;   // a camera client too (2026-11-17): its free-driving car
+            if (c.camera && m.g.empty() && !c.gadgets.empty())   // its free car is gone: the cameras on it go back (2026-11-18)
+                for (auto &kv : clients_) {
+                    Client &o = kv.second;
+                    if (!o.authed || !o.camera || !o.onFree || o.cam.target != c.netId) continue;
+                    o.cam = o.camBeforeFree.label.empty() ? DefaultCamera() : o.camBeforeFree;
+                    o.onFree = false;
+                    SendCamera(o);
+                    LOGI("camera", o.name.c_str(), "the free-driving car is gone: back to %s", o.cam.label.c_str());
+                }
             c.gadgets = m.g;
             c.gadgetsMs = now;
             GadgetRelayMsg relay;
@@ -850,8 +859,9 @@ void Server::SendCamera(Client &c) {
 
 // "camera <camera netId|all> cctv CAM_001" | "camera <id|all> follow|heli|drone|cinematic|third|chase <player netId>"
 bool Server::CameraCommand(const std::string &line) {
-    char who[16] = {0}, mode[16] = {0}, arg[32] = {0};
-    if (std::sscanf(line.c_str(), "%*s %15s %15s %31s", who, mode, arg) < 3) return false;
+    char who[16] = {0}, mode[16] = {0}, arg[32] = {0}, driver[32] = {0};
+    if (std::sscanf(line.c_str(), "%*s %15s %15s %31s %31s", who, mode, arg, driver) < 3) return false;
+    bool free = false;
     CameraSetMsg m;
     std::string md = mode;
     int mi = -1;
@@ -865,17 +875,27 @@ bool Server::CameraCommand(const std::string &line) {
         m.cameraId = k->id; m.pos = k->pos; m.rot = k->rot; m.fov = k->fov; m.label = k->id + " " + k->name;
     } else {
         Client *t = ByNetId((uint16_t)std::atoi(arg));
-        if (!t || t->camera || !t->haveState) return false;   // a player in the world
+        // a player in the world, or (2026-11-18) a camera client's free-driving car: "camera all chase 2 Alex", the
+        // last word the name of whoever drives it (GodEye knows it, the game server does not)
+        free = t && t->camera && !t->gadgets.empty() && NowMs() - t->gadgetsMs < 1500;
+        if (!t || (!free && (t->camera || !t->haveState))) return false;
         m.target = t->netId;
         m.fov = m.mode == kCamHeli ? 40.f : m.mode == kCamCinematic ? 35.f : m.mode == kCamGadget ? 65.f : 55.f;
         std::string up = m.mode == kCamGadget ? std::string("hack") : md;
         for (auto &ch : up) ch = (char)toupper((unsigned char)ch);
         m.label = up + " " + t->name;
+        if (free) {
+            std::string who2;
+            for (const char *p = driver; *p; ++p) if (std::isalnum((unsigned char)*p) || *p == '_' || *p == '-') who2 += *p;
+            m.label = up + " " + (who2.empty() ? std::string("FREE DRIVE") : who2 + "'s") + (t->gadgets[0].kind == kGeRcBomb ? " RC BANDITO" : " KNOWAY");
+        }
     }
     bool all = std::string(who) == "all", any = false;
     for (auto &kv : clients_) {
         Client &c = kv.second;
         if (!c.authed || !c.camera || (!all && c.netId != (uint16_t)std::atoi(who))) continue;
+        if (free && !c.onFree) c.camBeforeFree = c.cam;   // where it goes back to when the car is gone
+        c.onFree = free;
         c.cam = m;
         SendCamera(c);
         any = true;

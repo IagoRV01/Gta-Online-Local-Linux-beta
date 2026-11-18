@@ -29,7 +29,12 @@ Vec3 g_lastTarget;
 float g_lastHeading = 0;
 int g_interior = 0;                 // the interior the target is in (2026-11-17), 0 outside
 int g_nextRoom = 0;
-int g_freeKind = 0;                 // 2026-11-17: the free-driving car this camera follows (godeye::FreeCar), 0 none
+int g_freeKind = 0;                 // 2026-11-17: the free-driving car in this camera's GTA (godeye::FreeCar), 0 none
+// 2026-11-18: a new free car gets an automatic chase shot until GodEye picks a shot (any CameraSet after it came out);
+// GodEye can also aim any camera's modes at a free car, its own (target = our netId) or another camera's (a ghost)
+int g_carSince = 0, g_camSetMs = 0;
+bool g_autoChase = false;
+uint16_t g_self = 0;
 
 // ---- GodEye's hacks (2026-11-17): the hacked player's game reports its drone / RC car / taxis ~10 a second; the camera
 // draws a copy of each (frozen, no collision) gliding between the reports, so the video can show them and follow them
@@ -172,9 +177,12 @@ bool Desired(Vec3 &pos, Vec3 &look, float &fov, int now) {
     float fh = 0;
     int fk = 0;
     bool free = godeye::FreeCar(fc, fh, fk);
-    if (free != (g_freeKind != 0)) g_snap = true;   // a cut to the car and back to the shot GodEye had
+    if (free && !g_freeKind) g_carSince = now;
     g_freeKind = free ? fk : 0;
-    if (free) {   // free driving (2026-11-17): a chase shot behind the car while it lasts, whatever the mode
+    bool autoChase = free && g_carSince >= g_camSetMs;
+    if (autoChase != g_autoChase) g_snap = true;   // a cut to the car and back to the shot GodEye had
+    g_autoChase = autoChase;
+    if (autoChase) {   // free driving (2026-11-17): a chase shot behind the car until GodEye picks a shot
         Vec3 f = Fwd(fh), up{0, 0, 1};
         float back = fk == kGeRcBomb ? 3.6f : 7.5f, high = fk == kGeRcBomb ? 1.3f : 2.6f;
         pos = Add(Add(fc, Mul(f, -back)), Mul(up, high));
@@ -205,9 +213,12 @@ bool Desired(Vec3 &pos, Vec3 &look, float &fov, int now) {
     int ped = remote::PedOfNetId(g_cam.target), veh = remote::VehOfNetId(g_cam.target);
     Vec3 t = g_lastTarget;
     float h = g_lastHeading;
-    bool inVeh = false;
+    bool inVeh = false, small = false;
+    const Ghost *gh = nullptr;
     if (veh && ped && gta::InVehicle(ped)) { t = gta::Pos(veh); h = gta::Heading(veh); inVeh = true; }
     else if (ped) { t = gta::Pos(ped); h = gta::Heading(ped); }
+    else if (g_cam.target == g_self && free) { t = fc; h = fh; inVeh = true; small = fk == kGeRcBomb; }   // our own free car
+    else if ((gh = GhostOf(g_cam.target)) != nullptr) { t = GhostPos(*gh, now, &h); inVeh = true; small = gh->kind == kGeRcBomb; }   // another camera's
     else if (g_lastTarget.x == 0 && g_lastTarget.y == 0) return false;   // not seen yet
     g_lastTarget = t;
     g_lastHeading = h;
@@ -236,6 +247,7 @@ bool Desired(Vec3 &pos, Vec3 &look, float &fov, int now) {
             look = Add(Add(t, Mul(f, 6.f)), Mul(up, 1.2f));
             break;
         case kCamChase:
+        case kCamGadget:   // on a free car (2026-11-18): the hack camera is a chase shot
             pos = Add(Add(t, Mul(f, inVeh ? -11.f : -7.f)), Mul(up, inVeh ? 2.6f : 2.f));
             look = Add(Add(t, Mul(f, inVeh ? 8.f : 3.f)), Mul(up, 1.f));
             break;
@@ -263,6 +275,7 @@ bool Desired(Vec3 &pos, Vec3 &look, float &fov, int now) {
         }
         default: return false;
     }
+    if (small && g_cam.mode != kCamHeli) pos = Add(t, Mul(Vec3{pos.x - t.x, pos.y - t.y, pos.z - t.z}, 0.45f));   // an RC car is tiny
     return true;
 }
 
@@ -273,7 +286,7 @@ void Overlay(int now) {
     std::snprintf(clock, sizeof clock, "%02d:%02d", hh, mm);
     gta::Rect(0.13f, 0.93f, 0.24f, 0.05f, gta::Color{0, 0, 0, 140});
     if ((now / 600) % 2) gta::Text("~r~REC", 0.012f, 0.912f, 0.32f, gta::kWhite, 1, 4);
-    std::string label = g_freeKind == kGeRcBomb ? "GODEYE · RC BANDITO" : g_freeKind ? "GODEYE · KNOWAY" : g_cam.label;
+    std::string label = !g_autoChase ? g_cam.label : g_freeKind == kGeRcBomb ? "GODEYE · RC BANDITO" : "GODEYE · KNOWAY";
     gta::Text(label + "   " + clock, 0.045f, 0.912f, 0.38f, gta::kWhite, 1, 4);
 }
 
@@ -286,6 +299,7 @@ void OnCameraSet(const CameraSetMsg &m) {
     g_cam = m;
     g_haveCam = true;
     if (newShot) { g_snap = true; g_modeSince = gta::GameTimeMs(); g_lastTarget = {}; }
+    g_camSetMs = gta::GameTimeMs();   // GodEye picked a shot: a free car's automatic chase ends
     LOGI("camera", "-", "now showing %s (%s)", m.label.c_str(), kCameraModeNames[m.mode <= kCamGadget ? m.mode : 0]);
 }
 
@@ -329,6 +343,7 @@ void Run(const Settings &s) {
             if (r.ok) {
                 if (!r.newToken.empty()) { std::ofstream(s.tokenFile) << r.newToken; LOGI("camera", s.name.c_str(), "camera account created; token stored"); }
                 remote::SetSelf(r.netId);
+                g_self = r.netId;
             } else LOGW("camera", s.name.c_str(), "offline: %s", r.error.c_str());
         }
         int me = gta::PlayerPed();
@@ -346,10 +361,10 @@ void Run(const Settings &s) {
 
         Vec3 pos, look;
         float fov = 55.f;
-        if ((g_haveCam || g_freeKind) && Desired(pos, look, fov, now)) {
+        if (g_haveCam && Desired(pos, look, fov, now)) {
             if (g_snap || Len(Vec3{pos.x - g_pos.x, pos.y - g_pos.y, pos.z - g_pos.z}) > 200.f) { g_pos = pos; g_look = look; g_snap = false; }
             else {
-                float k = g_freeKind ? 0.3f : g_cam.mode == kCamCctv || g_cam.mode == kCamFree ? 1.f : g_cam.mode == kCamGadget ? 0.25f : 0.12f;   // follow modes glide
+                float k = g_autoChase ? 0.3f : g_cam.mode == kCamCctv || g_cam.mode == kCamFree ? 1.f : g_cam.mode == kCamGadget ? 0.25f : 0.12f;   // follow modes glide
                 g_pos = Lerp(g_pos, pos, k);
                 g_look = Lerp(g_look, look, k * 1.5f > 1.f ? 1.f : k * 1.5f);
             }
