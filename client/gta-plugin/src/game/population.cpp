@@ -14,6 +14,7 @@
 #include "engine/shv.h"
 #include "game/net_client.h"
 #include "game/remote.h"
+#include "game/session.h"
 
 // v16 (2026-11-18): every NPC and vehicle has one owner game, as in GTA Online (rage's network objects: an owner that
 // runs it, clones on the other machines, proximity migration). See population.h and docs/multiplayer.md.
@@ -426,6 +427,9 @@ void DropOwnedEntity(int h, bool ped) {   // one of ours goes (a new one in a pe
 void HandOver();
 void StreamTrains(std::vector<PopEntity> &out, const gta::Vec3 &at);   // v17 trains
 unsigned g_trainsStreamed = 0, g_trainsUnknown = 0, g_copsSent = 0;
+unsigned g_ndLogged = 0;   // NPC damage lines logged in this 30 s window
+int g_respawns = -1;                 // session::RespawnCount() as last seen
+unsigned long long g_respawnAt = 0;  // when we last came back from death (no NPC damage from the others for 3 s)
 
 // ---------------------------------------------------------------- the stream
 void Stream() {
@@ -570,7 +574,7 @@ void Stream() {
              g_handedIn, g_culled, g_culledPeds, (int)g_zones.size());
         if (g_trainsStreamed || g_trainsUnknown) LOGI("pop", "-", "trains: %u engine states streamed, %u of an unknown config", g_trainsStreamed, g_trainsUnknown);
         if (g_copsSent) LOGI("pop", "-", "wanted players: %u police sent after them", g_copsSent);
-        g_trainsStreamed = g_trainsUnknown = g_copsSent = 0;
+        g_trainsStreamed = g_trainsUnknown = g_copsSent = g_ndLogged = 0;
         g_srcNew = g_srcBack = g_culledPeds = g_culled = g_offered = g_handedOut = g_handedIn = 0;
     }
 }
@@ -1542,6 +1546,7 @@ void Shared() {   // a player of a group: our part of the world is ours, the pee
     for (auto &kv : g_npcDmg) {
         if (kv.second <= 0 || now - g_npcDmgAt[kv.first] < 140) continue;
         SendMsg(kv.first, kMsgNpcDamage, std::to_string(kv.second) + "|0");
+        if (g_ndLogged < 25) { ++g_ndLogged; LOGI("pop", remote::NameOf(kv.first).c_str(), "our NPCs hit their player for %d: sent to their game", kv.second); }
         g_npcDmgAt[kv.first] = now;
         kv.second = 0;
     }
@@ -1755,14 +1760,21 @@ void OnPlayerMessage(uint16_t from, const std::string &kind, const std::string &
         if (sscanf(text.c_str(), "%d|%u", &amount, &w) < 1) return;
         int me = gta::PlayerPed();
         if (gta::Dead(me)) return;
+        // just back on our feet: what their NPCs did to our puppet before it caught up with us (it can still stand
+        // where we died for a moment there) is not ours to take; GTA Online gives a few seconds of spawn protection too
+        if (g_respawnAt && Now() - g_respawnAt < 3000) { LOGI("pop", remote::NameOf(from).c_str(), "their NPCs' %d damage ignored: we have just respawned", amount); return; }
         amount = std::clamp(amount, 0, 150);
+        int before = gta::Health(me) + N<int>(N_GET_PED_ARMOUR, me);
         N(N_APPLY_DAMAGE_TO_PED, me, amount, 0, 0, w);
-        LOGD("pop", remote::NameOf(from).c_str(), "their NPCs hit us for %d", amount);
+        int after = gta::Health(me) + N<int>(N_GET_PED_ARMOUR, me);
+        if (g_ndLogged < 25) { ++g_ndLogged; LOGI("pop", remote::NameOf(from).c_str(), "their NPCs hit us for %d: health + armour %d -> %d", amount, before, after); }
     }
 }
 
 void Frame() {
     if (!net::Connected()) { if (g_mode != kPopOwn) Clear(); return; }
+    int rc = session::RespawnCount();
+    if (rc != g_respawns) { if (g_respawns >= 0) g_respawnAt = Now(); g_respawns = rc; }
     Groups();
     if (g_mode == kPopShared) Shared();
     else if (g_mode == kPopViewer) View();
