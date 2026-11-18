@@ -39,6 +39,11 @@ No Rockstar servers, no Internet and no third-party accounts: everything lives o
 - The **server** doesn't need GTA. It runs on any Windows PC on the network, including one of those that play.
 - Everyone sees the others, their cars and their clothes. The server keeps the money, the profiles and the job
   payouts.
+- **The same world for everyone, like GTA Online:** pedestrians, traffic, police and trains are shared between the
+  players who are near each other. Every NPC and vehicle has one owner game (the one whose player it is nearest to),
+  and it is handed over to another player's game when that player gets clearly nearer, without popping. A mission's
+  and a survival's enemies are the host's for the whole crew, the police of every game chase any wanted player, and
+  NPCs copy cover, crouching, reloading, climbing and getting into cars.
 - Up to 8 players (configurable).
 
 ## What's included
@@ -47,13 +52,13 @@ No Rockstar servers, no Internet and no third-party accounts: everything lives o
 |---|---|
 | `LocalOnline.asi` | *Story Mode / Local Online* start screen, freemode character creator, player and vehicle sync, server-checked PvP, Maze Bank, the Online HUD, garage, co-op jobs. Menu: **F10**. |
 | `GoriOnline.asi` | Online's interaction menu (**M**, or hold *Back/Select* on a controller): properties and businesses, heists, contact missions, races (and a race creator), deathmatch, Survival, The First Dose / The Last Dose and the Acid Lab, LS Customs, Ammu-Nation, special vehicles, yacht, casino, the Online Internet and phone. |
-| `LocalOnlineServer.exe` | The authoritative server: accounts, characters, an economy with anti-cheat limits, jobs, races, deathmatch, Survival, shared time and weather. |
+| `LocalOnlineServer.exe` | The authoritative server: accounts, characters, an economy with anti-cheat limits, jobs, races, deathmatch, Survival, shared time and weather, and the groups of players that share their NPCs, traffic and trains. |
 | `netprobe.exe` | A test client without GTA, to check that the network reaches the server. |
 | `godeye/` | **GodEye**, the web app for watching and playing from a browser (below). |
 
 **Known limits:**
-- NPCs aren't synced between players: in Survival and in missions everyone fights their own enemies, at the same
-  time and in the same place.
+- Each player's wanted level is their own game's (as in Online); melee moves and ladder climbing of other games' NPCs
+  are not copied.
 - It only works with GTA V Legacy **1.0.3889**, not with GTA V Enhanced.
 - Online's jobs are recreations, not Rockstar's originals.
 

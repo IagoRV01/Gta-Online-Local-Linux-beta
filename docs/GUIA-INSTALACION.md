@@ -68,7 +68,7 @@ texto. Calcula unos 30 minutos la primera vez.
    - Para quitar la regla más adelante: `Remove-NetFirewallRule -DisplayName 'GTA Local Online (UDP)'`
 4. **Arranca el servidor:** doble clic en `start-server.bat`. Debe aparecer algo así:
    ```
-   INFO  [net] listening on UDP 0.0.0.0:4499, tick 20 Hz, max 8 players, protocol v13
+   INFO  [net] listening on UDP 0.0.0.0:4499, tick 20 Hz, max 8 players, protocol v17
    ```
    La primera vez Windows puede preguntar si permites el acceso a la red: acepta para **redes privadas**.
    Deja la ventana abierta mientras jugáis (cerrarla apaga el servidor).

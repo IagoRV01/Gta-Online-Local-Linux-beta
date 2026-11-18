@@ -37,6 +37,11 @@ Sin servidores de Rockstar, sin Internet y sin cuentas de terceros: todo vive en
   los que juegan).
 - Cada jugador ve a los demás, sus coches y su ropa; el dinero, los perfiles y los pagos de los trabajos
   los guarda el servidor.
+- **El mismo mundo para todos, como en GTA Online:** peatones, tráfico, policía y trenes son compartidos entre
+  los jugadores que están cerca. Cada NPC y cada vehículo tiene un juego dueño (el del jugador que lo tiene más
+  cerca) y pasa al juego de otro jugador cuando este queda claramente más cerca, sin desaparecer. Los enemigos de
+  una misión o de un Survival son los del anfitrión para todo el equipo, la policía de cualquier juego persigue a
+  cualquier jugador buscado, y los NPC copian ponerse a cubierto, agacharse, recargar, trepar o subir a coches.
 - Hasta 8 jugadores (configurable).
 
 ## Qué incluye
@@ -45,11 +50,11 @@ Sin servidores de Rockstar, sin Internet y sin cuentas de terceros: todo vive en
 |---|---|
 | `LocalOnline.asi` | Pantalla de inicio *Story Mode / Local Online*, creador de personaje freemode, sincronización de jugadores y vehículos, PvP validado por el servidor, banco Maze Bank, HUD de Online, garaje, trabajos cooperativos. Menú: **F10**. |
 | `GoriOnline.asi` | Menú de interacción de Online (**M**, o mantener *Back/Select* en el mando): propiedades y negocios, golpes, misiones de contacto, carreras (y creador de carreras), deathmatch, Survival, The First Dose / The Last Dose y el Acid Lab, LS Customs, Ammu-Nation, vehículos especiales, yate, casino, Internet y teléfono de Online. |
-| `LocalOnlineServer.exe` | Servidor autoritativo: cuentas, personajes, economía con límites anti-trampas, trabajos, carreras, deathmatch, Survival, hora y clima compartidos. |
+| `LocalOnlineServer.exe` | Servidor autoritativo: cuentas, personajes, economía con límites anti-trampas, trabajos, carreras, deathmatch, Survival, hora y clima compartidos, y los grupos de jugadores que comparten NPC, tráfico y trenes. |
 | `netprobe.exe` | Cliente de prueba sin GTA para comprobar que la red llega al servidor. |
 
-**Limitaciones conocidas:** los NPC no se sincronizan entre jugadores (en Survival y en las misiones
-cada uno lucha contra sus propios enemigos, a la vez y en el mismo sitio); solo funciona con la versión
+**Limitaciones conocidas:** el nivel de búsqueda es del juego de cada jugador (como en Online), y de los NPC de
+otros juegos no se copian los golpes cuerpo a cuerpo ni subir escaleras de mano; solo funciona con la versión
 **1.0.3889** de GTA V Legacy (no con GTA V Enhanced); los trabajos de Online son recreaciones, no los
 originales de Rockstar.
 
