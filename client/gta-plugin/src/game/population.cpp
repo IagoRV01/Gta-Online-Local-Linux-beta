@@ -425,8 +425,24 @@ void DropOwnedEntity(int h, bool ped) {   // one of ours goes (a new one in a pe
     Delete(x, ped);
 }
 void HandOver();
+bool PupHolds(uint32_t model, bool ped, const gta::Vec3 &at);   // a peer's puppet of that model already stands there
+unsigned g_heldSpots = 0;   // new ones of ours removed because a peer's copy already held that spot
 void StreamTrains(std::vector<PopEntity> &out, const gta::Vec3 &at);   // v17 trains
 unsigned g_trainsStreamed = 0, g_trainsUnknown = 0, g_copsSent = 0;
+// Sync check (2026-11-19): how far the puppets are from where their owner's stream puts them (at the drawing time),
+// and whether anything is drawn twice. Logged every 30 s as "check: ...".
+struct ErrStat {
+    double sum = 0; float max = 0; unsigned n = 0, over = 0; float overAt = 3.f;
+    void Add(float e) { sum += e; ++n; if (e > max) max = e; if (e > overAt) ++over; }
+    std::string Text() const {
+        char b[96];
+        if (!n) return "-";
+        snprintf(b, sizeof b, "avg %.2f m, max %.1f m, %.1f%% over %.0f m", sum / n, max, 100.0 * over / n, overAt);
+        return b;
+    }
+};
+ErrStat g_errPedWalk, g_errPedStill, g_errVeh, g_errVehParked, g_errTrain{0, 0, 0, 0, 10.f};
+unsigned g_dupOurs = 0, g_dupPups = 0, g_dupChecks = 0, g_dedup = 0;
 unsigned g_ndLogged = 0;   // NPC damage lines logged in this 30 s window
 int g_respawns = -1;                 // session::RespawnCount() as last seen
 unsigned long long g_respawnAt = 0;  // when we last came back from death (no NPC damage from the others for 3 s)
@@ -463,6 +479,9 @@ void Stream() {
         if (peers && !s.streamed && !Mission(v) && !PoliceVehicle(v)) {   // GTA put it in a peer's part of the world: theirs fills it
             float dp = 0; NearestPeer(s.pos, dp);
             if (dp < kCullRatio * kCullRatio * d && !NB(N<int>(N_IS_ENTITY_ON_SCREEN, v))) { cull.push_back(v); continue; }
+            // a parking spot a peer's car already holds (GTA's car generators fill the same spots in every game): like
+            // Online, a spot a clone holds is not filled again
+            if (PupHolds(s.model, false, s.pos)) { cull.push_back(v); ++g_heldSpots; continue; }
         }
         if (d < r * r) vehs.push_back({v, d});
     }
@@ -485,6 +504,7 @@ void Stream() {
         if (peers && !s.streamed && !Mission(p) && !PolicePed(p)) {
             float dp = 0; NearestPeer(s.pos, dp);
             if (dp < kCullRatio * kCullRatio * d && !NB(N<int>(N_IS_ENTITY_ON_SCREEN, p))) { cull.push_back(p); continue; }
+            if (PupHolds(s.model, true, s.pos)) { cull.push_back(p); ++g_heldSpots; continue; }   // a scenario point a peer's ped holds
         }
         if (d < r * r) peds.push_back({p, d});
     }
@@ -570,11 +590,12 @@ void Stream() {
         g_lastStat = now;
         LOGI("pop", "-", "owner for %u game(s)%s: streaming %d peds, %d vehicles; %u new ids in 30 s (%u found again), %d tracked, our share %.0f%%", g_viewers,
              host ? " (mission host)" : "", g_sentPeds, g_sentVehs, g_srcNew, g_srcBack, (int)g_src.size(), g_share * 100.f);
-        LOGI("pop", "-", "hand-over: %u offered, %u handed to peers, %u taken from peers; %u new ones in a peer's part removed (%u peds) (%d no-spawn zone(s))", g_offered, g_handedOut,
-             g_handedIn, g_culled, g_culledPeds, (int)g_zones.size());
+        LOGI("pop", "-", "hand-over: %u offered, %u handed to peers, %u taken from peers; %u new ones in a peer's part removed (%u peds, %u on a spot a peer's copy holds) (%d no-spawn zone(s))", g_offered,
+             g_handedOut, g_handedIn, g_culled, g_culledPeds, g_heldSpots, (int)g_zones.size());
         if (g_trainsStreamed || g_trainsUnknown) LOGI("pop", "-", "trains: %u engine states streamed, %u of an unknown config", g_trainsStreamed, g_trainsUnknown);
         if (g_copsSent) LOGI("pop", "-", "wanted players: %u police sent after them", g_copsSent);
         g_trainsStreamed = g_trainsUnknown = g_copsSent = g_ndLogged = 0;
+        g_heldSpots = 0;
         g_srcNew = g_srcBack = g_culledPeds = g_culled = g_offered = g_handedOut = g_handedIn = 0;
     }
 }
@@ -1412,6 +1433,7 @@ void TrainsFrame() {
         NVec3 f = N<NVec3>(N_GET_ENTITY_FORWARD_VECTOR, t.h);
         float ex = r.s.pos.x - cur.x, ey = r.s.pos.y - cur.y, ez = r.s.pos.z - cur.z;
         float err = std::sqrt(ex * ex + ey * ey + ez * ez);
+        g_errTrain.Add(err);
         if (err > 15.f) { N(N_SET_MISSION_TRAIN_COORDS, t.h, r.s.pos.x, r.s.pos.y, r.s.pos.z); ++g_trainSnaps; }
         float along = ex * f.x + ey * f.y + ez * f.z;
         float speed = t.last.speed + std::clamp(along * 0.6f, -5.f, 5.f);
@@ -1480,8 +1502,82 @@ void DrawPuppets() {
             }
             if (veh) { ReportVehicle(key, p); DriveVehicle(p, r); }
             else { ReportPed(key, p); HostileBlip(p); DrivePed(key, p, r); }
+            if (p.h && gta::Exists(p.h) && !r.stale && !gta::Dead(p.h) && !(p.last.flags & kPopDead) && Now() >= p.holdUntil) {
+                gta::Vec3 at = gta::Pos(p.h);
+                float ex = at.x - r.s.pos.x, ey = at.y - r.s.pos.y, ez = at.z - r.s.pos.z;
+                float e = std::sqrt(ex * ex + ey * ey + ez * ez);
+                float spd = std::sqrt(r.s.vel.x * r.s.vel.x + r.s.vel.y * r.s.vel.y);
+                if (veh) (spd > 0.5f ? g_errVeh : g_errVehParked).Add(e);
+                else if (!(p.last.flags & (kPopInVehicle | kPopRagdoll | kPopEntering))) (spd > 0.3f ? g_errPedWalk : g_errPedStill).Add(e);
+            }
             ++it;
         }
+}
+
+bool PupHolds(uint32_t model, bool ped, const gta::Vec3 &at) {
+    float lim = ped ? 1.2f : 2.5f;
+    for (auto &kv : g_pups) {
+        const Pup &p = kv.second;
+        if (!p.h || p.last.model != model || (p.last.kind == kPopPed) != ped || (p.last.flags & kPopDead)) continue;
+        if (Dist2(gta::Pos(p.h), at) < lim * lim) return true;
+    }
+    return false;
+}
+
+unsigned long long g_lastDupCheck = 0;
+void DuplicateCheck() {
+    unsigned long long now = Now();
+    if (now - g_lastDupCheck < 2000 || g_pups.empty()) return;
+    g_lastDupCheck = now;
+    ++g_dupChecks;
+    std::vector<std::pair<int, bool>> ours;   // our own real peds and vehicles (not puppets, not players)
+    int np = AllPeds(), nv = AllVehicles();
+    int me = gta::PlayerPed(), myVeh = gta::InVehicle(me) ? N<int>(N_GET_VEHICLE_PED_IS_IN, me, 0) : 0, myLast = N<int>(N_GET_PLAYERS_LAST_VEHICLE);
+    for (int i = 0; i < np; ++i) { int e = g_peds[i]; if (gta::Exists(e) && !g_pupOf.count(e) && !Reserved(e) && !remote::IsPuppetEntity(e) && !NB(N<int>(N_IS_PED_A_PLAYER, e)) && !gta::Dead(e)) ours.push_back({e, true}); }
+    for (int i = 0; i < nv; ++i) { int e = g_vehs[i]; if (gta::Exists(e) && !g_pupOf.count(e) && !Reserved(e) && !remote::IsPuppetEntity(e) && !g_trainCars.count(e) && !Train(e) && e != myVeh && e != myLast) ours.push_back({e, false}); }
+    uint16_t self = net::SelfNetId();
+    std::set<int> gone;
+    std::vector<std::pair<uint32_t, const Pup *>> drawn;
+    for (auto &kv : g_pups) if (kv.second.h && gta::Exists(kv.second.h) && !(kv.second.last.flags & kPopDead)) drawn.push_back({kv.first, &kv.second});
+    for (size_t i = 0; i < drawn.size(); ++i) {
+        const Pup &p = *drawn[i].second;
+        bool ped = p.last.kind == kPopPed;
+        if (ped && gta::InVehicle(p.h)) continue;
+        gta::Vec3 at = gta::Pos(p.h);
+        float lim = ped ? 1.2f : 2.5f;
+        uint32_t model = gta::ModelOf(p.h);
+        for (auto &o : ours) {
+            if (o.second != ped || gone.count(o.first) || gta::ModelOf(o.first) != model) continue;
+            if (ped && gta::InVehicle(o.first)) continue;
+            if (Dist2(gta::Pos(o.first), at) < lim * lim) {
+                // GTA put the same thing on the same spot in both games (a scenario point, a parking spot): like Online,
+                // where a point a clone already holds is not filled again, the game with the higher netId lets its own go
+                // (the other one's copy stands right there, so nothing is seen to vanish)
+                uint16_t owner = OwnerOf(drawn[i].first);
+                bool mine = !Mission(o.first) && (!ped || !PolicePed(o.first));
+                std::vector<int> occ;
+                if (!ped && !AmbientOccupants(o.first, occ)) mine = false;
+                if (!ped && !occ.empty()) mine = false;
+                bool dropped = false;
+                if (g_mode == kPopShared && mine && self > owner) { DropOwnedEntity(o.first, ped); gone.insert(o.first); ++g_dedup; dropped = true; }
+                else ++g_dupOurs;
+                if (g_dupOurs + g_dedup <= 5) LOGI("pop", remote::NameOf(owner).c_str(), "check: their %s %u drawn on one of ours of the same model (%.0f %.0f %.0f)%s", ped ? "ped" : "vehicle",
+                                                    IdOfKey(drawn[i].first), at.x, at.y, at.z, dropped ? ": ours removed" : self < owner ? ": theirs goes on their game" : "");
+                break;
+            }
+        }
+        for (size_t k = i + 1; k < drawn.size(); ++k) {
+            const Pup &q = *drawn[k].second;
+            if (q.last.kind != p.last.kind || gta::ModelOf(q.h) != model || (ped && gta::InVehicle(q.h))) continue;
+            // two of the owner's own standing side by side are both streamed; a duplicate is one that went quiet
+            if (now - p.seenAt < 400 && now - q.seenAt < 400) continue;
+            if (Dist2(gta::Pos(q.h), at) < lim * lim) {
+                ++g_dupPups;
+                if (g_dupPups <= 5) LOGI("pop", "-", "check: two puppets of the same model on one spot: %s's %u and %s's %u (%.0f %.0f %.0f)", remote::NameOf(OwnerOf(drawn[i].first)).c_str(),
+                                         IdOfKey(drawn[i].first), remote::NameOf(OwnerOf(drawn[k].first)).c_str(), IdOfKey(drawn[k].first), at.x, at.y, at.z);
+            }
+        }
+    }
 }
 
 void ViewStats() {
@@ -1507,6 +1603,13 @@ void ViewStats() {
         LOGI("pop", "-", "trains: %d of %d drawn (%u spawned, %u put back on their place), %u of our own removed", drawn, (int)g_trainPups.size(), g_trainSpawned, g_trainSnaps, g_ownTrainsRemoved);
         g_trainSpawned = g_trainSnaps = g_ownTrainsRemoved = 0;
     }
+    LOGI("pop", "-", "check: peds walking %s; peds standing %s; vehicles moving %s; parked %s", g_errPedWalk.Text().c_str(), g_errPedStill.Text().c_str(),
+         g_errVeh.Text().c_str(), g_errVehParked.Text().c_str());
+    LOGI("pop", "-", "check: trains %s; duplicates in %u checks: %u of ours under a puppet (+%u of ours removed for one), %u puppet pairs", g_errTrain.Text().c_str(), g_dupChecks,
+         g_dupOurs, g_dedup, g_dupPups);
+    g_errPedWalk = g_errPedStill = g_errVeh = g_errVehParked = ErrStat{};
+    g_errTrain = ErrStat{0, 0, 0, 0, 10.f};
+    g_dupOurs = g_dupPups = g_dupChecks = g_dedup = 0;
     g_newIds = g_relays = g_adopted = g_rekeyed = 0;
 }
 
@@ -1538,6 +1641,7 @@ void Shared() {   // a player of a group: our part of the world is ours, the pee
     Stream();
     TakeCars();
     DrawPuppets();
+    DuplicateCheck();
     TrainsFrame();
     CopsOnWanted();
     FlushEvents();
